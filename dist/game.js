@@ -4071,6 +4071,68 @@
     return dl;
   }
 
+  // src/maps.ts
+  var MAP_POOL = [
+    { seed: 5, name: "Landfall Plateau", blurb: "Where the colony began. Even ground, fair fields \u2014 a good first fight." },
+    { seed: 468, name: "The Glass Sea", blurb: "The richest crystal on Vitrea. Economy wins here; so does greed." },
+    { seed: 592, name: "Dry Wells", blurb: "Barely any crystal. Every field is worth fighting for." },
+    { seed: 491, name: "The Shatterline", blurb: "A maze of cliffs and narrow passes. Hold the chokepoints." },
+    { seed: 8, name: "Ashfall Flats", blurb: "Wide open sand, nowhere to hide. Fast raids and big armies." },
+    { seed: 265, name: "Iron Mesa", blurb: "Mostly bare rock: room to build, little to mine." },
+    { seed: 33, name: "Thousand Veins", blurb: "Small fields everywhere. Spread out and keep your harvesters busy." },
+    { seed: 343, name: "Broken Teeth", blurb: "Scarce crystal behind jagged cliffs. A slow, hard war." }
+  ];
+  var mapName = (seed) => MAP_POOL.find((m) => m.seed === seed)?.name ?? `Map #${seed}`;
+  function mapTraits(m) {
+    let crystal = 0;
+    let rock = 0;
+    let cliff = 0;
+    const n = m.w * m.h;
+    for (let i = 0; i < n; i++) {
+      crystal += m.spice[i];
+      if (m.terrain[i] === Terrain.Rock) rock++;
+      else if (m.terrain[i] === Terrain.Cliff) cliff++;
+    }
+    return { crystal: Math.round(crystal / 1e3), rock: Math.round(rock / n * 100), cliff: Math.round(cliff / n * 100), fields: m.fields.length };
+  }
+  function describeTraits(t) {
+    const crystal = t.crystal >= 200 ? "Rich crystal" : t.crystal <= 140 ? "Scarce crystal" : "Fair crystal";
+    const cliffs = t.cliff >= 11 ? "Many cliffs" : t.cliff <= 1 ? "No cliffs" : "Some cliffs";
+    const ground = t.rock >= 38 ? "Rocky" : t.rock <= 17 ? "Open sand" : "Mixed ground";
+    return [crystal, `${t.fields} fields`, cliffs, ground];
+  }
+  function previewPixels(m) {
+    const out = new Uint8ClampedArray(m.w * m.h * 4);
+    const COLOURS = {
+      [Terrain.Sand]: [158, 145, 124],
+      [Terrain.Rock]: [96, 90, 82],
+      [Terrain.Cliff]: [46, 43, 40]
+    };
+    for (let i = 0; i < m.w * m.h; i++) {
+      let [r, g, b] = COLOURS[m.terrain[i]] ?? COLOURS[Terrain.Sand];
+      const s = m.spice[i];
+      if (s > 0) {
+        const k = Math.min(1, 0.45 + s / 900);
+        r += (111 - r) * k;
+        g += (227 - g) * k;
+        b += (240 - b) * k;
+      }
+      out.set([r, g, b, 255], i * 4);
+    }
+    const mark = (p, colour) => {
+      for (let y = p.y - 1; y <= p.y + 3; y++) {
+        for (let x = p.x - 1; x <= p.x + 3; x++) {
+          if (x < 0 || y < 0 || x >= m.w || y >= m.h) continue;
+          const edge = x === p.x - 1 || y === p.y - 1 || x === p.x + 3 || y === p.y + 3;
+          out.set(edge ? [20, 18, 16, 255] : [...colour, 255], (y * m.w + x) * 4);
+        }
+      }
+    };
+    mark(m.start, [47, 111, 176]);
+    mark(m.enemyStart, [192, 57, 43]);
+    return out;
+  }
+
   // src/music.ts
   var BPM = 96;
   var EIGHTH = 60 / BPM / 2;
@@ -12663,7 +12725,64 @@
     menu.hidden = false;
     const wrap2 = menu.querySelector(".wrap");
     stopTitle = startTitleBackground(el("menu-bg"), () => wrap2?.getBoundingClientRect() ?? null);
-    el("menu-random").addEventListener("click", () => seed.value = String(randomSeed()));
+    const paintMap = (canvas, n) => {
+      const m = generateMap(n);
+      canvas.width = m.w;
+      canvas.height = m.h;
+      canvas.getContext("2d").putImageData(new ImageData(previewPixels(m), m.w, m.h), 0, 0);
+      return m;
+    };
+    const picker = el("map-picker");
+    const info = el("map-info");
+    const cards = MAP_POOL.map((p) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "map-card";
+      card.title = `${p.name} \u2014 ${p.blurb}`;
+      card.setAttribute("role", "option");
+      const c = document.createElement("canvas");
+      paintMap(c, p.seed);
+      const name = document.createElement("span");
+      name.textContent = p.name;
+      card.append(c, name);
+      card.addEventListener("click", () => {
+        seed.value = String(p.seed);
+        showMap();
+      });
+      picker.append(card);
+      return { card, seed: p.seed };
+    });
+    const infoCanvas = document.createElement("canvas");
+    const showMap = () => {
+      const n = Math.floor(Number(seed.value));
+      if (!(n >= 1 && n <= 99999)) return;
+      for (const c of cards) {
+        c.card.classList.toggle("selected", c.seed === n);
+        c.card.setAttribute("aria-selected", String(c.seed === n));
+      }
+      const m = paintMap(infoCanvas, n);
+      const named = MAP_POOL.find((p) => p.seed === n);
+      const text = document.createElement("div");
+      const title = document.createElement("b");
+      title.textContent = mapName(n);
+      const blurb = document.createElement("p");
+      blurb.textContent = named?.blurb ?? "A map made from this number. Every number is a different map.";
+      const traits = document.createElement("div");
+      traits.className = "traits";
+      for (const t of describeTraits(mapTraits(m))) {
+        const s = document.createElement("span");
+        s.textContent = t;
+        traits.append(s);
+      }
+      text.append(title, blurb, traits);
+      info.replaceChildren(infoCanvas, text);
+    };
+    seed.addEventListener("input", showMap);
+    showMap();
+    el("menu-random").addEventListener("click", () => {
+      seed.value = String(randomSeed());
+      showMap();
+    });
     el("menu-bench").addEventListener("click", () => navigate("bench=1"));
     el("menu-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -12983,7 +13102,8 @@
     if (mission) document.title = `${mission.title.replace(/^\d+\. /, "")} \u2014 Vitrea`;
     el("difficulty").textContent = online ? "Online" : LEVEL_LABELS[difficulty];
     el("factions").textContent = `${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label}`;
-    el("map-seed").textContent = `#${seed}`;
+    el("map-seed").textContent = mapName(seed).replace(/^Map /, "");
+    el("map-seed").title = `Map ${seed}`;
     let paused = false;
     let speed = settings.speed;
     const speedLabel = el("speed");
