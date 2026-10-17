@@ -10476,7 +10476,9 @@
 
   // src/titlebg.ts
   var STORM_PERIOD = 70;
-  function startTitleBackground(canvas) {
+  var SWAY_PERIOD = 46;
+  var MIN_OPEN = 260;
+  function startTitleBackground(canvas, menuBox) {
     const ctx = canvas.getContext("2d");
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     let w = 0;
@@ -10485,6 +10487,7 @@
     let shards = [];
     let glints = [];
     let running = true;
+    let scale = 1;
     let raf = 0;
     const t0 = performance.now();
     const paintScenery = () => {
@@ -10541,15 +10544,15 @@
       for (let k = 0; k < clusters; k++) {
         const cx = (k + 0.3 + rnd() * 0.4) * (w / clusters);
         const cy = h * (0.82 + rnd() * 0.14);
-        const scale = (0.6 + rnd() * 0.8) * Math.min(1.4, h / 800);
-        const glow = c.createRadialGradient(cx, cy, 0, cx, cy, 70 * scale);
+        const scale2 = (0.6 + rnd() * 0.8) * Math.min(1.4, h / 800);
+        const glow = c.createRadialGradient(cx, cy, 0, cx, cy, 70 * scale2);
         glow.addColorStop(0, "rgba(111, 227, 240, 0.22)");
         glow.addColorStop(1, "rgba(111, 227, 240, 0)");
         c.fillStyle = glow;
-        c.fillRect(cx - 80 * scale, cy - 80 * scale, 160 * scale, 160 * scale);
+        c.fillRect(cx - 80 * scale2, cy - 80 * scale2, 160 * scale2, 160 * scale2);
         for (let i = 0; i < 7; i++) {
-          const x = cx + (rnd() - 0.5) * 50 * scale;
-          const tall = (14 + rnd() * 30) * scale;
+          const x = cx + (rnd() - 0.5) * 50 * scale2;
+          const tall = (14 + rnd() * 30) * scale2;
           const lean = (rnd() - 0.5) * 0.7;
           const half = tall * 0.22;
           const g = c.createLinearGradient(x, cy - tall, x, cy);
@@ -10571,7 +10574,7 @@
       scenery = s;
     };
     const resize = () => {
-      const scale = Math.min(1.5, window.devicePixelRatio || 1);
+      scale = Math.min(1.5, window.devicePixelRatio || 1);
       w = Math.max(1, Math.round(window.innerWidth * scale));
       h = Math.max(1, Math.round(window.innerHeight * scale));
       canvas.width = w;
@@ -10587,12 +10590,20 @@
       }));
       if (still) draw(STORM_PERIOD * 0.55, 0);
     };
-    const stormX = (t) => t % STORM_PERIOD / STORM_PERIOD * (w + w * 0.9) - w * 0.45;
+    const stormPlace = (t) => {
+      const box = menuBox?.();
+      const right = box ? box.right * scale : w;
+      const open = w - right;
+      if (box && open >= MIN_OPEN * scale) {
+        const sway = Math.sin(t / SWAY_PERIOD * Math.PI * 2);
+        return { x: right + open * (0.62 + sway * 0.3), width: Math.max(open * 1.05, 240 * scale) };
+      }
+      return { x: t % STORM_PERIOD / STORM_PERIOD * (w + w * 0.9) - w * 0.45, width: Math.max(w * 0.38, 420) };
+    };
     const draw = (t, dt) => {
       if (scenery) ctx.drawImage(scenery, 0, 0);
       const horizon = h * 0.6;
-      const sx = stormX(t);
-      const sw = Math.max(w * 0.38, 420);
+      const { x: sx, width: sw } = stormPlace(t);
       const column = ctx.createLinearGradient(sx - sw * 0.6, 0, sx + sw * 0.6, 0);
       column.addColorStop(0, "rgba(60, 52, 44, 0)");
       column.addColorStop(0.3, "rgba(60, 52, 44, 0.55)");
@@ -10777,7 +10788,8 @@
       return { ...settings, seed: Number(seed.value) || settings.seed, hazards: storms.checked, fog: fog.checked, faction, speed: speed.value, edgeScroll: edge.checked };
     });
     menu.hidden = false;
-    stopTitle = startTitleBackground(el("menu-bg"));
+    const wrap2 = menu.querySelector(".wrap");
+    stopTitle = startTitleBackground(el("menu-bg"), () => wrap2?.getBoundingClientRect() ?? null);
     el("menu-random").addEventListener("click", () => seed.value = String(randomSeed()));
     el("menu-form").addEventListener("submit", (e) => {
       e.preventDefault();
