@@ -10474,7 +10474,226 @@
     }
   };
 
+  // src/titlebg.ts
+  var STORM_PERIOD = 70;
+  function startTitleBackground(canvas) {
+    const ctx = canvas.getContext("2d");
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    let w = 0;
+    let h = 0;
+    let scenery = null;
+    let shards = [];
+    let glints = [];
+    let running = true;
+    let raf = 0;
+    const t0 = performance.now();
+    const paintScenery = () => {
+      const rnd = mulberry32(1337);
+      const s = document.createElement("canvas");
+      s.width = w;
+      s.height = h;
+      const c = s.getContext("2d");
+      const horizon = h * 0.6;
+      const sky = c.createLinearGradient(0, 0, 0, horizon);
+      sky.addColorStop(0, "#110f0d");
+      sky.addColorStop(0.55, "#2a241e");
+      sky.addColorStop(1, "#5a4c3b");
+      c.fillStyle = sky;
+      c.fillRect(0, 0, w, horizon);
+      const ground = c.createLinearGradient(0, horizon, 0, h);
+      ground.addColorStop(0, "#3d352c");
+      ground.addColorStop(1, "#1a1714");
+      c.fillStyle = ground;
+      c.fillRect(0, horizon, w, h - horizon);
+      const range = (base, height, colour, count2) => {
+        c.fillStyle = colour;
+        c.beginPath();
+        c.moveTo(0, base);
+        let x = 0;
+        while (x < w) {
+          const gap = w / count2 * (0.4 + rnd());
+          const top = base - height * (0.35 + rnd() * 0.65);
+          const width = w / count2 * (0.5 + rnd() * 0.9);
+          c.lineTo(x + gap * 0.3, base);
+          c.lineTo(x + gap * 0.45, top);
+          c.lineTo(x + gap * 0.45 + width, top + rnd() * 6);
+          c.lineTo(x + gap * 0.6 + width, base);
+          x += gap + width;
+        }
+        c.lineTo(w, base);
+        c.closePath();
+        c.fill();
+      };
+      range(horizon + 2, h * 0.16, "rgba(58, 50, 42, 0.9)", 6);
+      range(horizon + 6, h * 0.1, "rgba(38, 33, 28, 0.95)", 9);
+      c.strokeStyle = "rgba(255, 235, 200, 0.03)";
+      c.lineWidth = 1;
+      for (let i = 0; i < 70; i++) {
+        const y = horizon + 12 + rnd() * (h - horizon);
+        const x = rnd() * w;
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + 60 + rnd() * 180, y + 2);
+        c.stroke();
+      }
+      glints = [];
+      const clusters = Math.max(4, Math.round(w / 260));
+      for (let k = 0; k < clusters; k++) {
+        const cx = (k + 0.3 + rnd() * 0.4) * (w / clusters);
+        const cy = h * (0.82 + rnd() * 0.14);
+        const scale = (0.6 + rnd() * 0.8) * Math.min(1.4, h / 800);
+        const glow = c.createRadialGradient(cx, cy, 0, cx, cy, 70 * scale);
+        glow.addColorStop(0, "rgba(111, 227, 240, 0.22)");
+        glow.addColorStop(1, "rgba(111, 227, 240, 0)");
+        c.fillStyle = glow;
+        c.fillRect(cx - 80 * scale, cy - 80 * scale, 160 * scale, 160 * scale);
+        for (let i = 0; i < 7; i++) {
+          const x = cx + (rnd() - 0.5) * 50 * scale;
+          const tall = (14 + rnd() * 30) * scale;
+          const lean = (rnd() - 0.5) * 0.7;
+          const half = tall * 0.22;
+          const g = c.createLinearGradient(x, cy - tall, x, cy);
+          g.addColorStop(0, "#effcff");
+          g.addColorStop(0.45, "#6fe3f0");
+          g.addColorStop(1, "#1c5a63");
+          c.fillStyle = g;
+          c.beginPath();
+          c.moveTo(x + lean * tall, cy - tall);
+          c.lineTo(x + half, cy - tall * 0.4);
+          c.lineTo(x + half * 0.5, cy);
+          c.lineTo(x - half * 0.5, cy);
+          c.lineTo(x - half, cy - tall * 0.4);
+          c.closePath();
+          c.fill();
+          glints.push({ x: x + lean * tall, y: cy - tall, size: 1.5 + rnd() * 2.5, phase: rnd() * 6.28, rate: 0.6 + rnd() * 1.6 });
+        }
+      }
+      scenery = s;
+    };
+    const resize = () => {
+      const scale = Math.min(1.5, window.devicePixelRatio || 1);
+      w = Math.max(1, Math.round(window.innerWidth * scale));
+      h = Math.max(1, Math.round(window.innerHeight * scale));
+      canvas.width = w;
+      canvas.height = h;
+      paintScenery();
+      const rnd = mulberry32(99);
+      shards = Array.from({ length: Math.round(w * h / 9e3) }, () => ({
+        x: rnd() * w,
+        y: rnd() * h,
+        len: 4 + rnd() * 14,
+        speed: 120 + rnd() * 380,
+        alpha: 0.15 + rnd() * 0.5
+      }));
+      if (still) draw(STORM_PERIOD * 0.55, 0);
+    };
+    const stormX = (t) => t % STORM_PERIOD / STORM_PERIOD * (w + w * 0.9) - w * 0.45;
+    const draw = (t, dt) => {
+      if (scenery) ctx.drawImage(scenery, 0, 0);
+      const horizon = h * 0.6;
+      const sx = stormX(t);
+      const sw = Math.max(w * 0.38, 420);
+      const column = ctx.createLinearGradient(sx - sw * 0.6, 0, sx + sw * 0.6, 0);
+      column.addColorStop(0, "rgba(60, 52, 44, 0)");
+      column.addColorStop(0.3, "rgba(60, 52, 44, 0.55)");
+      column.addColorStop(0.7, "rgba(60, 52, 44, 0.55)");
+      column.addColorStop(1, "rgba(60, 52, 44, 0)");
+      ctx.fillStyle = column;
+      ctx.fillRect(sx - sw * 0.6, horizon - h * 0.5, sw * 1.2, h * 0.54);
+      for (let i = 0; i < 26; i++) {
+        const a = i * 1.7 + t * (0.16 + i % 3 * 0.05);
+        const x = sx + Math.cos(a) * sw * 0.34 + (i - 13) * sw * 0.035;
+        const y = horizon - h * 0.12 + Math.sin(a * 1.3) * h * 0.06 - i % 6 * h * 0.07;
+        const r = sw * (0.2 + i % 5 * 0.05);
+        const lit = i % 6 >= 4;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, lit ? "rgba(176, 156, 126, 0.55)" : "rgba(98, 86, 72, 0.6)");
+        g.addColorStop(0.55, lit ? "rgba(140, 124, 102, 0.25)" : "rgba(80, 70, 58, 0.3)");
+        g.addColorStop(1, "rgba(80, 70, 58, 0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      const flare = Math.max(0, Math.sin(t * 0.9) * Math.sin(t * 2.3 + 1)) ** 3;
+      const core = ctx.createRadialGradient(sx, horizon - h * 0.2, 0, sx, horizon - h * 0.2, sw * 0.55);
+      core.addColorStop(0, `rgba(160, 240, 250, ${0.16 + flare * 0.45})`);
+      core.addColorStop(1, "rgba(111, 227, 240, 0)");
+      ctx.fillStyle = core;
+      ctx.fillRect(sx - sw, horizon - h * 0.2 - sw, sw * 2, sw * 2);
+      const haze = ctx.createLinearGradient(0, horizon - h * 0.05, 0, horizon + h * 0.12);
+      haze.addColorStop(0, "rgba(120, 105, 85, 0)");
+      haze.addColorStop(0.5, "rgba(120, 105, 85, 0.18)");
+      haze.addColorStop(1, "rgba(120, 105, 85, 0)");
+      ctx.fillStyle = haze;
+      ctx.fillRect(sx - sw * 1.2, horizon - h * 0.05, sw * 2.6, h * 0.17);
+      ctx.lineCap = "round";
+      for (const s of shards) {
+        s.x += s.speed * dt;
+        s.y += s.speed * 0.18 * dt;
+        if (s.x > w + 20) {
+          s.x = -20;
+          s.y = Math.random() * h;
+        }
+        if (s.y > h + 20) s.y = -20;
+        const near = Math.max(0, 1 - Math.abs(s.x - sx) / (sw * 1.1));
+        const a = s.alpha * (0.15 + near * 0.85);
+        if (a < 0.03) continue;
+        ctx.strokeStyle = near > 0.5 && s.len > 12 ? `rgba(170, 240, 250, ${a})` : `rgba(225, 210, 185, ${a * 0.8})`;
+        ctx.lineWidth = s.len > 12 ? 1.6 : 1;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.len, s.y - s.len * 0.18);
+        ctx.stroke();
+      }
+      for (const gl of glints) {
+        const tw = Math.max(0, Math.sin(t * gl.rate + gl.phase)) ** 6;
+        if (tw < 0.05) continue;
+        ctx.fillStyle = `rgba(235, 252, 255, ${tw})`;
+        ctx.beginPath();
+        ctx.moveTo(gl.x, gl.y - gl.size * 3);
+        ctx.lineTo(gl.x + gl.size * 0.6, gl.y);
+        ctx.lineTo(gl.x, gl.y + gl.size * 3);
+        ctx.lineTo(gl.x - gl.size * 0.6, gl.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(gl.x - gl.size * 3, gl.y);
+        ctx.lineTo(gl.x, gl.y + gl.size * 0.6);
+        ctx.lineTo(gl.x + gl.size * 3, gl.y);
+        ctx.lineTo(gl.x, gl.y - gl.size * 0.6);
+        ctx.closePath();
+        ctx.fill();
+      }
+      const side = ctx.createLinearGradient(0, 0, w * 0.6, 0);
+      side.addColorStop(0, "rgba(12, 10, 8, 0.55)");
+      side.addColorStop(1, "rgba(12, 10, 8, 0)");
+      ctx.fillStyle = side;
+      ctx.fillRect(0, 0, w * 0.6, h);
+      const vignette = ctx.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.35, w / 2, h * 0.45, Math.max(w, h) * 0.75);
+      vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+      vignette.addColorStop(1, "rgba(0, 0, 0, 0.55)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, w, h);
+    };
+    let last = t0;
+    const frame = (now) => {
+      if (!running) return;
+      const dt = Math.min(0.05, (now - last) / 1e3);
+      last = now;
+      draw((now - t0) / 1e3 + STORM_PERIOD * 0.55, dt);
+      raf = requestAnimationFrame(frame);
+    };
+    window.addEventListener("resize", resize);
+    resize();
+    if (!still) raf = requestAnimationFrame(frame);
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+    };
+  }
+
   // src/main.ts
+  var stopTitle = null;
   var STEP2 = 1 / 60;
   var HARVEST_LABELS = {
     idle: "Idle",
@@ -10558,6 +10777,7 @@
       return { ...settings, seed: Number(seed.value) || settings.seed, hazards: storms.checked, fog: fog.checked, faction, speed: speed.value, edgeScroll: edge.checked };
     });
     menu.hidden = false;
+    stopTitle = startTitleBackground(el("menu-bg"));
     el("menu-random").addEventListener("click", () => seed.value = String(randomSeed()));
     el("menu-form").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -10844,6 +11064,8 @@
   }
   function start(settings, mission, online) {
     el("menu").hidden = true;
+    stopTitle?.();
+    stopTitle = null;
     const sides = online ? { player: online.factions[0], enemy: online.factions[1] } : mission ? { player: mission.faction, enemy: mission.enemyFaction } : resolveFactions(settings, mulberry32(settings.seed * 31 + 7));
     const seed = mission?.seed ?? settings.seed;
     const difficulty = mission?.difficulty ?? settings.difficulty;

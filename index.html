@@ -225,8 +225,10 @@
       color: var(--text);
     }
     #menu[hidden] { display: none; }
+    /* The animated storm backdrop (titlebg.ts) sits behind the menu content. */
+    #menu-bg { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; }
     /* margin: auto centres the menu when it fits and lets it scroll from the top when it doesn't. */
-    #menu .wrap { margin: auto; width: 100%; max-width: 900px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; align-items: start; }
+    #menu .wrap { position: relative; margin: auto; width: 100%; max-width: 900px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; align-items: start; }
     @media (max-width: 720px) { #menu .wrap { grid-template-columns: 1fr; } }
     #menu h1 {
       font-family: var(--stencil); font-weight: 400; font-size: clamp(56px, 10vw, 96px); letter-spacing: 0.08em; line-height: 1; color: #f4ecdd;
@@ -359,6 +361,7 @@
   </div>
 
   <div id="menu" hidden>
+    <canvas id="menu-bg" aria-hidden="true"></canvas>
     <div class="wrap">
       <div>
         <h1>VITREA</h1>
