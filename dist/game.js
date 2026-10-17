@@ -4048,6 +4048,17 @@
       return s;
     }
   };
+  function graphicsInfo() {
+    try {
+      const gl = document.createElement("canvas").getContext("webgl");
+      const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+      const name = gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : "none (WebGL unavailable)";
+      return { name, software: !gl || isSoftwareRenderer(name) };
+    } catch {
+      return { name: "unknown", software: false };
+    }
+  }
+  var isSoftwareRenderer = (name) => /swiftshader|llvmpipe|software|basic render|microsoft basic/i.test(name);
 
   // src/net/commands.ts
   function own(g, owner, ids) {
@@ -4774,28 +4785,38 @@
      * watched. Painted into a tiny one-pixel-per-tile image and scaled up with
      * smoothing, so edges fade over about a tile instead of stepping.
      */
-    drawShroud(ctx, g) {
+    drawShroud(ctx, g, cam) {
       const m = g.map;
       if (!this.fogPixels) {
         this.fogPixels = document.createElement("canvas");
         this.fogPixels.width = m.w;
         this.fogPixels.height = m.h;
+        this.fogImage = this.fogPixels.getContext("2d").createImageData(m.w, m.h);
+        for (let i = 0; i < m.w * m.h; i++) {
+          this.fogImage.data[i * 4] = 12;
+          this.fogImage.data[i * 4 + 1] = 10;
+          this.fogImage.data[i * 4 + 2] = 9;
+        }
       }
-      const fctx = this.fogPixels.getContext("2d");
-      const img = fctx.createImageData(m.w, m.h);
+      const data = this.fogImage.data;
+      let changed = false;
       for (let i = 0; i < m.w * m.h; i++) {
         const alpha = g.fog.visible[i] ? 0 : g.fog.explored[i] ? 128 : 255;
-        img.data[i * 4] = 12;
-        img.data[i * 4 + 1] = 10;
-        img.data[i * 4 + 2] = 9;
-        img.data[i * 4 + 3] = alpha;
+        if (data[i * 4 + 3] !== alpha) {
+          data[i * 4 + 3] = alpha;
+          changed = true;
+        }
       }
-      fctx.putImageData(img, 0, 0);
+      if (changed) this.fogPixels.getContext("2d").putImageData(this.fogImage, 0, 0);
+      const sx = Math.max(0, Math.floor(cam.x / TILE) - 1);
+      const sy = Math.max(0, Math.floor(cam.y / TILE) - 1);
+      const sw = Math.min(m.w - sx, Math.ceil(cam.w / TILE) + 3);
+      const sh = Math.min(m.h - sy, Math.ceil(cam.h / TILE) + 3);
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(this.fogPixels, 0, 0, m.w * TILE, m.h * TILE);
+      ctx.drawImage(this.fogPixels, sx, sy, sw, sh, sx * TILE, sy * TILE, sw * TILE, sh * TILE);
       ctx.imageSmoothingEnabled = false;
     }
+    fogImage = null;
     /** Drop a tread mark behind every vehicle that has rolled far enough since its last one. */
     layTracks(g, seen) {
       if (g.time < this.trackClock) {
@@ -4857,15 +4878,22 @@
       const seen = (u) => u.owner === g.local || visibleAt(g, u.x, u.y);
       this.layTracks(g, seen);
       drawTracks(ctx, this.tracks, g.time, cam);
-      for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
-      for (const b of [...g.buildings].sort((p, q) => p.ty + p.h - (q.ty + q.h))) if (known(b)) drawBuilding(ctx, b, this.sprites);
+      const vx0 = cam.x - 80;
+      const vy0 = cam.y - 80;
+      const vx1 = cam.x + cam.w + 80;
+      const vy1 = cam.y + cam.h + 120;
+      const onScreen = (x, y) => x >= vx0 && x <= vx1 && y >= vy0 && y <= vy1;
+      const buildingOnScreen = (b) => b.tx * TILE < vx1 && (b.tx + b.w) * TILE > vx0 && b.ty * TILE < vy1 && (b.ty + b.h) * TILE > vy0;
+      for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
+      const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
+      for (const b of shown) drawBuilding(ctx, b, this.sprites);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
       if (sel) drawBuildingSelection(ctx, sel);
       if (sel?.rally && sel.owner === g.local) drawRally(ctx, sel);
       for (const b of g.buildings) if (b.repairing && b.owner === g.local) drawRepairing(ctx, b, g.time);
-      for (const u of g.units) if (seen(u)) drawUnit(ctx, u, g.time, this.sprites);
-      for (const u of g.units) {
-        if (!seen(u)) continue;
+      const units = g.units.filter((u) => onScreen(u.x, u.y) && seen(u));
+      for (const u of units) drawUnit(ctx, u, g.time, this.sprites);
+      for (const u of units) {
         if (g.selection.has(u.id)) {
           drawSelection(ctx, u);
           if (u.owner === g.local && u.waypoints.length > 0) drawWaypoints(ctx, u);
@@ -4873,18 +4901,20 @@
         if (u.rank > 0) drawRank(ctx, u);
         if (g.time < u.shieldUntil) drawWard(ctx, u, g.time);
       }
-      for (const b of g.buildings) {
-        if (!known(b)) continue;
+      for (const b of shown) {
         if (b.id !== g.selectedBuilding && (b.hp < BUILDING_STATS[b.kind].maxHp || this.showAllHealth)) {
           drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
         }
       }
-      for (const b of g.buildings) if (known(b)) drawBurning(ctx, b, g.time);
+      for (const b of shown) drawBurning(ctx, b, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
-      for (const p of g.projectiles) drawProjectile(ctx, p);
-      for (const e of g.effects) if (e.kind !== "scorch" && e.kind !== "wreck" && e.kind !== "shake") drawEffect(ctx, e);
+      for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
+      for (const e of g.effects) {
+        if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
+        if (onScreen(e.x, e.y) || onScreen(e.x2, e.y2)) drawEffect(ctx, e);
+      }
       for (const st of g.storms) drawStormShadow(ctx, st);
-      if (g.fog.enabled) this.drawShroud(ctx, g);
+      if (g.fog.enabled) this.drawShroud(ctx, g, cam);
       for (const st of g.storms) drawStorm(ctx, st, g.time);
       for (const mk of g.markers) {
         const t = mk.age / 0.6;
@@ -5242,24 +5272,97 @@
   function drawTracks(ctx, tracks, time, cam) {
     ctx.lineWidth = 2.2;
     ctx.lineCap = "butt";
+    const SHADES = 6;
+    let shade = -1;
     for (const m of tracks) {
-      if (m.x < cam.x - 20 || m.x > cam.x + cam.w + 20 || m.y < cam.y - 20 || m.y > cam.y + cam.h + 20) continue;
       const fade = 1 - (time - m.t) / TRACK_LIFE;
       if (fade <= 0) continue;
+      const s0 = Math.min(SHADES - 1, Math.floor(fade * SHADES));
+      if (s0 !== shade) {
+        if (shade >= 0) ctx.stroke();
+        shade = s0;
+        ctx.strokeStyle = `rgba(36,28,20,${0.28 * (shade + 1) / SHADES})`;
+        ctx.beginPath();
+      }
+      if (m.x < cam.x - 20 || m.x > cam.x + cam.w + 20 || m.y < cam.y - 20 || m.y > cam.y + cam.h + 20) continue;
       const c = Math.cos(m.angle);
       const s = Math.sin(m.angle);
       const hx = c * m.len / 2;
       const hy = s * m.len / 2;
       const ox = -s * m.gauge;
       const oy = c * m.gauge;
-      ctx.strokeStyle = `rgba(36,28,20,${0.28 * fade})`;
-      ctx.beginPath();
       ctx.moveTo(m.x + ox - hx, m.y + oy - hy);
       ctx.lineTo(m.x + ox + hx, m.y + oy + hy);
       ctx.moveTo(m.x - ox - hx, m.y - oy - hy);
       ctx.lineTo(m.x - ox + hx, m.y - oy + hy);
-      ctx.stroke();
     }
+    if (shade >= 0) ctx.stroke();
+  }
+  var GLOWS = /* @__PURE__ */ new Map();
+  function glow(key, w, h, paint) {
+    let c = GLOWS.get(key);
+    if (!c) {
+      c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      paint(c.getContext("2d"));
+      GLOWS.set(key, c);
+    }
+    return c;
+  }
+  function radialGlow(key, stops) {
+    return glow(key, 64, 64, (c) => {
+      const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      for (const [at, color] of stops) g.addColorStop(at, color);
+      c.fillStyle = g;
+      c.fillRect(0, 0, 64, 64);
+    });
+  }
+  var fireGlow = () => radialGlow("fire", [[0, "rgba(255,250,220,1)"], [0.35, "rgba(255,190,70,0.95)"], [0.7, "rgba(220,80,30,0.7)"], [1, "rgba(80,40,20,0)"]]);
+  var scorchGlow = () => radialGlow("scorch", [[0, "rgba(18,14,10,0.55)"], [0.6, "rgba(30,24,18,0.32)"], [1, "rgba(30,24,18,0)"]]);
+  var flameGlow = () => radialGlow("flame", [[0, "rgba(255,240,180,0.9)"], [0.45, "rgba(255,150,40,0.75)"], [1, "rgba(200,60,20,0)"]]);
+  var cloudGlow = (lit) => lit ? radialGlow("cloudLit", [[0, "rgba(176,156,126,0.6)"], [0.6, "rgba(140,124,102,0.3)"], [1, "rgba(70,62,52,0)"]]) : radialGlow("cloudDark", [[0, "rgba(88,78,66,0.66)"], [0.6, "rgba(70,62,52,0.34)"], [1, "rgba(70,62,52,0)"]]);
+  var shardGlow = (color) => radialGlow(`shard${color}`, [[0, color], [1, "rgba(111,227,240,0)"]]);
+  var muzzleGlow = () => glow("muzzle", 48, 32, (c) => {
+    const r = 16;
+    c.translate(8, 16);
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, "rgba(255,250,220,1)");
+    g.addColorStop(0.4, "rgba(255,200,90,0.9)");
+    g.addColorStop(1, "rgba(255,120,40,0)");
+    c.fillStyle = g;
+    c.beginPath();
+    c.moveTo(r * 1.6, 0);
+    c.lineTo(r * 0.3, r * 0.45);
+    c.lineTo(-r * 0.2, 0);
+    c.lineTo(r * 0.3, -r * 0.45);
+    c.closePath();
+    c.fill();
+    c.beginPath();
+    c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+    c.fill();
+  });
+  function drawGlow(ctx, img, x, y, rx, ry, alpha) {
+    if (alpha <= 4e-3 || rx <= 0 || ry <= 0) return;
+    ctx.globalAlpha = Math.min(1, alpha);
+    ctx.drawImage(img, x - rx, y - ry, rx * 2, ry * 2);
+    ctx.globalAlpha = 1;
+  }
+  var WRECK_STRIPS = /* @__PURE__ */ new WeakMap();
+  function wreckStrip(img) {
+    let c = WRECK_STRIPS.get(img);
+    if (!c) {
+      c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const x = c.getContext("2d");
+      x.drawImage(img, 0, 0);
+      x.globalCompositeOperation = "source-atop";
+      x.fillStyle = "rgba(24,20,16,0.8)";
+      x.fillRect(0, 0, c.width, c.height);
+      WRECK_STRIPS.set(img, c);
+    }
+    return c;
   }
   function drawBurning(ctx, b, time) {
     const frac = b.hp / BUILDING_STATS[b.kind].maxHp;
@@ -5284,14 +5387,7 @@
           const flick = 0.6 + 0.4 * Math.sin(time * (13 + f * 4) + seed + f);
           const fx2 = fx + (f - 1) * 4;
           const r = (6 + 3 * f) * flick;
-          const g = ctx.createRadialGradient(fx2, fy, 0, fx2, fy - r * 0.4, r);
-          g.addColorStop(0, "rgba(255,240,180,0.9)");
-          g.addColorStop(0.45, "rgba(255,150,40,0.75)");
-          g.addColorStop(1, "rgba(200,60,20,0)");
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.ellipse(fx2, fy - r * 0.5, r * 0.6, r * 1.1, 0, 0, Math.PI * 2);
-          ctx.fill();
+          drawGlow(ctx, flameGlow(), fx2, fy - r * 0.5, r * 0.6, r * 1.1, 1);
         }
       }
     }
@@ -5301,14 +5397,7 @@
     const fade = t > 0.8 ? (1 - t) / 0.2 : 1;
     if (e.kind === "scorch") {
       const r = 14 * e.size;
-      const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
-      g.addColorStop(0, `rgba(18,14,10,${0.55 * fade})`);
-      g.addColorStop(0.6, `rgba(30,24,18,${0.32 * fade})`);
-      g.addColorStop(1, "rgba(30,24,18,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.ellipse(e.x, e.y, r, r * 0.75, 0, 0, Math.PI * 2);
-      ctx.fill();
+      drawGlow(ctx, scorchGlow(), e.x, e.y, r, r * 0.75, fade);
       return;
     }
     const sheet = e.unit ? UNIT_SPRITES[e.unit] : void 0;
@@ -5316,9 +5405,7 @@
     ctx.save();
     ctx.globalAlpha = 0.9 * fade;
     if (sheet && img) {
-      ctx.filter = "brightness(0.28) saturate(0.25)";
-      drawStrip(ctx, img, sheet, (e.angle ?? 0) + 0.25, e.x, e.y);
-      ctx.filter = "none";
+      drawStrip(ctx, wreckStrip(img), sheet, (e.angle ?? 0) + 0.25, e.x, e.y);
     } else {
       ctx.fillStyle = "#1c1814";
       ctx.beginPath();
@@ -5349,16 +5436,7 @@
       case "fire": {
         const grow = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) * 0.5;
         const r = 16 * e.size * grow;
-        if (r <= 0) break;
-        const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
-        g.addColorStop(0, `rgba(255,250,220,${1 - t})`);
-        g.addColorStop(0.35, `rgba(255,190,70,${0.95 * (1 - t)})`);
-        g.addColorStop(0.7, `rgba(220,80,30,${0.7 * (1 - t)})`);
-        g.addColorStop(1, "rgba(80,40,20,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y - 6 * t * e.size, r, 0, Math.PI * 2);
-        ctx.fill();
+        drawGlow(ctx, fireGlow(), e.x, e.y - 6 * t * e.size, r, r, 1 - t);
         break;
       }
       case "ring": {
@@ -5399,10 +5477,10 @@
           ctx.stroke();
         } else if (e.kind === "shard") {
           const s = 4 * e.size;
-          ctx.globalAlpha = Math.min(1, (1 - t) * 2);
+          const alpha = Math.min(1, (1 - t) * 2);
+          drawGlow(ctx, shardGlow(e.color ?? "#6fe3f0"), 0, 0, s * 1.8, s * 1.8, alpha * 0.5);
+          ctx.globalAlpha = alpha;
           ctx.fillStyle = e.color ?? "#6fe3f0";
-          ctx.shadowColor = e.color ?? "#6fe3f0";
-          ctx.shadowBlur = 6;
           ctx.beginPath();
           ctx.moveTo(0, -s);
           ctx.lineTo(s * 0.4, 0);
@@ -5422,25 +5500,12 @@
         break;
       }
       case "muzzle": {
-        const r = 9 * e.size * (1 - t * 0.5);
+        const k = 9 * e.size * (1 - t * 0.5) / 16;
         ctx.save();
         ctx.translate(e.x, e.y);
         ctx.rotate(e.angle ?? 0);
-        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-        g.addColorStop(0, `rgba(255,250,220,${1 - t})`);
-        g.addColorStop(0.4, `rgba(255,200,90,${0.9 * (1 - t)})`);
-        g.addColorStop(1, "rgba(255,120,40,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.moveTo(r * 1.6, 0);
-        ctx.lineTo(r * 0.3, r * 0.45);
-        ctx.lineTo(-r * 0.2, 0);
-        ctx.lineTo(r * 0.3, -r * 0.45);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = 1 - t;
+        ctx.drawImage(muzzleGlow(), -8 * k, -16 * k, 48 * k, 32 * k);
         ctx.restore();
         break;
       }
@@ -5586,13 +5651,7 @@
       const cx = st.x + Math.cos(a) * d;
       const cy = st.y + Math.sin(a) * d * 0.85;
       const cr = r * (0.35 + i % 5 * 0.07);
-      const lit = i % 6 >= 4;
-      const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      cg.addColorStop(0, lit ? `rgba(176,156,126,${0.6 * fade})` : `rgba(88,78,66,${0.66 * fade})`);
-      cg.addColorStop(0.6, lit ? `rgba(140,124,102,${0.3 * fade})` : `rgba(70,62,52,${0.34 * fade})`);
-      cg.addColorStop(1, "rgba(70,62,52,0)");
-      ctx.fillStyle = cg;
-      ctx.fillRect(cx - cr, cy - cr, cr * 2, cr * 2);
+      drawGlow(ctx, cloudGlow(i % 6 >= 4), cx, cy, cr, cr, fade);
     }
     const flare = Math.max(0, Math.sin(time * 0.9 + st.id) * Math.sin(time * 2.3 + 1)) ** 3;
     const core = ctx.createRadialGradient(st.x, st.y, 0, st.x, st.y, r * 0.8);
@@ -5604,10 +5663,7 @@
     const phase = time * 1.3 + st.id * 0.37 - beat;
     if (!REDUCED_MOTION && phase < 0.12 && beat * 2654435761 % 5 < 2) {
       const a0 = beat * 1.618 % 1 * Math.PI * 2;
-      ctx.strokeStyle = `rgba(210,250,255,${(1 - phase / 0.12) * fade})`;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#6fe3f0";
-      ctx.shadowBlur = 10;
+      const flash = (1 - phase / 0.12) * fade;
       ctx.beginPath();
       let lx = st.x + Math.cos(a0) * r * 0.15;
       let ly = st.y + Math.sin(a0) * r * 0.15;
@@ -5618,8 +5674,12 @@
         ly = st.y + Math.sin(a0 + jitter) * r * (0.15 + k * 0.13);
         ctx.lineTo(lx, ly);
       }
+      ctx.strokeStyle = `rgba(111,227,240,${0.35 * flash})`;
+      ctx.lineWidth = 7;
       ctx.stroke();
-      ctx.shadowBlur = 0;
+      ctx.strokeStyle = `rgba(210,250,255,${flash})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
     const grad = ctx.createRadialGradient(st.x, st.y, r * 0.2, st.x, st.y, r * 1.15);
     grad.addColorStop(0, `rgba(30,45,65,${0.34 * fade})`);
@@ -11422,10 +11482,10 @@
         const cx = (k + 0.3 + rnd() * 0.4) * (w / clusters);
         const cy = h * (0.82 + rnd() * 0.14);
         const scale2 = (0.6 + rnd() * 0.8) * Math.min(1.4, h / 800);
-        const glow = c.createRadialGradient(cx, cy, 0, cx, cy, 70 * scale2);
-        glow.addColorStop(0, "rgba(111, 227, 240, 0.22)");
-        glow.addColorStop(1, "rgba(111, 227, 240, 0)");
-        c.fillStyle = glow;
+        const glow2 = c.createRadialGradient(cx, cy, 0, cx, cy, 70 * scale2);
+        glow2.addColorStop(0, "rgba(111, 227, 240, 0.22)");
+        glow2.addColorStop(1, "rgba(111, 227, 240, 0)");
+        c.fillStyle = glow2;
         c.fillRect(cx - 80 * scale2, cy - 80 * scale2, 160 * scale2, 160 * scale2);
         for (let i = 0; i < 7; i++) {
           const x = cx + (rnd() - 0.5) * 50 * scale2;
@@ -11966,6 +12026,7 @@
     const perfBox = el("perf");
     perfBox.hidden = !(bench || launchQuery().get("perf") === "1" || new URLSearchParams(location.search).get("perf") === "1");
     let perfShownAt = 0;
+    const gpu = graphicsInfo();
     const benchRun = bench ? new Benchmark(game) : null;
     window.perf = perf;
     const controls = el("controls");
@@ -12345,6 +12406,7 @@
           `sim ${s.sim.toFixed(1)} \xB7 draw ${s.draw.toFixed(1)} \xB7 ui ${s.ui.toFixed(1)} ms`,
           `units ${game.units.length} \xB7 fx ${game.effects.length} \xB7 wrecks ${wrecks} \xB7 tracks ${renderer.trackCount}`
         ];
+        if (gpu.software) lines2.push('<span class="perf-warn">Hardware acceleration is OFF</span>');
         if (benchRun && !benchRun.done) lines2.unshift(`BENCHMARK ${Math.ceil(BENCH.seconds - benchRun.elapsed)}s`);
         perfBox.innerHTML = lines2.join("<br>");
       }
@@ -12358,6 +12420,8 @@
         `Per frame: simulation ${s.sim.toFixed(2)} ms \xB7 drawing ${s.draw.toFixed(2)} ms \xB7 panels ${s.ui.toFixed(2)} ms`,
         `${s.frames} frames over ${BENCH.seconds}s \xB7 peak units ${game.units.length} \xB7 effects ${game.effects.length}`,
         `Screen ${innerWidth}\xD7${innerHeight} at ${devicePixelRatio}x \xB7 canvas ${view.width}\xD7${view.height}`,
+        `Graphics: ${gpu.name}`,
+        ...gpu.software ? ["WARNING: this browser is drawing without the graphics card (hardware acceleration is off). Turn it on in the browser settings (System \u2192 Use graphics acceleration) and restart the browser for a big speed-up."] : [],
         navigator.userAgent
       ].join("\n");
       el("bench-text").textContent = text;
