@@ -1317,53 +1317,6 @@
     emit(g, { kind: "announce", line });
   }
 
-  // src/veterancy.ts
-  var RANK_NAMES = ["", "Veteran", "Elite", "Heroic"];
-  var MAX_RANK = 3;
-  var VETERANCY = {
-    /** Damage needed per rank, as a multiple of the unit's cost. */
-    xpPerCost: 1.5,
-    /** Healing counts this many times over (healers don't fight). */
-    healXp: 2,
-    armor: 0.85,
-    cooldown: 0.9,
-    damage: 1.2,
-    sight: 1,
-    /** Heroic units regain this share of max health per second... */
-    regen: 0.015,
-    /** ...once this many seconds have passed since they were last hit. */
-    regenDelay: 4
-  };
-  function xpPerRank(u) {
-    return Math.max(100, UNIT_STATS[u.kind].cost) * VETERANCY.xpPerCost;
-  }
-  var rankArmor = (u) => u.rank >= 1 ? VETERANCY.armor : 1;
-  var rankCooldown = (u) => u.rank >= 1 ? VETERANCY.cooldown : 1;
-  var rankDamage = (u) => u.rank >= 2 ? VETERANCY.damage : 1;
-  var rankSight = (u) => u.rank >= 2 ? VETERANCY.sight : 0;
-  function gainXp(g, u, amount) {
-    if (u.rank >= MAX_RANK || amount <= 0) return;
-    u.xp += amount;
-    const per = xpPerRank(u);
-    while (u.rank < MAX_RANK && u.xp >= per) {
-      u.xp -= per;
-      u.rank++;
-      if (u.owner === g.local) {
-        notify(g, `${UNIT_STATS[u.kind].label} promoted: ${RANK_NAMES[u.rank]}`);
-        emit(g, { kind: "promote", x: u.x, y: u.y });
-        announce(g, "unit_promoted", 3);
-      }
-    }
-    if (u.rank >= MAX_RANK) u.xp = 0;
-  }
-  function updateVeterancy(g, dt) {
-    for (const u of g.units) {
-      if (u.rank < 3 || g.time - u.hitAt < VETERANCY.regenDelay) continue;
-      const max = UNIT_STATS[u.kind].maxHp;
-      u.hp = Math.min(max, u.hp + max * VETERANCY.regen * dt);
-    }
-  }
-
   // src/fog.ts
   function createFog(w, h, enabled) {
     const fog = { enabled, explored: new Uint8Array(w * h), visible: new Uint8Array(w * h), timer: 0 };
@@ -3624,6 +3577,410 @@
     if (movers.length > 0) commandMove(g, movers, { x: tx, y: ty });
   }
 
+  // src/veterancy.ts
+  var RANK_NAMES = ["", "Veteran", "Elite", "Heroic"];
+  var MAX_RANK = 3;
+  var VETERANCY = {
+    /** Damage needed per rank, as a multiple of the unit's cost. */
+    xpPerCost: 1.5,
+    /** Healing counts this many times over (healers don't fight). */
+    healXp: 2,
+    armor: 0.85,
+    cooldown: 0.9,
+    damage: 1.2,
+    sight: 1,
+    /** Heroic units regain this share of max health per second... */
+    regen: 0.015,
+    /** ...once this many seconds have passed since they were last hit. */
+    regenDelay: 4
+  };
+  function xpPerRank(u) {
+    return Math.max(100, UNIT_STATS[u.kind].cost) * VETERANCY.xpPerCost;
+  }
+  var rankArmor = (u) => u.rank >= 1 ? VETERANCY.armor : 1;
+  var rankCooldown = (u) => u.rank >= 1 ? VETERANCY.cooldown : 1;
+  var rankDamage = (u) => u.rank >= 2 ? VETERANCY.damage : 1;
+  var rankSight = (u) => u.rank >= 2 ? VETERANCY.sight : 0;
+  function gainXp(g, u, amount) {
+    if (u.rank >= MAX_RANK || amount <= 0) return;
+    u.xp += amount;
+    const per = xpPerRank(u);
+    while (u.rank < MAX_RANK && u.xp >= per) {
+      u.xp -= per;
+      u.rank++;
+      if (u.owner === g.local) {
+        notify(g, `${UNIT_STATS[u.kind].label} promoted: ${RANK_NAMES[u.rank]}`);
+        emit(g, { kind: "promote", x: u.x, y: u.y });
+        announce(g, "unit_promoted", 3);
+      }
+    }
+    if (u.rank >= MAX_RANK) u.xp = 0;
+  }
+  function updateVeterancy(g, dt) {
+    for (const u of g.units) {
+      if (u.rank < 3 || g.time - u.hitAt < VETERANCY.regenDelay) continue;
+      const max = UNIT_STATS[u.kind].maxHp;
+      u.hp = Math.min(max, u.hp + max * VETERANCY.regen * dt);
+    }
+  }
+
+  // src/idcard.ts
+  var UNIT_DOSSIER = {
+    infantry: { role: "Rifle infantry", bio: "Company security on a contract nobody came back to cancel. They still wear the badge." },
+    rocketInfantry: { role: "Anti-armour infantry", bio: "One tube, three rockets, and the patience to wait for the engine noise." },
+    quad: { role: "Light scout", bio: "Four fat tyres and a machine gun. First out of the gate, first back with the news." },
+    raider: { role: "Fast raider", bio: "Stripped to the frame for speed. Hits the harvesters, gone before the turrets turn." },
+    tank: { role: "Main battle tank", bio: "Pre-storm company stock, kept running on spare parts and stubbornness." },
+    artillery: { role: "Long-range artillery", bio: "Needs radar to see what it's hitting. Doesn't need to see it twice." },
+    harvester: { role: `${RESOURCE_NAME[0].toUpperCase()}${RESOURCE_NAME.slice(1)} harvester`, bio: "The whole war runs on what this slow, ugly machine scoops out of the sand." },
+    glasswalker: { role: "Crystal infantry", bio: "Born after the first storm. They hear the crystal hum and fire with it." },
+    skimmer: { role: "Hover raider", bio: "Rides a cushion of resonance a hand's width above the dunes. Leaves no tracks." },
+    prismTank: { role: "Beam tank", bio: "A grown crystal lens on a salvaged hull, focused into a lance of light." },
+    resonator: { role: "Resonance artillery", bio: "Sings a note the glass in your bones agrees with. Infantry don't get up." },
+    scrapper: { role: "Scrap infantry", bio: "Grew up in the ash wastes stripping wrecks. Now they make them." },
+    junker: { role: "Flame buggy", bio: "A fuel tank, a nozzle and a driver who laughs too much. Mind the smoke." },
+    wrecker: { role: "Scrap tank", bio: "Three dead tanks welded into one live one. The autocannon came off a fourth." },
+    mortarCrawler: { role: "Mobile mortar", bio: "Crawls up behind the line and lobs scrap-packed shells over it." },
+    medic: { role: "Field medic", bio: "Patched up half the colony after the company left. Still carries their kit." },
+    mender: { role: "Crystal mender", bio: "Coaxes the glass to close wounds and seal cracked hulls alike." },
+    mechanic: { role: "Field mechanic", bio: "Can fix anything with a wrench, a hammer and a lot of shouting." },
+    marksman: { role: "Sniper", bio: "Company marksman, top of her class. The class was long ago and far away." },
+    lancer: { role: "Beam sniper", bio: "Threads a single shard of light through a gap no wider than a finger." },
+    deadeye: { role: "Sniper", bio: "Shoots a long gun built from a dozen short ones. Never misses twice." },
+    bastion: { role: "Super-heavy tank", bio: "The Concord's last word in armour: twin cannons and a hull like a bunker." },
+    monolith: { role: "Crystal colossus", bio: "Less a vehicle than a moving shard of the storm, humming as it comes." },
+    titan: { role: "Scrap colossus", bio: "Built from the biggest wreck on the plain. It still flies three old flags." },
+    vance: { role: "Hero \xB7 Commando", bio: "Captain Vance stayed when the company ran. He's been settling the bill since." },
+    seer: { role: "Hero \xB7 Storm prophet", bio: "She walked into the first storm and came out knowing where the next would land." },
+    rook: { role: "Hero \xB7 Clan boss", bio: "Boss Rook rules the biggest scrap clan by being the loudest thing in it." }
+  };
+  var BUILDING_ROLE = {
+    yard: "Builds every other structure. Lose it and the base stops growing.",
+    power: "Keeps the lights on. Run short and everything builds at half speed.",
+    refinery: `Harvesters unload ${RESOURCE_NAME} here; it pays out as credits.`,
+    barracks: "Trains infantry, snipers, healers and heroes.",
+    turret: "Fixed gun covering the approach. Good against vehicles.",
+    lightFactory: "Builds fast, light vehicles.",
+    radar: "Lights up the minimap and unlocks long-range weapons.",
+    heavyFactory: "Builds tanks, artillery and harvesters.",
+    repairPad: "Park damaged vehicles on it to patch them up, for a price.",
+    rocketTurret: "Long-range rocket battery. Outranges most attackers.",
+    techCenter: "Research upgrades; unlocks heroes and super-heavies."
+  };
+  var WEAPON_LABELS = {
+    rifle: "Service rifle",
+    mg: "Machine gun",
+    raiderGun: "Twin SMGs",
+    cannon: "105mm cannon",
+    rocket: "Rocket launcher",
+    artilleryShell: "Howitzer",
+    turretGun: "Turret cannon",
+    turretRocket: "Rocket battery",
+    shardRifle: "Shard rifle",
+    shardRepeater: "Shard repeater",
+    prismBeam: "Prism lance",
+    resonance: "Resonance wave",
+    scattergun: "Scattergun",
+    flamer: "Flamethrower",
+    autocannon: "Autocannon",
+    mortar: "Scrap mortar",
+    marksmanRifle: "Marksman rifle",
+    lancerBeam: "Lancer beam",
+    deadeyeRifle: "Long gun",
+    twinCannon: "Twin cannons",
+    monolithBeam: "Storm beam",
+    vancePistols: "Twin pistols",
+    seerBeam: "Seer's beam",
+    rookCannon: "Hand cannon",
+    scrapCannon: "Scrap cannon"
+  };
+  var ARMOR_LABELS = { infantry: "Infantry", light: "Light armour", heavy: "Heavy armour", building: "Structure" };
+  var SERIAL_PREFIX = { concord: "CON", shardbound: "SHB", reclaimers: "RCL" };
+  var HARVEST_STATUS = {
+    idle: "Idle",
+    toField: "Heading to the field",
+    harvesting: "Harvesting",
+    toRefinery: "Returning to refinery",
+    waitDock: "Waiting to unload",
+    unloading: "Unloading"
+  };
+  var serialOf = (faction, id) => `${SERIAL_PREFIX[faction]}-${String(id).padStart(4, "0")}`;
+  var portraitOf = (kind, team) => `assets/portraits/${kind}_${team}.png`;
+  var fmt = (n) => (Math.round(n * 10) / 10).toString();
+  function unitStatus(g, u) {
+    if (u.kind === "harvester") return `${HARVEST_STATUS[u.harvest]} \xB7 ${Math.floor(u.cargo)}/${HARVESTER.capacity} ${RESOURCE_NAME}`;
+    const hero = HEROES[u.kind];
+    const busy = u.order === "attack" || u.order === "attackMove" || u.targetId !== null ? "Engaging" : u.order === "move" ? "Moving" : "Holding position";
+    if (hero && u.owner === g.local) return `${busy} \xB7 ${hero.ability} ${u.abilityCd > 0 ? `in ${Math.ceil(u.abilityCd)}s` : "ready (Q)"}`;
+    return busy;
+  }
+  function unitCard(g, u) {
+    const s = UNIT_STATS[u.kind];
+    const faction = g.factions[u.owner];
+    const stats = [];
+    if (s.weapon) {
+      const w = weapon(s.weapon);
+      stats.push({ label: "Weapon", value: WEAPON_LABELS[s.weapon] });
+      stats.push({ label: "Damage", value: `${w.damage}${w.splash ? " area" : ""} / ${fmt(w.cooldown)}s` });
+      stats.push({ label: "Range", value: `${fmt(w.range)} tiles` });
+    } else {
+      const healer = HEALERS[u.kind];
+      if (healer) {
+        stats.push({ label: "Heals", value: healer.treats === "all" ? "Everyone" : healer.treats === "vehicles" ? "Vehicles" : "Infantry" });
+        stats.push({ label: "Rate", value: `${fmt(healer.amount / healer.interval)} hp/s` });
+      } else if (u.kind === "harvester") {
+        stats.push({ label: "Carries", value: `${HARVESTER.capacity} ${RESOURCE_NAME}` });
+      }
+    }
+    stats.push({ label: "Speed", value: `${fmt(s.speed)} tiles/s` });
+    stats.push({ label: "Armour", value: ARMOR_LABELS[s.armor] });
+    return {
+      kind: u.kind,
+      name: s.label,
+      faction: FACTIONS[faction].label,
+      serial: serialOf(faction, u.id),
+      role: UNIT_DOSSIER[u.kind].role,
+      bio: UNIT_DOSSIER[u.kind].bio,
+      enemy: u.owner !== g.local,
+      team: u.owner,
+      portrait: portraitOf(u.kind, u.owner),
+      hp: Math.ceil(u.hp),
+      maxHp: s.maxHp,
+      rank: u.rank,
+      rankName: u.rank > 0 ? RANK_NAMES[u.rank] : "Recruit",
+      xp: u.rank >= MAX_RANK ? 1 : Math.min(1, u.xp / xpPerRank(u)),
+      stats,
+      status: u.owner === g.local ? unitStatus(g, u) : "Hostile"
+    };
+  }
+  function buildingCard(g, b) {
+    const s = BUILDING_STATS[b.kind];
+    const faction = g.factions[b.owner];
+    const turret = s.weapon !== null;
+    const stats = [];
+    if (s.weapon) {
+      const w = weapon(s.weapon);
+      stats.push({ label: "Weapon", value: WEAPON_LABELS[s.weapon] });
+      stats.push({ label: "Damage", value: `${w.damage} / ${fmt(w.cooldown)}s` });
+      stats.push({ label: "Range", value: `${fmt(w.range)} tiles` });
+    }
+    if (s.power !== 0) stats.push({ label: "Power", value: s.power > 0 ? `+${s.power}` : `${s.power}` });
+    stats.push({ label: "Size", value: `${s.w} \xD7 ${s.h}` });
+    const enemy = b.owner !== g.local;
+    return {
+      kind: b.kind,
+      name: s.label,
+      faction: FACTIONS[faction].label,
+      serial: serialOf(faction, b.id),
+      role: BUILDING_ROLE[b.kind],
+      enemy,
+      team: b.owner,
+      picture: turret ? portraitOf(b.kind, b.owner) : `assets/buildings/${faction}/${b.kind}_${b.owner}.png`,
+      turret,
+      hp: Math.ceil(b.hp),
+      maxHp: s.maxHp,
+      stats,
+      status: enemy ? "Hostile" : b.repairing ? "Repairing" : b.hp < s.maxHp * 0.25 ? "On fire" : b.hp < s.maxHp * 0.5 ? "Damaged" : "Operational"
+    };
+  }
+  function groupSelection(g, units) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const u of units) {
+      const e = groups.get(u.kind) ?? { count: 0, health: 0, team: u.owner };
+      e.count++;
+      e.health += u.hp / UNIT_STATS[u.kind].maxHp;
+      groups.set(u.kind, e);
+    }
+    return [...groups].map(([kind, e]) => ({ kind, name: UNIT_STATS[kind].label, count: e.count, health: e.health / e.count, portrait: portraitOf(kind, e.team), team: e.team })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }
+
+  // src/infocard.ts
+  var InfoCard = class {
+    el;
+    key = "";
+    /** Live bits of the current card, refreshed every frame. */
+    live = null;
+    constructor(el2) {
+      this.el = el2;
+      const sync = () => document.body.style.setProperty("--card-h", `${this.el.offsetHeight}px`);
+      if (typeof ResizeObserver === "function") new ResizeObserver(sync).observe(el2);
+      sync();
+    }
+    update(g) {
+      const b = g.buildings.find((x) => x.id === g.selectedBuilding);
+      const units = b ? [] : [...g.selection].map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
+      const key = b ? `b${b.id}` : units.length === 1 ? `u${units[0].id}` : units.length > 1 ? `g${groupSelection(g, units).map((e) => `${e.kind}${e.count}`).join()}` : "";
+      if (key !== this.key) {
+        this.key = key;
+        this.el.replaceChildren();
+        this.live = null;
+        this.el.className = "";
+        if (b) this.buildBuilding(g, b.id);
+        else if (units.length === 1) this.buildUnit(g, units[0].id);
+        else if (units.length > 1) this.buildGroup(g, units);
+        this.el.style.display = key ? "block" : "none";
+      }
+      this.live?.();
+    }
+    head(faction, serial, enemy) {
+      const head = div("card-head");
+      head.append(span("card-faction", enemy ? `Hostile \xB7 ${faction}` : faction), span("card-serial", serial));
+      return head;
+    }
+    picture(src, cls, fallback) {
+      const box = div(`card-pic ${cls}`);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.decoding = "async";
+      img.src = src;
+      img.onerror = () => {
+        img.remove();
+        box.classList.add("nopic");
+        box.textContent = fallback;
+      };
+      box.append(img);
+      return box;
+    }
+    buildUnit(g, id) {
+      const u = g.units.find((x) => x.id === id);
+      const c = unitCard(g, u);
+      this.el.className = `card${c.enemy ? " enemy" : ""}${c.kind in HERO_KINDS ? " hero" : ""}`;
+      const pic = this.picture(c.portrait, "", c.name.slice(0, 2));
+      const chevrons = span("card-chevrons", "");
+      pic.append(chevrons);
+      const name = div("card-name", c.name);
+      const role = div("card-role", c.role);
+      const hp = bar("hp");
+      const rank = div("card-rankline");
+      const rankName = span("card-rank", "");
+      const xp = bar("xp");
+      rank.append(rankName, xp.el);
+      const main = div("card-main");
+      main.append(name, role, hp.el, rank, statList(c.stats));
+      const body = div("card-body");
+      body.append(pic, main);
+      const bio = div("card-bio", c.bio);
+      const status = div("card-status", "");
+      this.el.append(this.head(c.faction, c.serial, c.enemy), body, bio, status);
+      let lastRank = -1;
+      this.live = () => {
+        const now = g.units.find((x) => x.id === id);
+        if (!now) return;
+        const card = unitCard(g, now);
+        hp.set(card.hp / card.maxHp, `${card.hp} / ${card.maxHp}`);
+        if (card.rank !== lastRank) {
+          lastRank = card.rank;
+          rankName.textContent = card.rankName;
+          chevrons.textContent = "\u25B2".repeat(card.rank);
+          rankName.classList.toggle("ranked", card.rank > 0);
+        }
+        xp.set(card.xp, card.rank >= MAX_RANK ? "Max" : `${Math.floor(card.xp * 100)}%`);
+        setText(status, card.status);
+      };
+    }
+    buildBuilding(g, id) {
+      const b = g.buildings.find((x) => x.id === id);
+      const c = buildingCard(g, b);
+      this.el.className = `card${c.enemy ? " enemy" : ""}`;
+      const pic = this.picture(c.picture, c.turret ? "" : "building", c.name.slice(0, 2));
+      const hp = bar("hp");
+      const main = div("card-main");
+      main.append(div("card-name", c.name), div("card-role", c.role), hp.el, statList(c.stats));
+      const body = div("card-body");
+      body.append(pic, main);
+      const status = div("card-status", "");
+      this.el.append(this.head(c.faction, c.serial, c.enemy), body, status);
+      this.live = () => {
+        const now = g.buildings.find((x) => x.id === id);
+        if (!now) return;
+        const card = buildingCard(g, now);
+        hp.set(card.hp / card.maxHp, `${card.hp} / ${card.maxHp}`);
+        setText(status, card.status);
+      };
+    }
+    buildGroup(g, units) {
+      const groups = groupSelection(g, units);
+      const enemy = units.every((u) => u.owner !== g.local);
+      this.el.className = `card roster${enemy ? " enemy" : ""}`;
+      const head = div("card-head");
+      head.append(span("card-faction", `${units.length} selected`), span("card-serial", "Click: only these \xB7 Shift: drop"));
+      const grid = div("roster-grid");
+      const bars = [];
+      for (const e of groups) {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "roster-tile";
+        tile.title = `${e.count} \xD7 ${e.name}`;
+        tile.append(this.picture(e.portrait, "", e.name.slice(0, 2)), span("roster-count", `${e.count}`));
+        const hb = bar("hp");
+        tile.append(hb.el);
+        bars.push({ kind: e.kind, set: hb.set });
+        tile.addEventListener("click", (ev) => {
+          const keep = (u) => ev.shiftKey ? u.kind !== e.kind : u.kind === e.kind;
+          g.selection = new Set([...g.selection].filter((uid) => {
+            const u = g.units.find((x) => x.id === uid);
+            return !!u && keep(u);
+          }));
+        });
+        grid.append(tile);
+      }
+      this.el.append(head, grid);
+      this.live = () => {
+        const now = [...g.selection].map((uid) => g.units.find((u) => u.id === uid)).filter((u) => !!u);
+        const fresh = groupSelection(g, now);
+        for (const b of bars) {
+          const e = fresh.find((x) => x.kind === b.kind);
+          if (e) b.set(e.health, "");
+        }
+      };
+    }
+  };
+  var HERO_KINDS = { vance: 1, seer: 1, rook: 1 };
+  function div(cls, text) {
+    const d = document.createElement("div");
+    d.className = cls;
+    if (text !== void 0) d.textContent = text;
+    return d;
+  }
+  function span(cls, text) {
+    const s = document.createElement("span");
+    s.className = cls;
+    s.textContent = text;
+    return s;
+  }
+  function setText(el2, text) {
+    if (el2.textContent !== text) el2.textContent = text;
+  }
+  function bar(kind) {
+    const el2 = div(`card-bar ${kind}`);
+    const fill = document.createElement("i");
+    const label = span("card-bar-label", "");
+    el2.append(fill, label);
+    let last = "";
+    const set = (frac, text) => {
+      const f = Math.max(0, Math.min(1, frac));
+      const key = `${f.toFixed(3)}|${text}`;
+      if (key === last) return;
+      last = key;
+      fill.style.width = `${f * 100}%`;
+      if (kind === "hp") el2.dataset.level = f > 0.5 ? "ok" : f > 0.25 ? "warn" : "bad";
+      label.textContent = text;
+    };
+    return { el: el2, set };
+  }
+  function statList(stats) {
+    const dl = document.createElement("dl");
+    dl.className = "card-stats";
+    for (const s of stats) {
+      const dt = document.createElement("dt");
+      dt.textContent = s.label;
+      const dd = document.createElement("dd");
+      dd.textContent = s.value;
+      dl.append(dt, dd);
+    }
+    return dl;
+  }
+
   // src/net/chat.ts
   var CHAT_MAX = 200;
   var CHAT_BURST = 5;
@@ -5576,18 +5933,18 @@
     const price = document.createElement("span");
     price.className = "cost";
     price.textContent = cost.toLocaleString();
-    const bar = document.createElement("span");
-    bar.className = "bar";
+    const bar2 = document.createElement("span");
+    bar2.className = "bar";
     const badge = document.createElement("span");
     badge.className = "badge";
-    el2.append(bar, icon, name, price, badge);
+    el2.append(bar2, icon, name, price, badge);
     if (key) {
       const k = document.createElement("span");
       k.className = "key";
       k.textContent = key;
       el2.append(k);
     }
-    return { el: el2, bar, badge, update: () => {
+    return { el: el2, bar: bar2, badge, update: () => {
     } };
   }
   function setState(b, s) {
@@ -11097,40 +11454,8 @@
   // src/main.ts
   var stopTitle = null;
   var STEP2 = 1 / 60;
-  var HARVEST_LABELS = {
-    idle: "Idle",
-    toField: "Heading to field",
-    harvesting: "Harvesting",
-    toRefinery: "Returning to refinery",
-    waitDock: "Waiting to unload",
-    unloading: "Unloading"
-  };
   function el(id) {
     return document.getElementById(id);
-  }
-  function describeSelection(g) {
-    const b = g.buildings.find((x) => x.id === g.selectedBuilding);
-    if (b) {
-      const s = BUILDING_STATS[b.kind];
-      const power2 = s.power > 0 ? `+${s.power} power` : s.power < 0 ? `${s.power} power` : "";
-      const name = b.owner === g.local ? s.label : `Enemy ${s.label}`;
-      return `<b>${name}</b> &middot; ${Math.ceil(b.hp)}/${s.maxHp} HP${power2 && b.owner === g.local ? ` &middot; ${power2}` : ""}`;
-    }
-    const units = [...g.selection].map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
-    if (units.length === 0) return "";
-    if (units.length === 1) {
-      const u = units[0];
-      const stats = UNIT_STATS[u.kind];
-      const rank = u.rank > 0 ? ` &middot; <span class="rank">${RANK_NAMES[u.rank]}</span>` : "";
-      let s = `<b>${stats.label}</b>${rank} &middot; ${Math.ceil(u.hp)}/${stats.maxHp} HP`;
-      if (u.kind === "harvester") {
-        s += `<br>${HARVEST_LABELS[u.harvest]} &middot; ${Math.floor(u.cargo)}/${HARVESTER.capacity} ${RESOURCE_NAME}`;
-      }
-      return s;
-    }
-    const counts = /* @__PURE__ */ new Map();
-    for (const u of units) counts.set(UNIT_STATS[u.kind].label, (counts.get(UNIT_STATS[u.kind].label) ?? 0) + 1);
-    return [...counts].map(([label, n]) => `${n} &times; ${label}`).join(", ");
   }
   var LEVEL_LABELS = { easy: "Easy", normal: "Normal", hard: "Hard" };
   var REJOIN_WAIT = 120;
@@ -11285,10 +11610,10 @@
       station?.destroy();
       station = null;
       busy(false);
-      const span = document.createElement("span");
-      span.className = "err";
-      span.textContent = text;
-      status.replaceChildren(span);
+      const span2 = document.createElement("span");
+      span2.className = "err";
+      span2.textContent = text;
+      status.replaceChildren(span2);
     };
     const pick = (choice, not) => {
       if (choice !== "random") return choice;
@@ -11537,7 +11862,7 @@
     const minimap = el("minimap");
     const credits = el("credits");
     const power2 = el("power");
-    const info = el("info");
+    const infoCard = new InfoCard(el("info"));
     const notices = el("notices");
     const result = el("result");
     const ability = el("ability");
@@ -11673,7 +11998,6 @@
     input.goHome();
     let last = performance.now();
     let acc = 0;
-    let lastInfo = "";
     let lastNotices = "";
     let waitingFor = 0;
     const chatLog = el("chat-log");
@@ -11784,8 +12108,8 @@
         const left = opponentGoneAt === null || game.result ? -1 : REJOIN_WAIT - (performance.now() - opponentGoneAt) / 1e3;
         netWait.hidden = left < 0;
         if (left >= 0) {
-          const text2 = `Your opponent disconnected. Waiting for them to rejoin\u2026 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}`;
-          if (netWaitText.textContent !== text2) netWaitText.textContent = text2;
+          const text = `Your opponent disconnected. Waiting for them to rejoin\u2026 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}`;
+          if (netWaitText.textContent !== text) netWaitText.textContent = text;
           if (left <= 0) claimVictory();
         }
       } else {
@@ -11821,12 +12145,7 @@
         ability.classList.toggle("cooling", !!hero && hero.abilityCd > 0);
         lastAbility = status;
       }
-      const text = describeSelection(game);
-      if (text !== lastInfo) {
-        info.innerHTML = text;
-        info.style.display = text ? "block" : "none";
-        lastInfo = text;
-      }
+      infoCard.update(game);
       const n = game.notices.map((x) => x.text).join("\n");
       if (n !== lastNotices) {
         notices.replaceChildren(
