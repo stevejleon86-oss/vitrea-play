@@ -3981,6 +3981,197 @@
     return dl;
   }
 
+  // src/perf.ts
+  function summarize(samples) {
+    const n = samples.length;
+    if (n === 0) return { frames: 0, fps: 0, low1: 0, avgFrame: 0, worstFrame: 0, sim: 0, draw: 0, ui: 0 };
+    let total = 0;
+    let sim = 0;
+    let draw = 0;
+    let ui = 0;
+    let worst = 0;
+    for (const s of samples) {
+      total += s.interval;
+      sim += s.sim;
+      draw += s.draw;
+      ui += s.ui;
+      worst = Math.max(worst, s.interval);
+    }
+    const sorted = samples.map((s) => s.interval).sort((a, b) => a - b);
+    const p99 = sorted[Math.min(n - 1, Math.floor(n * 0.99))];
+    return {
+      frames: n,
+      fps: total > 0 ? n * 1e3 / total : 0,
+      low1: p99 > 0 ? 1e3 / p99 : 0,
+      avgFrame: total / n,
+      worstFrame: worst,
+      sim: sim / n,
+      draw: draw / n,
+      ui: ui / n
+    };
+  }
+  var PerfMeter = class {
+    /** The rolling window shown on the overlay. */
+    recent = [];
+    /** Every frame since record() started, or null when not recording. */
+    recording = null;
+    window;
+    marks = [];
+    lastStart = 0;
+    constructor(window2 = 120) {
+      this.window = window2;
+    }
+    /** Call at the top of the frame. */
+    start(now = performance.now()) {
+      this.marks = [now];
+    }
+    /** Call after each section, in order: simulation, drawing, panels. */
+    mark(now = performance.now()) {
+      this.marks.push(now);
+    }
+    /** Call at the end of the frame. */
+    end() {
+      const [t0, t1 = t0, t2 = t1, t3 = t2] = this.marks;
+      const interval = this.lastStart ? t0 - this.lastStart : t3 - t0;
+      this.lastStart = t0;
+      const s = { interval, sim: t1 - t0, draw: t2 - t1, ui: t3 - t2 };
+      this.recent.push(s);
+      if (this.recent.length > this.window) this.recent.shift();
+      this.recording?.push(s);
+    }
+    record() {
+      this.recording = [];
+    }
+    stop() {
+      const s = summarize(this.recording ?? []);
+      this.recording = null;
+      return s;
+    }
+  };
+
+  // src/net/commands.ts
+  function own(g, owner, ids) {
+    const set = new Set(ids);
+    return g.units.filter((u) => set.has(u.id) && u.owner === owner);
+  }
+  function applyCommand(g, owner, c) {
+    const building = (id) => g.buildings.find((b) => b.id === id && b.owner === owner);
+    switch (c.t) {
+      case "order": {
+        const units = own(g, owner, c.units);
+        if (c.queue) commandQueueMove(g, units.filter((u) => u.kind !== "harvester"), { x: c.x, y: c.y });
+        else orderAt(g, units, c.x, c.y, c.attackMove);
+        return null;
+      }
+      case "attack":
+        commandAttack(g, own(g, owner, c.units), c.target);
+        return null;
+      case "stop":
+        commandStop(g, own(g, owner, c.units));
+        return null;
+      case "build":
+        return startStructure(g, c.kind, owner) ? null : "Can't start that building now.";
+      case "cancelBuild":
+        cancelStructure(g, owner);
+        return null;
+      case "place":
+        return placeStructure(g, c.x, c.y, owner) ? null : "Can't build there: needs clear rock near your base";
+      case "train":
+        if (!(c.kind in UNIT_STATS)) return null;
+        return queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0 ? null : "Can't train that now.";
+      case "untrain":
+        for (let k = 0; k < Math.max(1, Math.min(5, c.n)); k++) dequeueUnit(g, c.kind, owner);
+        return null;
+      case "repeat":
+        return toggleRepeat(g, c.kind, owner) ? null : "Can't build that now.";
+      case "research":
+        if (!(c.id in RESEARCH)) return null;
+        return startResearch(g, owner, c.id) ? null : "Can't research that now.";
+      case "cancelResearch":
+        cancelResearch(g, owner);
+        return null;
+      case "sell": {
+        const b = building(c.building);
+        return b ? sellBuilding(g, b, owner) : null;
+      }
+      case "repair": {
+        const b = building(c.building);
+        return b ? toggleBuildingRepair(g, b, owner) : null;
+      }
+      case "rally": {
+        const b = building(c.building);
+        if (b) setRally(g, b, { x: c.x, y: c.y });
+        return null;
+      }
+      case "ability": {
+        const u = own(g, owner, [c.unit])[0];
+        return u && HEROES[u.kind] ? useAbility(g, u) : null;
+      }
+      case "surrender":
+        g.result = owner === 0 ? "defeat" : "victory";
+        g.resultReason = owner === g.local ? "You surrendered." : "Your opponent surrendered.";
+        emit(g, { kind: g.result });
+        return null;
+    }
+  }
+
+  // src/bench.ts
+  var BENCH = {
+    seed: 7,
+    /** Seconds of battle measured. */
+    seconds: 40,
+    waves: 4,
+    /** Seconds between waves. */
+    waveGap: 9,
+    /** When the storm arrives. */
+    stormAt: 4
+  };
+  var ARMIES = {
+    0: ["tank", "tank", "tank", "infantry", "infantry", "infantry", "infantry", "rocketInfantry", "rocketInfantry", "quad", "quad", "artillery"],
+    1: ["prismTank", "prismTank", "prismTank", "glasswalker", "glasswalker", "glasswalker", "glasswalker", "rocketInfantry", "rocketInfantry", "skimmer", "skimmer", "resonator"]
+  };
+  var Benchmark = class {
+    /** Battle centre, in world pixels. */
+    x;
+    y;
+    centre;
+    wave = 0;
+    stormed = false;
+    startedAt;
+    constructor(g) {
+      this.centre = nearestPassable(g.map, { x: Math.floor(g.map.w / 2), y: Math.floor(g.map.h / 2) }) ?? g.map.start;
+      this.x = (this.centre.x + 0.5) * TILE;
+      this.y = (this.centre.y + 0.5) * TILE;
+      this.startedAt = g.time;
+    }
+    /** Seconds of battle so far. */
+    elapsed = 0;
+    done = false;
+    /** Run the script: send waves, bring the storm, and say when time is up. */
+    update(g) {
+      this.elapsed = g.time - this.startedAt;
+      while (this.wave < BENCH.waves && this.elapsed >= this.wave * BENCH.waveGap) this.sendWave(g, this.wave++);
+      if (!this.stormed && this.elapsed >= BENCH.stormAt) {
+        this.stormed = true;
+        const c = this.centre;
+        spawnStorm(g, { x: c.x - 4, y: Math.max(0, c.y - 18) }, { x: c.x + 4, y: Math.min(g.map.h - 1, c.y + 18) });
+      }
+      if (this.elapsed >= BENCH.seconds) this.done = true;
+    }
+    sendWave(g, n) {
+      for (const owner of [PLAYER, ENEMY]) {
+        const side = owner === PLAYER ? -1 : 1;
+        const ids = [];
+        ARMIES[owner].forEach((kind, i) => {
+          const want = { x: this.centre.x + side * (10 + i % 3), y: this.centre.y - 5 + Math.floor(i / 3) * 3 + n % 2 };
+          const at = nearestPassable(g.map, want);
+          if (at) ids.push(spawnUnit(g, kind, at.x, at.y, owner).id);
+        });
+        applyCommand(g, owner, { t: "order", units: ids, x: this.x - side * 10 * TILE, y: this.y, attackMove: true });
+      }
+    }
+  };
+
   // src/net/chat.ts
   var CHAT_MAX = 200;
   var CHAT_BURST = 5;
@@ -4570,6 +4761,10 @@
     tracks = [];
     lastTrack = /* @__PURE__ */ new Map();
     trackClock = 0;
+    /** Tread marks on the ground right now (for the performance overlay). */
+    get trackCount() {
+      return this.tracks.length;
+    }
     /** Health bars on every unit and building, not just damaged ones. */
     showAllHealth = false;
     /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
@@ -6778,72 +6973,6 @@
   ];
   function briefingKey(missionId) {
     return `briefing_${missionId.replace(/-/g, "_")}`;
-  }
-
-  // src/net/commands.ts
-  function own(g, owner, ids) {
-    const set = new Set(ids);
-    return g.units.filter((u) => set.has(u.id) && u.owner === owner);
-  }
-  function applyCommand(g, owner, c) {
-    const building = (id) => g.buildings.find((b) => b.id === id && b.owner === owner);
-    switch (c.t) {
-      case "order": {
-        const units = own(g, owner, c.units);
-        if (c.queue) commandQueueMove(g, units.filter((u) => u.kind !== "harvester"), { x: c.x, y: c.y });
-        else orderAt(g, units, c.x, c.y, c.attackMove);
-        return null;
-      }
-      case "attack":
-        commandAttack(g, own(g, owner, c.units), c.target);
-        return null;
-      case "stop":
-        commandStop(g, own(g, owner, c.units));
-        return null;
-      case "build":
-        return startStructure(g, c.kind, owner) ? null : "Can't start that building now.";
-      case "cancelBuild":
-        cancelStructure(g, owner);
-        return null;
-      case "place":
-        return placeStructure(g, c.x, c.y, owner) ? null : "Can't build there: needs clear rock near your base";
-      case "train":
-        if (!(c.kind in UNIT_STATS)) return null;
-        return queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0 ? null : "Can't train that now.";
-      case "untrain":
-        for (let k = 0; k < Math.max(1, Math.min(5, c.n)); k++) dequeueUnit(g, c.kind, owner);
-        return null;
-      case "repeat":
-        return toggleRepeat(g, c.kind, owner) ? null : "Can't build that now.";
-      case "research":
-        if (!(c.id in RESEARCH)) return null;
-        return startResearch(g, owner, c.id) ? null : "Can't research that now.";
-      case "cancelResearch":
-        cancelResearch(g, owner);
-        return null;
-      case "sell": {
-        const b = building(c.building);
-        return b ? sellBuilding(g, b, owner) : null;
-      }
-      case "repair": {
-        const b = building(c.building);
-        return b ? toggleBuildingRepair(g, b, owner) : null;
-      }
-      case "rally": {
-        const b = building(c.building);
-        if (b) setRally(g, b, { x: c.x, y: c.y });
-        return null;
-      }
-      case "ability": {
-        const u = own(g, owner, [c.unit])[0];
-        return u && HEROES[u.kind] ? useAbility(g, u) : null;
-      }
-      case "surrender":
-        g.result = owner === 0 ? "defeat" : "victory";
-        g.resultReason = owner === g.local ? "You surrendered." : "Your opponent surrendered.";
-        emit(g, { kind: g.result });
-        return null;
-    }
   }
 
   // src/net/lockstep.ts
@@ -11507,6 +11636,7 @@
     const wrap2 = menu.querySelector(".wrap");
     stopTitle = startTitleBackground(el("menu-bg"), () => wrap2?.getBoundingClientRect() ?? null);
     el("menu-random").addEventListener("click", () => seed.value = String(randomSeed()));
+    el("menu-bench").addEventListener("click", () => navigate("bench=1"));
     el("menu-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const faction = document.querySelector('input[name="faction"]:checked')?.value ?? "concord";
@@ -11787,10 +11917,12 @@
   function boot() {
     const params = launchQuery();
     const settings = parseSettings(params, loadSaved());
-    if (params.get("play") === "1") start(settings, missionById(params.get("mission")));
+    if (params.get("bench") === "1") {
+      start({ ...settings, seed: BENCH.seed, difficulty: "normal", faction: "concord", enemyFaction: "shardbound", hazards: true, fog: false, speed: "normal" }, void 0, void 0, true);
+    } else if (params.get("play") === "1") start(settings, missionById(params.get("mission")));
     else showMenu(settings);
   }
-  function start(settings, mission, online) {
+  function start(settings, mission, online, bench = false) {
     el("menu").hidden = true;
     stopTitle?.();
     stopTitle = null;
@@ -11830,6 +11962,12 @@
       showMute();
       muteButton.blur();
     });
+    const perf = new PerfMeter();
+    const perfBox = el("perf");
+    perfBox.hidden = !(bench || launchQuery().get("perf") === "1" || new URLSearchParams(location.search).get("perf") === "1");
+    let perfShownAt = 0;
+    const benchRun = bench ? new Benchmark(game) : null;
+    window.perf = perf;
     const controls = el("controls");
     window.addEventListener("keydown", (e) => {
       if (typingIn(e.target)) return;
@@ -11839,6 +11977,10 @@
         return;
       }
       if (e.key === "Escape" && !controls.hidden) controls.hidden = true;
+      if (e.code === "F9") {
+        e.preventDefault();
+        perfBox.hidden = !perfBox.hidden;
+      }
     });
     window.addEventListener("keydown", (e) => {
       if (typingIn(e.target)) return;
@@ -12077,6 +12219,13 @@
       issue({ t: "surrender" });
     });
     const frame = (now) => {
+      perf.start();
+      if (benchRun && !benchRun.done) {
+        if (!perf.recording) perf.record();
+        benchRun.update(game);
+        input.centreOn(benchRun.x, benchRun.y);
+        if (benchRun.done) showBench(perf.stop());
+      }
       const dt = Math.min(0.1, (now - last) / 1e3);
       last = now;
       if (!paused) acc += dt * SPEEDS[speed];
@@ -12128,7 +12277,9 @@
         modeLabel.textContent = modeText;
         modeLabel.hidden = !modeText;
       }
+      perf.mark();
       renderer.draw(game, cam, input.drag, input.ghost, dt);
+      perf.mark();
       sidebar.update();
       sound.playEvents(game, cam);
       sound.updateWind(game, cam);
@@ -12182,8 +12333,52 @@
           el("result-text").textContent = game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen.";
         }
       }
+      perf.mark();
+      perf.end();
+      if (!perfBox.hidden && now - perfShownAt > 250) {
+        perfShownAt = now;
+        const s = summarize(perf.recent);
+        const wrecks = game.effects.reduce((n2, e) => n2 + (e.kind === "wreck" ? 1 : 0), 0);
+        const lines2 = [
+          `<b>${Math.round(s.fps)}</b> FPS \xB7 1% low ${Math.round(s.low1)}`,
+          `frame ${s.avgFrame.toFixed(1)} ms \xB7 worst ${Math.round(s.worstFrame)}`,
+          `sim ${s.sim.toFixed(1)} \xB7 draw ${s.draw.toFixed(1)} \xB7 ui ${s.ui.toFixed(1)} ms`,
+          `units ${game.units.length} \xB7 fx ${game.effects.length} \xB7 wrecks ${wrecks} \xB7 tracks ${renderer.trackCount}`
+        ];
+        if (benchRun && !benchRun.done) lines2.unshift(`BENCHMARK ${Math.ceil(BENCH.seconds - benchRun.elapsed)}s`);
+        perfBox.innerHTML = lines2.join("<br>");
+      }
       requestAnimationFrame(frame);
     };
+    const showBench = (s) => {
+      const verdict = s.fps >= 55 && s.low1 >= 40 ? "Smooth" : s.fps >= 40 ? "Playable" : s.fps >= 25 ? "Struggling" : "Too slow";
+      const text = [
+        `Vitrea benchmark \u2014 ${verdict}`,
+        `Average ${s.fps.toFixed(1)} FPS \xB7 1% low ${s.low1.toFixed(1)} FPS \xB7 worst frame ${Math.round(s.worstFrame)} ms`,
+        `Per frame: simulation ${s.sim.toFixed(2)} ms \xB7 drawing ${s.draw.toFixed(2)} ms \xB7 panels ${s.ui.toFixed(2)} ms`,
+        `${s.frames} frames over ${BENCH.seconds}s \xB7 peak units ${game.units.length} \xB7 effects ${game.effects.length}`,
+        `Screen ${innerWidth}\xD7${innerHeight} at ${devicePixelRatio}x \xB7 canvas ${view.width}\xD7${view.height}`,
+        navigator.userAgent
+      ].join("\n");
+      el("bench-text").textContent = text;
+      el("bench").hidden = false;
+    };
+    el("bench-copy").addEventListener("click", async () => {
+      const text = el("bench-text").textContent ?? "";
+      const button = el("bench-copy");
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(el("bench-text"));
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+        button.textContent = "Press Ctrl+C";
+      }
+    });
+    el("bench-again").addEventListener("click", () => navigate("bench=1"));
+    el("bench-menu").addEventListener("click", () => navigate(""));
     requestAnimationFrame(frame);
     if (lockstep) {
       setInterval(() => {

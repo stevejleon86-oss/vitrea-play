@@ -40,7 +40,7 @@
     button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
     /* Steel plate: a dark sheet with a rivet in each corner. */
-    #panel, #info, #notices div, #result .card, #objectives, #netwait, #mode, #ability, #menu form, .briefing, #controls {
+    #panel, #info, #notices div, #result .card, #objectives, #netwait, #mode, #ability, #menu form, .briefing, #controls, #bench {
       background-color: var(--plate);
       background-image:
         radial-gradient(circle at 6px 6px, var(--rivet) 1.6px, transparent 2.2px),
@@ -248,6 +248,23 @@
     .controls-grid dl { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr); gap: 5px 12px; font-size: 13.5px; line-height: 1.35; }
     .controls-grid dt { font-family: var(--cond); font-weight: 700; letter-spacing: 0.03em; color: var(--text); }
     .controls-grid dd { color: #cfc5b3; }
+    /* Performance overlay (F9) and benchmark results. */
+    #perf {
+      position: fixed; top: 12px; right: 240px; z-index: 5; pointer-events: none;
+      padding: 6px 10px; background: rgba(16, 14, 12, 0.85); border: 1px solid var(--edge); border-left: 3px solid var(--crystal);
+      font: 12px/1.45 ui-monospace, Consolas, monospace; color: #d8d0c2; white-space: nowrap;
+    }
+    #perf b { color: var(--crystal); font-size: 15px; }
+    #perf[hidden], #bench[hidden] { display: none; }
+    #bench {
+      position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 7;
+      width: min(640px, calc(100vw - 280px)); padding: 18px 22px; border-top: 6px solid var(--crystal);
+    }
+    #bench h2 { font-family: var(--stencil); font-weight: 400; font-size: 28px; letter-spacing: 0.06em; margin-bottom: 10px; }
+    #bench-text { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.55 ui-monospace, Consolas, monospace; color: var(--text);
+      background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge); padding: 10px 12px; margin-bottom: 14px; user-select: text; }
+    .bench-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+    .bench-btn { width: 100%; margin-top: 8px; }
     #netwait { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); text-align: center; padding: 20px 28px; border-top: 6px solid var(--amber); }
     #netwait[hidden] { display: none; }
     #netwait-text { font-size: 15px; margin-bottom: 12px; }
@@ -459,9 +476,20 @@
           <dt>+ / −</dt><dd>Game speed (not online)</dd>
           <dt>M</dt><dd>Mute</dd>
           <dt>Enter</dt><dd>Chat (online)</dd>
+          <dt>F9</dt><dd>Frame rate and timings</dd>
           <dt>?</dt><dd>Show or hide this card</dd>
         </dl>
       </section>
+    </div>
+  </div>
+  <div id="perf" hidden aria-live="off"></div>
+  <div id="bench" hidden role="dialog" aria-label="Benchmark results">
+    <h2>Performance test</h2>
+    <pre id="bench-text"></pre>
+    <div class="bench-buttons">
+      <button type="button" id="bench-copy" class="btn">Copy results</button>
+      <button type="button" id="bench-again" class="btn ghost">Run again</button>
+      <button type="button" id="bench-menu" class="btn ghost">Main menu</button>
     </div>
   </div>
   <div id="paused" hidden>PAUSED</div>
@@ -560,6 +588,7 @@
         <label class="toggle"><input id="menu-fog" type="checkbox"> Fog of war</label>
         <label class="toggle"><input id="menu-edge" type="checkbox"> Scroll at the screen edge</label>
         <button type="submit" class="btn start">START</button>
+        <button type="button" id="menu-bench" class="btn ghost bench-btn" title="A fixed 40-second battle that measures how smoothly the game runs on this computer">Performance test</button>
       </form>
     </div>
   </div>
