@@ -1,0 +1,10853 @@
+"use strict";
+(() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __commonJS = (cb, mod2) => function __require() {
+    try {
+      return mod2 || (0, cb[__getOwnPropNames(cb)[0]])((mod2 = { exports: {} }).exports, mod2), mod2.exports;
+    } catch (e) {
+      throw mod2 = 0, e;
+    }
+  };
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__getProtoOf(mod2)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod2 || !mod2.__esModule ? __defProp(target, "default", { value: mod2, enumerable: true }) : target,
+    mod2
+  ));
+
+  // node_modules/sdp/sdp.js
+  var require_sdp = __commonJS({
+    "node_modules/sdp/sdp.js"(exports, module) {
+      "use strict";
+      var SDPUtils2 = {};
+      SDPUtils2.generateIdentifier = function() {
+        return Math.random().toString(36).substring(2, 12);
+      };
+      SDPUtils2.localCName = SDPUtils2.generateIdentifier();
+      SDPUtils2.splitLines = function(blob) {
+        return blob.trim().split("\n").map((line) => line.trim());
+      };
+      SDPUtils2.splitSections = function(blob) {
+        const parts = blob.split("\nm=");
+        return parts.map((part, index) => (index > 0 ? "m=" + part : part).trim() + "\r\n");
+      };
+      SDPUtils2.getDescription = function(blob) {
+        const sections = SDPUtils2.splitSections(blob);
+        return sections && sections[0];
+      };
+      SDPUtils2.getMediaSections = function(blob) {
+        const sections = SDPUtils2.splitSections(blob);
+        sections.shift();
+        return sections;
+      };
+      SDPUtils2.matchPrefix = function(blob, prefix) {
+        return SDPUtils2.splitLines(blob).filter((line) => line.indexOf(prefix) === 0);
+      };
+      SDPUtils2.parseCandidate = function(line) {
+        let parts;
+        if (line.indexOf("a=candidate:") === 0) {
+          parts = line.substring(12).split(" ");
+        } else {
+          parts = line.substring(10).split(" ");
+        }
+        const candidate = {
+          foundation: parts[0],
+          component: { 1: "rtp", 2: "rtcp" }[parts[1]] || parts[1],
+          protocol: parts[2].toLowerCase(),
+          priority: parseInt(parts[3], 10),
+          ip: parts[4],
+          address: parts[4],
+          // address is an alias for ip.
+          port: parseInt(parts[5], 10),
+          // skip parts[6] == 'typ'
+          type: parts[7]
+        };
+        for (let i = 8; i < parts.length; i += 2) {
+          switch (parts[i]) {
+            case "raddr":
+              candidate.relatedAddress = parts[i + 1];
+              break;
+            case "rport":
+              candidate.relatedPort = parseInt(parts[i + 1], 10);
+              break;
+            case "tcptype":
+              candidate.tcpType = parts[i + 1];
+              break;
+            case "ufrag":
+              candidate.ufrag = parts[i + 1];
+              candidate.usernameFragment = parts[i + 1];
+              break;
+            default:
+              if (candidate[parts[i]] === void 0) {
+                candidate[parts[i]] = parts[i + 1];
+              }
+              break;
+          }
+        }
+        return candidate;
+      };
+      SDPUtils2.writeCandidate = function(candidate) {
+        const sdp2 = [];
+        sdp2.push(candidate.foundation);
+        const component = candidate.component;
+        if (component === "rtp") {
+          sdp2.push(1);
+        } else if (component === "rtcp") {
+          sdp2.push(2);
+        } else {
+          sdp2.push(component);
+        }
+        sdp2.push(candidate.protocol.toUpperCase());
+        sdp2.push(candidate.priority);
+        sdp2.push(candidate.address || candidate.ip);
+        sdp2.push(candidate.port);
+        const type = candidate.type;
+        sdp2.push("typ");
+        sdp2.push(type);
+        if (type !== "host" && candidate.relatedAddress && candidate.relatedPort !== void 0) {
+          sdp2.push("raddr");
+          sdp2.push(candidate.relatedAddress);
+          sdp2.push("rport");
+          sdp2.push(candidate.relatedPort);
+        }
+        if (candidate.tcpType && candidate.protocol.toLowerCase() === "tcp") {
+          sdp2.push("tcptype");
+          sdp2.push(candidate.tcpType);
+        }
+        if (candidate.usernameFragment || candidate.ufrag) {
+          sdp2.push("ufrag");
+          sdp2.push(candidate.usernameFragment || candidate.ufrag);
+        }
+        return "candidate:" + sdp2.join(" ");
+      };
+      SDPUtils2.parseIceOptions = function(line) {
+        return line.substring(14).split(" ");
+      };
+      SDPUtils2.parseRtpMap = function(line) {
+        let parts = line.substring(9).split(" ");
+        const parsed = {
+          payloadType: parseInt(parts.shift(), 10)
+          // was: id
+        };
+        parts = parts[0].split("/");
+        parsed.name = parts[0];
+        parsed.clockRate = parseInt(parts[1], 10);
+        parsed.channels = parts.length === 3 ? parseInt(parts[2], 10) : 1;
+        parsed.numChannels = parsed.channels;
+        return parsed;
+      };
+      SDPUtils2.writeRtpMap = function(codec) {
+        let pt = codec.payloadType;
+        if (codec.preferredPayloadType !== void 0) {
+          pt = codec.preferredPayloadType;
+        }
+        const channels = codec.channels || codec.numChannels || 1;
+        return "a=rtpmap:" + pt + " " + codec.name + "/" + codec.clockRate + (channels !== 1 ? "/" + channels : "") + "\r\n";
+      };
+      SDPUtils2.parseExtmap = function(line) {
+        const parts = line.substring(9).split(" ");
+        return {
+          id: parseInt(parts[0], 10),
+          direction: parts[0].indexOf("/") > 0 ? parts[0].split("/")[1] : "sendrecv",
+          uri: parts[1],
+          attributes: parts.slice(2).join(" ")
+        };
+      };
+      SDPUtils2.writeExtmap = function(headerExtension) {
+        return "a=extmap:" + (headerExtension.id || headerExtension.preferredId) + (headerExtension.direction && headerExtension.direction !== "sendrecv" ? "/" + headerExtension.direction : "") + " " + headerExtension.uri + (headerExtension.attributes ? " " + headerExtension.attributes : "") + "\r\n";
+      };
+      SDPUtils2.parseFmtp = function(line) {
+        const parsed = {};
+        let kv;
+        const parts = line.substring(line.indexOf(" ") + 1).split(";");
+        for (let j = 0; j < parts.length; j++) {
+          kv = parts[j].trim().split("=");
+          parsed[kv[0].trim()] = kv[1];
+        }
+        return parsed;
+      };
+      SDPUtils2.writeFmtp = function(codec) {
+        let line = "";
+        let pt = codec.payloadType;
+        if (codec.preferredPayloadType !== void 0) {
+          pt = codec.preferredPayloadType;
+        }
+        if (codec.parameters && Object.keys(codec.parameters).length) {
+          const params = [];
+          Object.keys(codec.parameters).forEach((param) => {
+            if (codec.parameters[param] !== void 0) {
+              params.push(param + "=" + codec.parameters[param]);
+            } else {
+              params.push(param);
+            }
+          });
+          line += "a=fmtp:" + pt + " " + params.join(";") + "\r\n";
+        }
+        return line;
+      };
+      SDPUtils2.parseRtcpFb = function(line) {
+        const parts = line.substring(line.indexOf(" ") + 1).split(" ");
+        return {
+          type: parts.shift(),
+          parameter: parts.join(" ")
+        };
+      };
+      SDPUtils2.writeRtcpFb = function(codec) {
+        let lines2 = "";
+        let pt = codec.payloadType;
+        if (codec.preferredPayloadType !== void 0) {
+          pt = codec.preferredPayloadType;
+        }
+        if (codec.rtcpFeedback && codec.rtcpFeedback.length) {
+          codec.rtcpFeedback.forEach((fb) => {
+            lines2 += "a=rtcp-fb:" + pt + " " + fb.type + (fb.parameter && fb.parameter.length ? " " + fb.parameter : "") + "\r\n";
+          });
+        }
+        return lines2;
+      };
+      SDPUtils2.parseSsrcMedia = function(line) {
+        const sp = line.indexOf(" ");
+        const parts = {
+          ssrc: parseInt(line.substring(7, sp), 10)
+        };
+        const colon = line.indexOf(":", sp);
+        if (colon > -1) {
+          parts.attribute = line.substring(sp + 1, colon);
+          parts.value = line.substring(colon + 1);
+        } else {
+          parts.attribute = line.substring(sp + 1);
+        }
+        return parts;
+      };
+      SDPUtils2.parseSsrcGroup = function(line) {
+        const parts = line.substring(13).split(" ");
+        return {
+          semantics: parts.shift(),
+          ssrcs: parts.map((ssrc) => parseInt(ssrc, 10))
+        };
+      };
+      SDPUtils2.getMid = function(mediaSection) {
+        const mid = SDPUtils2.matchPrefix(mediaSection, "a=mid:")[0];
+        if (mid) {
+          return mid.substring(6);
+        }
+      };
+      SDPUtils2.parseFingerprint = function(line) {
+        const parts = line.substring(14).split(" ");
+        return {
+          algorithm: parts[0].toLowerCase(),
+          // algorithm is case-sensitive in Edge.
+          value: parts[1].toUpperCase()
+          // the definition is upper-case in RFC 4572.
+        };
+      };
+      SDPUtils2.getDtlsParameters = function(mediaSection, sessionpart) {
+        const lines2 = SDPUtils2.matchPrefix(
+          mediaSection + sessionpart,
+          "a=fingerprint:"
+        );
+        return {
+          role: "auto",
+          fingerprints: lines2.map(SDPUtils2.parseFingerprint)
+        };
+      };
+      SDPUtils2.writeDtlsParameters = function(params, setupType) {
+        let sdp2 = "a=setup:" + setupType + "\r\n";
+        params.fingerprints.forEach((fp) => {
+          sdp2 += "a=fingerprint:" + fp.algorithm + " " + fp.value + "\r\n";
+        });
+        return sdp2;
+      };
+      SDPUtils2.parseCryptoLine = function(line) {
+        const parts = line.substring(9).split(" ");
+        return {
+          tag: parseInt(parts[0], 10),
+          cryptoSuite: parts[1],
+          keyParams: parts[2],
+          sessionParams: parts.slice(3)
+        };
+      };
+      SDPUtils2.writeCryptoLine = function(parameters) {
+        return "a=crypto:" + parameters.tag + " " + parameters.cryptoSuite + " " + (typeof parameters.keyParams === "object" ? SDPUtils2.writeCryptoKeyParams(parameters.keyParams) : parameters.keyParams) + (parameters.sessionParams ? " " + parameters.sessionParams.join(" ") : "") + "\r\n";
+      };
+      SDPUtils2.parseCryptoKeyParams = function(keyParams) {
+        if (keyParams.indexOf("inline:") !== 0) {
+          return null;
+        }
+        const parts = keyParams.substring(7).split("|");
+        return {
+          keyMethod: "inline",
+          keySalt: parts[0],
+          lifeTime: parts[1],
+          mkiValue: parts[2] ? parts[2].split(":")[0] : void 0,
+          mkiLength: parts[2] ? parts[2].split(":")[1] : void 0
+        };
+      };
+      SDPUtils2.writeCryptoKeyParams = function(keyParams) {
+        return keyParams.keyMethod + ":" + keyParams.keySalt + (keyParams.lifeTime ? "|" + keyParams.lifeTime : "") + (keyParams.mkiValue && keyParams.mkiLength ? "|" + keyParams.mkiValue + ":" + keyParams.mkiLength : "");
+      };
+      SDPUtils2.getCryptoParameters = function(mediaSection, sessionpart) {
+        const lines2 = SDPUtils2.matchPrefix(
+          mediaSection + sessionpart,
+          "a=crypto:"
+        );
+        return lines2.map(SDPUtils2.parseCryptoLine);
+      };
+      SDPUtils2.getIceParameters = function(mediaSection, sessionpart) {
+        const ufrag = SDPUtils2.matchPrefix(
+          mediaSection + sessionpart,
+          "a=ice-ufrag:"
+        )[0];
+        const pwd = SDPUtils2.matchPrefix(
+          mediaSection + sessionpart,
+          "a=ice-pwd:"
+        )[0];
+        if (!(ufrag && pwd)) {
+          return null;
+        }
+        return {
+          usernameFragment: ufrag.substring(12),
+          password: pwd.substring(10)
+        };
+      };
+      SDPUtils2.writeIceParameters = function(params) {
+        let sdp2 = "a=ice-ufrag:" + params.usernameFragment + "\r\na=ice-pwd:" + params.password + "\r\n";
+        if (params.iceLite) {
+          sdp2 += "a=ice-lite\r\n";
+        }
+        return sdp2;
+      };
+      SDPUtils2.parseRtpParameters = function(mediaSection) {
+        const description = {
+          codecs: [],
+          headerExtensions: [],
+          fecMechanisms: [],
+          rtcp: []
+        };
+        const lines2 = SDPUtils2.splitLines(mediaSection);
+        const mline = lines2[0].split(" ");
+        description.profile = mline[2];
+        for (let i = 3; i < mline.length; i++) {
+          const pt = mline[i];
+          const rtpmapline = SDPUtils2.matchPrefix(
+            mediaSection,
+            "a=rtpmap:" + pt + " "
+          )[0];
+          if (rtpmapline) {
+            const codec = SDPUtils2.parseRtpMap(rtpmapline);
+            const fmtps = SDPUtils2.matchPrefix(
+              mediaSection,
+              "a=fmtp:" + pt + " "
+            );
+            codec.parameters = fmtps.length ? SDPUtils2.parseFmtp(fmtps[0]) : {};
+            codec.rtcpFeedback = SDPUtils2.matchPrefix(
+              mediaSection,
+              "a=rtcp-fb:" + pt + " "
+            ).map(SDPUtils2.parseRtcpFb);
+            description.codecs.push(codec);
+            switch (codec.name.toUpperCase()) {
+              case "RED":
+              case "ULPFEC":
+                description.fecMechanisms.push(codec.name.toUpperCase());
+                break;
+              default:
+                break;
+            }
+          }
+        }
+        SDPUtils2.matchPrefix(mediaSection, "a=extmap:").forEach((line) => {
+          description.headerExtensions.push(SDPUtils2.parseExtmap(line));
+        });
+        const wildcardRtcpFb = SDPUtils2.matchPrefix(mediaSection, "a=rtcp-fb:* ").map(SDPUtils2.parseRtcpFb);
+        description.codecs.forEach((codec) => {
+          wildcardRtcpFb.forEach((fb) => {
+            const duplicate = codec.rtcpFeedback.find((existingFeedback) => {
+              return existingFeedback.type === fb.type && existingFeedback.parameter === fb.parameter;
+            });
+            if (!duplicate) {
+              codec.rtcpFeedback.push(fb);
+            }
+          });
+        });
+        return description;
+      };
+      SDPUtils2.writeRtpDescription = function(kind, caps) {
+        let sdp2 = "";
+        sdp2 += "m=" + kind + " ";
+        sdp2 += caps.codecs.length > 0 ? "9" : "0";
+        sdp2 += " " + (caps.profile || "UDP/TLS/RTP/SAVPF") + " ";
+        sdp2 += caps.codecs.map((codec) => {
+          if (codec.preferredPayloadType !== void 0) {
+            return codec.preferredPayloadType;
+          }
+          return codec.payloadType;
+        }).join(" ") + "\r\n";
+        sdp2 += "c=IN IP4 0.0.0.0\r\n";
+        sdp2 += "a=rtcp:9 IN IP4 0.0.0.0\r\n";
+        caps.codecs.forEach((codec) => {
+          sdp2 += SDPUtils2.writeRtpMap(codec);
+          sdp2 += SDPUtils2.writeFmtp(codec);
+          sdp2 += SDPUtils2.writeRtcpFb(codec);
+        });
+        let maxptime = 0;
+        caps.codecs.forEach((codec) => {
+          if (codec.maxptime > maxptime) {
+            maxptime = codec.maxptime;
+          }
+        });
+        if (maxptime > 0) {
+          sdp2 += "a=maxptime:" + maxptime + "\r\n";
+        }
+        if (caps.headerExtensions) {
+          caps.headerExtensions.forEach((extension) => {
+            sdp2 += SDPUtils2.writeExtmap(extension);
+          });
+        }
+        return sdp2;
+      };
+      SDPUtils2.parseRtpEncodingParameters = function(mediaSection) {
+        const encodingParameters = [];
+        const description = SDPUtils2.parseRtpParameters(mediaSection);
+        const hasRed = description.fecMechanisms.indexOf("RED") !== -1;
+        const hasUlpfec = description.fecMechanisms.indexOf("ULPFEC") !== -1;
+        const ssrcs = SDPUtils2.matchPrefix(mediaSection, "a=ssrc:").map((line) => SDPUtils2.parseSsrcMedia(line)).filter((parts) => parts.attribute === "cname");
+        const primarySsrc = ssrcs.length > 0 && ssrcs[0].ssrc;
+        let secondarySsrc;
+        const flows = SDPUtils2.matchPrefix(mediaSection, "a=ssrc-group:FID").map((line) => {
+          const parts = line.substring(17).split(" ");
+          return parts.map((part) => parseInt(part, 10));
+        });
+        if (flows.length > 0 && flows[0].length > 1 && flows[0][0] === primarySsrc) {
+          secondarySsrc = flows[0][1];
+        }
+        description.codecs.forEach((codec) => {
+          if (codec.name.toUpperCase() === "RTX" && codec.parameters.apt) {
+            let encParam = {
+              ssrc: primarySsrc,
+              codecPayloadType: parseInt(codec.parameters.apt, 10)
+            };
+            if (primarySsrc && secondarySsrc) {
+              encParam.rtx = { ssrc: secondarySsrc };
+            }
+            encodingParameters.push(encParam);
+            if (hasRed) {
+              encParam = JSON.parse(JSON.stringify(encParam));
+              encParam.fec = {
+                ssrc: primarySsrc,
+                mechanism: hasUlpfec ? "red+ulpfec" : "red"
+              };
+              encodingParameters.push(encParam);
+            }
+          }
+        });
+        if (encodingParameters.length === 0 && primarySsrc) {
+          encodingParameters.push({
+            ssrc: primarySsrc
+          });
+        }
+        let bandwidth = SDPUtils2.matchPrefix(mediaSection, "b=");
+        if (bandwidth.length) {
+          if (bandwidth[0].indexOf("b=TIAS:") === 0) {
+            bandwidth = parseInt(bandwidth[0].substring(7), 10);
+          } else if (bandwidth[0].indexOf("b=AS:") === 0) {
+            bandwidth = parseInt(bandwidth[0].substring(5), 10) * 1e3 * 0.95 - 50 * 40 * 8;
+          } else {
+            bandwidth = void 0;
+          }
+          encodingParameters.forEach((params) => {
+            params.maxBitrate = bandwidth;
+          });
+        }
+        return encodingParameters;
+      };
+      SDPUtils2.parseRtcpParameters = function(mediaSection) {
+        const rtcpParameters = {};
+        const remoteSsrc = SDPUtils2.matchPrefix(mediaSection, "a=ssrc:").map((line) => SDPUtils2.parseSsrcMedia(line)).filter((obj) => obj.attribute === "cname")[0];
+        if (remoteSsrc) {
+          rtcpParameters.cname = remoteSsrc.value;
+          rtcpParameters.ssrc = remoteSsrc.ssrc;
+        }
+        const rsize = SDPUtils2.matchPrefix(mediaSection, "a=rtcp-rsize");
+        rtcpParameters.reducedSize = rsize.length > 0;
+        rtcpParameters.compound = rsize.length === 0;
+        const mux = SDPUtils2.matchPrefix(mediaSection, "a=rtcp-mux");
+        rtcpParameters.mux = mux.length > 0;
+        return rtcpParameters;
+      };
+      SDPUtils2.writeRtcpParameters = function(rtcpParameters) {
+        let sdp2 = "";
+        if (rtcpParameters.reducedSize) {
+          sdp2 += "a=rtcp-rsize\r\n";
+        }
+        if (rtcpParameters.mux) {
+          sdp2 += "a=rtcp-mux\r\n";
+        }
+        if (rtcpParameters.ssrc !== void 0 && rtcpParameters.cname) {
+          sdp2 += "a=ssrc:" + rtcpParameters.ssrc + " cname:" + rtcpParameters.cname + "\r\n";
+        }
+        return sdp2;
+      };
+      SDPUtils2.parseMsid = function(mediaSection) {
+        let parts;
+        const spec = SDPUtils2.matchPrefix(mediaSection, "a=msid:");
+        if (spec.length === 1) {
+          parts = spec[0].substring(7).split(" ");
+          return { stream: parts[0], track: parts[1] };
+        }
+        const planB = SDPUtils2.matchPrefix(mediaSection, "a=ssrc:").map((line) => SDPUtils2.parseSsrcMedia(line)).filter((msidParts) => msidParts.attribute === "msid");
+        if (planB.length > 0) {
+          parts = planB[0].value.split(" ");
+          return { stream: parts[0], track: parts[1] };
+        }
+      };
+      SDPUtils2.parseSctpDescription = function(mediaSection) {
+        const mline = SDPUtils2.parseMLine(mediaSection);
+        const maxSizeLine = SDPUtils2.matchPrefix(mediaSection, "a=max-message-size:");
+        let maxMessageSize;
+        if (maxSizeLine.length > 0) {
+          maxMessageSize = parseInt(maxSizeLine[0].substring(19), 10);
+        }
+        if (isNaN(maxMessageSize)) {
+          maxMessageSize = 65536;
+        }
+        const sctpPort = SDPUtils2.matchPrefix(mediaSection, "a=sctp-port:");
+        if (sctpPort.length > 0) {
+          return {
+            port: parseInt(sctpPort[0].substring(12), 10),
+            protocol: mline.fmt,
+            maxMessageSize
+          };
+        }
+        const sctpMapLines = SDPUtils2.matchPrefix(mediaSection, "a=sctpmap:");
+        if (sctpMapLines.length > 0) {
+          const parts = sctpMapLines[0].substring(10).split(" ");
+          return {
+            port: parseInt(parts[0], 10),
+            protocol: parts[1],
+            maxMessageSize
+          };
+        }
+      };
+      SDPUtils2.writeSctpDescription = function(media, sctp) {
+        let output = [];
+        if (media.protocol !== "DTLS/SCTP") {
+          output = [
+            "m=" + media.kind + " 9 " + media.protocol + " " + sctp.protocol + "\r\n",
+            "c=IN IP4 0.0.0.0\r\n",
+            "a=sctp-port:" + sctp.port + "\r\n"
+          ];
+        } else {
+          output = [
+            "m=" + media.kind + " 9 " + media.protocol + " " + sctp.port + "\r\n",
+            "c=IN IP4 0.0.0.0\r\n",
+            "a=sctpmap:" + sctp.port + " " + sctp.protocol + " 65535\r\n"
+          ];
+        }
+        if (sctp.maxMessageSize !== void 0) {
+          output.push("a=max-message-size:" + sctp.maxMessageSize + "\r\n");
+        }
+        return output.join("");
+      };
+      SDPUtils2.generateSessionId = function() {
+        return Math.random().toString().substr(2, 22);
+      };
+      SDPUtils2.writeSessionBoilerplate = function(sessId, sessVer, sessUser) {
+        let sessionId;
+        const version = sessVer !== void 0 ? sessVer : 2;
+        if (sessId) {
+          sessionId = sessId;
+        } else {
+          sessionId = SDPUtils2.generateSessionId();
+        }
+        const user = sessUser || "thisisadapterortc";
+        return "v=0\r\no=" + user + " " + sessionId + " " + version + " IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n";
+      };
+      SDPUtils2.getDirection = function(mediaSection, sessionpart) {
+        const lines2 = SDPUtils2.splitLines(mediaSection);
+        for (let i = 0; i < lines2.length; i++) {
+          switch (lines2[i]) {
+            case "a=sendrecv":
+            case "a=sendonly":
+            case "a=recvonly":
+            case "a=inactive":
+              return lines2[i].substring(2);
+            default:
+          }
+        }
+        if (sessionpart) {
+          return SDPUtils2.getDirection(sessionpart);
+        }
+        return "sendrecv";
+      };
+      SDPUtils2.getKind = function(mediaSection) {
+        const lines2 = SDPUtils2.splitLines(mediaSection);
+        const mline = lines2[0].split(" ");
+        return mline[0].substring(2);
+      };
+      SDPUtils2.isRejected = function(mediaSection) {
+        return mediaSection.split(" ", 2)[1] === "0";
+      };
+      SDPUtils2.parseMLine = function(mediaSection) {
+        const lines2 = SDPUtils2.splitLines(mediaSection);
+        const parts = lines2[0].substring(2).split(" ");
+        return {
+          kind: parts[0],
+          port: parseInt(parts[1], 10),
+          protocol: parts[2],
+          fmt: parts.slice(3).join(" ")
+        };
+      };
+      SDPUtils2.parseOLine = function(mediaSection) {
+        const line = SDPUtils2.matchPrefix(mediaSection, "o=")[0];
+        const parts = line.substring(2).split(" ");
+        return {
+          username: parts[0],
+          sessionId: parts[1],
+          sessionVersion: parseInt(parts[2], 10),
+          netType: parts[3],
+          addressType: parts[4],
+          address: parts[5]
+        };
+      };
+      SDPUtils2.isValidSDP = function(blob) {
+        if (typeof blob !== "string" || blob.length === 0) {
+          return false;
+        }
+        const lines2 = SDPUtils2.splitLines(blob);
+        for (let i = 0; i < lines2.length; i++) {
+          if (lines2[i].length < 2 || lines2[i].charAt(1) !== "=") {
+            return false;
+          }
+        }
+        return true;
+      };
+      if (typeof module === "object") {
+        module.exports = SDPUtils2;
+      }
+    }
+  });
+
+  // src/config.ts
+  var TILE = 32;
+  var MAP_W = 96;
+  var MAP_H = 96;
+  var RESOURCE_NAME = "crystal";
+  var START_CREDITS = 2500;
+  var BUILD_RATE = 60;
+  var MIN_BUILD_TIME = 2;
+  var LOW_POWER_FACTOR = 0.5;
+  var PLACE_GAP = 2;
+  var MAX_QUEUE = 5;
+  var WEAPONS = {
+    rifle: { range: 3, damage: 10, cooldown: 0.9, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.5, heavy: 0.2, building: 0.25 } },
+    mg: { range: 3.5, damage: 9, cooldown: 0.35, speed: 0, style: "tracer", vs: { infantry: 1.2, light: 0.8, heavy: 0.25, building: 0.3 } },
+    raiderGun: { range: 3, damage: 6, cooldown: 0.3, speed: 0, style: "tracer", vs: { infantry: 1.1, light: 0.6, heavy: 0.2, building: 0.2 } },
+    cannon: { range: 4.5, damage: 50, cooldown: 1.8, speed: 10, style: "shell", vs: { infantry: 0.35, light: 1, heavy: 1, building: 0.8 } },
+    rocket: { range: 4, damage: 32, cooldown: 2.2, speed: 8, style: "rocket", vs: { infantry: 0.3, light: 1.1, heavy: 1, building: 0.8 } },
+    artilleryShell: { range: 8.5, minRange: 2.5, damage: 70, cooldown: 3.5, speed: 6, style: "arc", splash: 1.3, vs: { infantry: 1.2, light: 0.8, heavy: 0.5, building: 1 } },
+    turretGun: { range: 5.5, damage: 40, cooldown: 1.5, speed: 12, style: "shell", vs: { infantry: 0.5, light: 1, heavy: 1, building: 0.5 } },
+    turretRocket: { range: 7.5, damage: 55, cooldown: 2.4, speed: 10, style: "rocket", vs: { infantry: 0.4, light: 1.1, heavy: 1.1, building: 0.5 } },
+    // Shardbound crystal weapons.
+    shardRifle: { range: 3.5, damage: 9, cooldown: 0.85, speed: 0, style: "beam", vs: { infantry: 1, light: 0.5, heavy: 0.25, building: 0.25 } },
+    shardRepeater: { range: 3.5, damage: 8, cooldown: 0.3, speed: 0, style: "beam", vs: { infantry: 1.1, light: 0.9, heavy: 0.3, building: 0.3 } },
+    prismBeam: { range: 5, damage: 40, cooldown: 1.7, speed: 0, style: "beam", vs: { infantry: 0.4, light: 1, heavy: 1.1, building: 0.8 } },
+    resonance: { range: 7.5, minRange: 2, damage: 60, cooldown: 3.2, speed: 7, style: "arc", splash: 1.6, vs: { infantry: 1.6, light: 0.7, heavy: 0.4, building: 0.8 } },
+    // Reclaimer scrap weapons.
+    scattergun: { range: 2.5, damage: 18, cooldown: 1.1, speed: 0, style: "tracer", vs: { infantry: 1.3, light: 0.6, heavy: 0.2, building: 0.3 } },
+    flamer: { range: 2.5, damage: 6, cooldown: 0.15, speed: 0, style: "flame", vs: { infantry: 1.4, light: 0.7, heavy: 0.3, building: 1 } },
+    autocannon: { range: 4, damage: 22, cooldown: 0.8, speed: 11, style: "shell", vs: { infantry: 0.6, light: 1, heavy: 0.8, building: 0.6 } },
+    mortar: { range: 6.5, minRange: 2, damage: 45, cooldown: 2.6, speed: 6, style: "arc", splash: 1.2, vs: { infantry: 1.3, light: 0.7, heavy: 0.4, building: 0.9 } },
+    // Snipers: long reach, deadly to infantry, next to useless against armour.
+    marksmanRifle: { range: 7, damage: 75, cooldown: 3, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.12, heavy: 0.04, building: 0.04 } },
+    lancerBeam: { range: 6.5, damage: 55, cooldown: 2.5, speed: 0, style: "beam", vs: { infantry: 1, light: 0.45, heavy: 0.1, building: 0.05 } },
+    deadeyeRifle: { range: 6, damage: 65, cooldown: 2.6, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.2, heavy: 0.05, building: 0.05 } },
+    // Tech Center heavies.
+    twinCannon: { range: 5, damage: 55, cooldown: 1.1, speed: 11, style: "shell", vs: { infantry: 0.4, light: 1, heavy: 1.1, building: 0.9 } },
+    monolithBeam: { range: 6.5, damage: 120, cooldown: 2.6, speed: 0, style: "beam", vs: { infantry: 0.5, light: 1, heavy: 1.2, building: 1 } },
+    // Hero weapons.
+    vancePistols: { range: 4.5, damage: 30, cooldown: 0.55, speed: 0, style: "tracer", vs: { infantry: 1.6, light: 0.6, heavy: 0.25, building: 0.3 } },
+    seerBeam: { range: 5, damage: 32, cooldown: 0.7, speed: 0, style: "beam", vs: { infantry: 1.2, light: 1, heavy: 0.7, building: 0.4 } },
+    rookCannon: { range: 3.5, damage: 40, cooldown: 0.8, speed: 0, style: "tracer", vs: { infantry: 1.3, light: 1.1, heavy: 0.6, building: 0.6 } },
+    scrapCannon: { range: 4.5, damage: 50, cooldown: 1, speed: 10, style: "shell", splash: 0.9, vs: { infantry: 0.8, light: 1, heavy: 0.9, building: 0.8 } }
+  };
+  function weapon(kind) {
+    return WEAPONS[kind];
+  }
+  var ALERT_MARGIN = 1.5;
+  var GUARD_RADIUS = 7;
+  var LEASH = 11;
+  var CRYSTALS = {
+    /** A tile never holds more than this. */
+    maxPerTile: 500,
+    /** Units regrown per second on any tile that still has some crystal. */
+    regrowRate: 1.5,
+    /** Chance per second that a well-stocked tile seeds an empty neighbour. */
+    spreadChance: 4e-3,
+    /** A tile needs at least this much before it can spread. */
+    spreadMin: 300,
+    /** How much a freshly seeded tile starts with. */
+    seedAmount: 60,
+    /** Spreading (and storm seeding) stops once the map holds this many times its starting crystal. */
+    capFactor: 2.5,
+    /** How often growth is applied. */
+    interval: 1
+  };
+  var STORMS = {
+    firstSpawn: 200,
+    /** Gap before the next storm after one passes (random in this range). */
+    gapMin: 90,
+    gapMax: 150,
+    radius: 3.5,
+    speed: 1.1,
+    /** Damage per second inside the storm, by armour class. */
+    damage: { infantry: 14, light: 10, heavy: 5, building: 2 },
+    /** Tiles per second the storm seeds with new crystal as it passes. */
+    seedRate: 3,
+    seedAmount: 150
+  };
+  var SIGHT = {
+    infantry: 4,
+    glasswalker: 4.5,
+    skimmer: 6.5,
+    prismTank: 5.5,
+    resonator: 5,
+    scrapper: 4,
+    junker: 6,
+    wrecker: 5,
+    mortarCrawler: 5,
+    medic: 4,
+    mender: 4.5,
+    mechanic: 4,
+    marksman: 7.5,
+    lancer: 7,
+    deadeye: 7,
+    bastion: 5.5,
+    monolith: 6,
+    titan: 5,
+    vance: 6,
+    seer: 7,
+    rook: 5,
+    rocketInfantry: 4,
+    quad: 6,
+    raider: 7,
+    tank: 5,
+    artillery: 5,
+    harvester: 4,
+    building: 5,
+    turret: 6.5,
+    rocketTurret: 8
+  };
+  var FOG_INTERVAL = 0.2;
+  var FACTION_IDS = ["concord", "shardbound", "reclaimers"];
+  var UNIT_STATS = {
+    infantry: { label: "Infantry", speed: 1.2, maxHp: 50, radius: 5, cost: 60, producer: "barracks", needs: null, armor: "infantry", weapon: "rifle", faction: "concord" },
+    rocketInfantry: { label: "Rocket Trooper", speed: 1.1, maxHp: 45, radius: 5, cost: 100, producer: "barracks", needs: null, armor: "infantry", weapon: "rocket", faction: "any" },
+    quad: { label: "Quad", speed: 3.5, maxHp: 120, radius: 9, cost: 300, producer: "lightFactory", needs: null, armor: "light", weapon: "mg", faction: "concord" },
+    raider: { label: "Raider", speed: 4.6, maxHp: 80, radius: 8, cost: 150, producer: "lightFactory", needs: null, armor: "light", weapon: "raiderGun", faction: "any" },
+    tank: { label: "Tank", speed: 2, maxHp: 450, radius: 11, cost: 700, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "cannon", faction: "concord" },
+    artillery: { label: "Artillery", speed: 1.5, maxHp: 160, radius: 11, cost: 800, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "artilleryShell", faction: "concord" },
+    harvester: { label: "Harvester", speed: 1.6, maxHp: 400, radius: 13, cost: 1100, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
+    glasswalker: { label: "Glasswalker", speed: 1.3, maxHp: 55, radius: 5, cost: 70, producer: "barracks", needs: null, armor: "infantry", weapon: "shardRifle", faction: "shardbound" },
+    skimmer: { label: "Skimmer", speed: 4.2, maxHp: 100, radius: 9, cost: 280, producer: "lightFactory", needs: null, armor: "light", weapon: "shardRepeater", faction: "shardbound" },
+    prismTank: { label: "Prism Tank", speed: 2.3, maxHp: 380, radius: 11, cost: 750, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "prismBeam", faction: "shardbound" },
+    resonator: { label: "Resonator", speed: 1.6, maxHp: 150, radius: 11, cost: 800, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "resonance", faction: "shardbound" },
+    scrapper: { label: "Scrapper", speed: 1.3, maxHp: 50, radius: 5, cost: 60, producer: "barracks", needs: null, armor: "infantry", weapon: "scattergun", faction: "reclaimers" },
+    junker: { label: "Junker", speed: 4, maxHp: 95, radius: 8, cost: 250, producer: "lightFactory", needs: null, armor: "light", weapon: "flamer", faction: "reclaimers" },
+    wrecker: { label: "Wrecker", speed: 1.9, maxHp: 400, radius: 11, cost: 600, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "autocannon", faction: "reclaimers" },
+    mortarCrawler: { label: "Mortar Crawler", speed: 1.4, maxHp: 140, radius: 10, cost: 600, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "mortar", faction: "reclaimers" },
+    // Support infantry (see HEALERS) and snipers.
+    medic: { label: "Field Medic", speed: 1.3, maxHp: 60, radius: 5, cost: 200, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "concord" },
+    mender: { label: "Mender", speed: 1.3, maxHp: 65, radius: 5, cost: 250, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "shardbound" },
+    mechanic: { label: "Mechanic", speed: 1.3, maxHp: 60, radius: 5, cost: 200, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "reclaimers" },
+    marksman: { label: "Marksman", speed: 1.1, maxHp: 45, radius: 5, cost: 450, producer: "barracks", needs: "radar", armor: "infantry", weapon: "marksmanRifle", faction: "concord" },
+    lancer: { label: "Lancer", speed: 1.2, maxHp: 50, radius: 5, cost: 450, producer: "barracks", needs: "radar", armor: "infantry", weapon: "lancerBeam", faction: "shardbound" },
+    deadeye: { label: "Deadeye", speed: 1.2, maxHp: 45, radius: 5, cost: 420, producer: "barracks", needs: "radar", armor: "infantry", weapon: "deadeyeRifle", faction: "reclaimers" },
+    // Top tier: needs a Tech Center.
+    bastion: { label: "Bastion", speed: 1.5, maxHp: 900, radius: 13, cost: 1600, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "twinCannon", faction: "concord" },
+    monolith: { label: "Monolith", speed: 1.6, maxHp: 700, radius: 13, cost: 1600, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "monolithBeam", faction: "shardbound" },
+    // Heroes (see HEROES): one per side at a time.
+    vance: { label: "Captain Vance", speed: 1.6, maxHp: 400, radius: 6, cost: 2e3, producer: "barracks", needs: "techCenter", armor: "infantry", weapon: "vancePistols", faction: "concord" },
+    seer: { label: "The Seer", speed: 1.5, maxHp: 350, radius: 6, cost: 2e3, producer: "barracks", needs: "techCenter", armor: "infantry", weapon: "seerBeam", faction: "shardbound" },
+    rook: { label: "Boss Rook", speed: 1.4, maxHp: 480, radius: 6, cost: 2e3, producer: "barracks", needs: "techCenter", armor: "infantry", weapon: "rookCannon", faction: "reclaimers" },
+    titan: { label: "Scrap Titan", speed: 1.3, maxHp: 1e3, radius: 14, cost: 1500, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "scrapCannon", faction: "reclaimers" }
+  };
+  var RESEARCH = {
+    compositeArmor: { label: "Composite Armour", faction: "concord", cost: 1500, blurb: "Vehicles take a further 15% less damage.", effect: { vehicleArmor: 0.85 } },
+    longBarrels: { label: "Long Barrels", faction: "concord", cost: 1500, blurb: "Unit weapons reach 15% further.", effect: { range: 1.15 } },
+    logistics: { label: "Logistics", faction: "concord", cost: 1200, blurb: "Everything is built 25% faster.", effect: { buildSpeed: 1.25 } },
+    fieldTraining: { label: "Field Training", faction: "concord", cost: 2e3, blurb: "New units arrive as Veterans.", effect: { startRank: 1 } },
+    deepResonance: { label: "Deep Resonance", faction: "shardbound", cost: 1200, blurb: "Crystal heals your units 2.5x as fast.", effect: { regen: 2.5 } },
+    stormRiders: { label: "Storm Riders", faction: "shardbound", cost: 1500, blurb: "Storms can't hurt your units, and they move 10% faster.", effect: { storm: 0, speed: 1.1 } },
+    prismFocus: { label: "Prism Focus", faction: "shardbound", cost: 1800, blurb: "Unit weapons deal 15% more damage.", effect: { damage: 1.15 } },
+    communion: { label: "Shard Communion", faction: "shardbound", cost: 2e3, blurb: "New units arrive as Veterans.", effect: { startRank: 1 } },
+    scrapPlating: { label: "Scrap Plating", faction: "reclaimers", cost: 1500, blurb: "All units take 10% less damage.", effect: { armor: 0.9 } },
+    stripThemBare: { label: "Strip Them Bare", faction: "reclaimers", cost: 1200, blurb: "Salvage pays 50% of a wreck's cost instead of 25%.", effect: { salvage: 0.25 } },
+    overclocked: { label: "Overclocked Engines", faction: "reclaimers", cost: 1500, blurb: "Units move 20% faster.", effect: { speed: 1.2 } },
+    hardKnocks: { label: "Hard Knocks", faction: "reclaimers", cost: 2e3, blurb: "New units arrive as Veterans.", effect: { startRank: 1 } }
+  };
+  var HEROES = {
+    vance: { ability: "Demolition Charge", kind: "charge", cooldown: 45, blurb: "Plants a charge on an enemy building next to him; it blows 3 seconds later." },
+    seer: { ability: "Crystal Ward", kind: "ward", cooldown: 40, blurb: "Friendly units nearby take 60% less damage for 8 seconds." },
+    rook: { ability: "Call the Crew", kind: "crew", cooldown: 60, blurb: "Three Scrappers turn up to help." }
+  };
+  var HEALERS = {
+    medic: { amount: 10, interval: 0.5, range: 2.5, seek: 6, treats: "infantry" },
+    mender: { amount: 6, interval: 0.5, range: 3, seek: 6, treats: "all" },
+    mechanic: { amount: 14, interval: 0.6, range: 2, seek: 6, treats: "vehicles" }
+  };
+  var FACTIONS = {
+    concord: {
+      label: "Concord",
+      blurb: "The colony company's security force, left behind when the company fled. Armoured, conventional, dependable.",
+      perks: ["Reinforced: vehicles take 15% less damage"],
+      /** Damage multiplier for this side's vehicles. */
+      vehicleArmor: 0.85,
+      stormDamage: 1,
+      /** Hit points per second regained while standing on crystal. */
+      crystalRegen: 0,
+      /** Multiplier on unit prices. */
+      costFactor: 1,
+      /** Share of an enemy unit's cost paid out when it is destroyed. */
+      salvage: 0
+    },
+    shardbound: {
+      label: "Shardbound",
+      blurb: "Settlers who stayed through the storms and learned to live with the crystal. Fast, strange, glass-powered.",
+      perks: ["Storm-hardened: 60% less storm damage", "Crystal-healing: units slowly repair on crystal"],
+      vehicleArmor: 1,
+      stormDamage: 0.4,
+      crystalRegen: 4,
+      costFactor: 1,
+      salvage: 0
+    },
+    reclaimers: {
+      label: "Reclaimers",
+      blurb: "Scavenger clans from the ash wastes who strip every wreck and rebuild it into weapons. Cheap, scrappy, numerous.",
+      perks: ["Scrounged: units cost 15% less", "Salvage: destroyed enemy units pay out 25% of their cost"],
+      vehicleArmor: 1,
+      stormDamage: 1,
+      crystalRegen: 0,
+      costFactor: 0.85,
+      salvage: 0.25
+    }
+  };
+  var EQUIVALENT = {
+    concord: {},
+    shardbound: { infantry: "glasswalker", quad: "skimmer", tank: "prismTank", artillery: "resonator", medic: "mender", marksman: "lancer", bastion: "monolith", vance: "seer" },
+    reclaimers: { infantry: "scrapper", quad: "junker", tank: "wrecker", artillery: "mortarCrawler", medic: "mechanic", marksman: "deadeye", bastion: "titan", vance: "rook" }
+  };
+  function unitCost(faction, kind) {
+    return Math.round(UNIT_STATS[kind].cost * FACTIONS[faction].costFactor);
+  }
+  function factionUnit(faction, role) {
+    return EQUIVALENT[faction][role] ?? role;
+  }
+  function canTrain(faction, kind) {
+    const f = UNIT_STATS[kind].faction;
+    return f === "any" || f === faction;
+  }
+  var HARVESTER = {
+    /** Resource units a full harvester carries. 1 unit = 1 credit. */
+    capacity: 700,
+    /** Units scooped per second while sitting on a field tile. */
+    harvestRate: 50,
+    /** Units credited per second while docked at a refinery. */
+    unloadRate: 200,
+    /** How far (tiles) to look for a new field when the current one runs dry. */
+    searchRadius: 24,
+    /** How far to look for the next tile within the same field. */
+    fieldRadius: 6
+  };
+  var BUILDING_STATS = {
+    yard: { label: "Construction Yard", w: 3, h: 3, maxHp: 1e3, cost: 0, power: 0, requires: null, weapon: null },
+    power: { label: "Power Plant", w: 2, h: 2, maxHp: 500, cost: 300, power: 100, requires: "yard", weapon: null },
+    refinery: { label: "Refinery", w: 3, h: 2, maxHp: 900, cost: 1500, power: -30, requires: "power", weapon: null },
+    barracks: { label: "Barracks", w: 2, h: 2, maxHp: 600, cost: 300, power: -20, requires: "power", weapon: null },
+    turret: { label: "Gun Turret", w: 1, h: 1, maxHp: 700, cost: 600, power: -15, requires: "barracks", weapon: "turretGun" },
+    lightFactory: { label: "Light Factory", w: 3, h: 2, maxHp: 700, cost: 400, power: -25, requires: "refinery", weapon: null },
+    radar: { label: "Radar Outpost", w: 2, h: 2, maxHp: 600, cost: 800, power: -30, requires: "refinery", weapon: null },
+    heavyFactory: { label: "Heavy Factory", w: 3, h: 3, maxHp: 1e3, cost: 1e3, power: -35, requires: "lightFactory", weapon: null },
+    repairPad: { label: "Repair Pad", w: 2, h: 2, maxHp: 600, cost: 700, power: -20, requires: "heavyFactory", weapon: null },
+    rocketTurret: { label: "Rocket Turret", w: 1, h: 1, maxHp: 650, cost: 900, power: -25, requires: "radar", weapon: "turretRocket" },
+    techCenter: { label: "Tech Center", w: 3, h: 3, maxHp: 1e3, cost: 1500, power: -50, requires: "radar", weapon: null }
+  };
+  var DRIVABLE_BUILDINGS = ["repairPad"];
+  var REPAIR = { rate: 30, costPerHp: 0.5 };
+  var BUILDABLE = ["power", "refinery", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter"];
+  var TRAINABLE = [
+    "infantry",
+    "glasswalker",
+    "scrapper",
+    "rocketInfantry",
+    "medic",
+    "mender",
+    "mechanic",
+    "marksman",
+    "lancer",
+    "deadeye",
+    "vance",
+    "seer",
+    "rook",
+    "quad",
+    "skimmer",
+    "junker",
+    "raider",
+    "tank",
+    "prismTank",
+    "wrecker",
+    "artillery",
+    "resonator",
+    "mortarCrawler",
+    "bastion",
+    "monolith",
+    "titan",
+    "harvester"
+  ];
+  var STRIP = { frames: 32, size: 96, scale: 0.5 };
+  var UNIT_SPRITES = {
+    tank: STRIP,
+    harvester: STRIP,
+    quad: STRIP,
+    infantry: STRIP,
+    rocketInfantry: STRIP,
+    raider: STRIP,
+    artillery: STRIP,
+    glasswalker: STRIP,
+    skimmer: STRIP,
+    prismTank: STRIP,
+    resonator: STRIP,
+    scrapper: STRIP,
+    junker: STRIP,
+    wrecker: STRIP,
+    mortarCrawler: STRIP,
+    medic: STRIP,
+    mender: STRIP,
+    mechanic: STRIP,
+    marksman: STRIP,
+    lancer: STRIP,
+    deadeye: STRIP,
+    bastion: STRIP,
+    monolith: STRIP,
+    titan: STRIP,
+    vance: STRIP,
+    seer: STRIP,
+    rook: STRIP
+  };
+  var TURRET_SPRITES = {
+    turret: STRIP,
+    rocketTurret: STRIP
+  };
+  var BUILDING_SPRITE = { marginX: 16, marginY: 48, scale: 0.5 };
+  function buildTime(cost) {
+    return Math.max(MIN_BUILD_TIME, cost / BUILD_RATE);
+  }
+
+  // src/rng.ts
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = a + 1831565813 >>> 0;
+      let t = a;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // src/map.ts
+  var Terrain = { Sand: 0, Rock: 1, Cliff: 2 };
+  function idx(m, x, y) {
+    return y * m.w + x;
+  }
+  function inBounds(m, x, y) {
+    return x >= 0 && y >= 0 && x < m.w && y < m.h;
+  }
+  function isPassable(m, x, y) {
+    if (!inBounds(m, x, y)) return false;
+    const i = idx(m, x, y);
+    return m.terrain[i] !== Terrain.Cliff && m.blocked[i] !== 1;
+  }
+  function isBuildable(m, x, y) {
+    if (!inBounds(m, x, y)) return false;
+    const i = idx(m, x, y);
+    return m.terrain[i] === Terrain.Rock && m.blocked[i] === 0;
+  }
+  function nearestPassable(m, p, maxR = 12) {
+    if (isPassable(m, p.x, p.y)) return { x: p.x, y: p.y };
+    for (let r = 1; r <= maxR; r++) {
+      let best = null;
+      let bestD = Infinity;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = p.x + dx;
+          const y = p.y + dy;
+          if (!isPassable(m, x, y)) continue;
+          const d = dx * dx + dy * dy;
+          if (d < bestD) {
+            bestD = d;
+            best = { x, y };
+          }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+  function findNearestSpice(m, from, maxR, exclude = /* @__PURE__ */ new Set()) {
+    const startTile = nearestPassable(m, from);
+    if (!startTile) return null;
+    const seen = new Uint8Array(m.w * m.h);
+    const queue = [idx(m, startTile.x, startTile.y)];
+    seen[queue[0]] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head];
+      const x = i % m.w;
+      const y = (i - x) / m.w;
+      if (m.spice[i] > 0 && !exclude.has(i)) return { x, y };
+      for (const [dx, dy] of NEIGHBOURS_4) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (Math.max(Math.abs(nx - from.x), Math.abs(ny - from.y)) > maxR) continue;
+        if (!isPassable(m, nx, ny)) continue;
+        const ni = idx(m, nx, ny);
+        if (seen[ni]) continue;
+        seen[ni] = 1;
+        queue.push(ni);
+      }
+    }
+    return null;
+  }
+  var NEIGHBOURS_4 = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ];
+  function valueNoise(rng, w, h, cell) {
+    const gw = Math.ceil(w / cell) + 2;
+    const gh = Math.ceil(h / cell) + 2;
+    const grid = new Float32Array(gw * gh);
+    for (let i = 0; i < grid.length; i++) grid[i] = rng();
+    const out = new Float32Array(w * h);
+    const smooth2 = (t) => t * t * (3 - 2 * t);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const gx = x / cell;
+        const gy = y / cell;
+        const x0 = Math.floor(gx);
+        const y0 = Math.floor(gy);
+        const tx = smooth2(gx - x0);
+        const ty = smooth2(gy - y0);
+        const a = grid[y0 * gw + x0];
+        const b = grid[y0 * gw + x0 + 1];
+        const c = grid[(y0 + 1) * gw + x0];
+        const d = grid[(y0 + 1) * gw + x0 + 1];
+        out[y * w + x] = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+      }
+    }
+    return out;
+  }
+  var PLATEAU = { x: 14, y: 13, r: 10 };
+  var BASE_OFFSET = { x: -4, y: -3 };
+  var FIELD_GRID = 20;
+  function mirror(m, p) {
+    return { x: m.w - 1 - p.x, y: m.h - 1 - p.y };
+  }
+  function generateMap(seed, w = MAP_W, h = MAP_H) {
+    const rng = mulberry32(seed);
+    const n1 = valueNoise(rng, w, h, 16);
+    const n2 = valueNoise(rng, w, h, 8);
+    const n3 = valueNoise(rng, w, h, 4);
+    const enemyPlateau = { ...mirror({ w, h }, PLATEAU), r: PLATEAU.r };
+    const m = {
+      w,
+      h,
+      terrain: new Uint8Array(w * h),
+      spice: new Float32Array(w * h),
+      blocked: new Uint8Array(w * h),
+      shade: new Float32Array(w * h),
+      start: { x: PLATEAU.x + BASE_OFFSET.x, y: PLATEAU.y + BASE_OFFSET.y },
+      enemyStart: { x: enemyPlateau.x + BASE_OFFSET.x, y: enemyPlateau.y + BASE_OFFSET.y },
+      fields: []
+    };
+    for (let i = 0; i < w * h; i++) {
+      const n = 0.6 * n1[i] + 0.3 * n2[i] + 0.1 * n3[i];
+      m.terrain[i] = n > 0.72 ? Terrain.Cliff : n > 0.58 ? Terrain.Rock : Terrain.Sand;
+      m.shade[i] = rng();
+    }
+    for (const p of [PLATEAU, enemyPlateau]) {
+      forDisc(m, p.x, p.y, p.r, (i) => {
+        m.terrain[i] = Terrain.Rock;
+      });
+    }
+    const firstHalf = (p) => idx(m, p.x, p.y) < w * h / 2;
+    const angle = rng() * (Math.PI / 2);
+    const home = {
+      x: Math.round(PLATEAU.x + Math.cos(angle) * 17),
+      y: Math.round(PLATEAU.y + Math.sin(angle) * 17)
+    };
+    addField(m, rng, home, 5, true);
+    for (let gy = 0; gy * FIELD_GRID < h; gy++) {
+      for (let gx = 0; gx * FIELD_GRID < w; gx++) {
+        const c = {
+          x: Math.floor(gx * FIELD_GRID + FIELD_GRID / 2 + (rng() - 0.5) * FIELD_GRID * 0.5),
+          y: Math.floor(gy * FIELD_GRID + FIELD_GRID / 2 + (rng() - 0.5) * FIELD_GRID * 0.5)
+        };
+        if (!inBounds(m, c.x, c.y) || !firstHalf(c)) continue;
+        if (Math.hypot(c.x - PLATEAU.x, c.y - PLATEAU.y) < PLATEAU.r + 6) continue;
+        if (Math.hypot(c.x - enemyPlateau.x, c.y - enemyPlateau.y) < enemyPlateau.r + 6) continue;
+        if (m.fields.some((f) => Math.hypot(f.x - c.x, f.y - c.y) < 9)) continue;
+        addField(m, rng, c, 3 + Math.floor(rng() * 2), true);
+      }
+    }
+    connectFields(m, [{ x: Math.floor(w / 2), y: Math.floor(h / 2) - 1 }]);
+    for (let i = Math.ceil(w * h / 2); i < w * h; i++) {
+      m.terrain[i] = m.terrain[w * h - 1 - i];
+      m.spice[i] = m.spice[w * h - 1 - i];
+    }
+    for (const f of [...m.fields]) m.fields.push(mirror(m, f));
+    return m;
+  }
+  function forDisc(m, cx, cy, r, fn) {
+    for (let y = cy - r; y <= cy + r; y++) {
+      for (let x = cx - r; x <= cx + r; x++) {
+        if (!inBounds(m, x, y)) continue;
+        const d = Math.hypot(x - cx, y - cy);
+        if (d <= r) fn(idx(m, x, y), d);
+      }
+    }
+  }
+  function addField(m, rng, c, r, forceSand) {
+    const cx = Math.min(m.w - 1, Math.max(0, c.x));
+    const cy = Math.min(m.h - 1, Math.max(0, c.y));
+    m.fields.push({ x: cx, y: cy });
+    forDisc(m, cx, cy, r, (i, d) => {
+      if (forceSand) m.terrain[i] = Terrain.Sand;
+      if (m.terrain[i] !== Terrain.Sand) return;
+      const edge = d / r;
+      if (edge > 0.7 && rng() < 0.4) return;
+      m.spice[i] = Math.round(150 + 350 * (1 - edge) * (0.7 + 0.3 * rng()));
+    });
+  }
+  function connectFields(m, extra = []) {
+    const reach = reachableFrom(m, { x: PLATEAU.x, y: PLATEAU.y });
+    for (const f of [...m.fields, ...extra]) {
+      if (reach[idx(m, f.x, f.y)]) continue;
+      carveLine(m, { x: PLATEAU.x, y: PLATEAU.y }, f);
+    }
+  }
+  function reachableFrom(m, p) {
+    const seen = new Uint8Array(m.w * m.h);
+    const queue = [idx(m, p.x, p.y)];
+    seen[queue[0]] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head];
+      const x = i % m.w;
+      const y = (i - x) / m.w;
+      for (const [dx, dy] of NEIGHBOURS_4) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (!isPassable(m, nx, ny)) continue;
+        const ni = idx(m, nx, ny);
+        if (seen[ni]) continue;
+        seen[ni] = 1;
+        queue.push(ni);
+      }
+    }
+    return seen;
+  }
+  function carveLine(m, a, b) {
+    const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    for (let s = 0; s <= steps; s++) {
+      const x = Math.round(a.x + (b.x - a.x) * s / steps);
+      const y = Math.round(a.y + (b.y - a.y) * s / steps);
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1]]) {
+        if (!inBounds(m, x + dx, y + dy)) continue;
+        const i = idx(m, x + dx, y + dy);
+        if (m.terrain[i] === Terrain.Cliff) m.terrain[i] = Terrain.Rock;
+      }
+    }
+  }
+
+  // src/path.ts
+  var SQRT2 = Math.SQRT2;
+  var DIRS = [
+    [1, 0, 1],
+    [-1, 0, 1],
+    [0, 1, 1],
+    [0, -1, 1],
+    [1, 1, SQRT2],
+    [1, -1, SQRT2],
+    [-1, 1, SQRT2],
+    [-1, -1, SQRT2]
+  ];
+  function octile(ax, ay, bx, by) {
+    const dx = Math.abs(ax - bx);
+    const dy = Math.abs(ay - by);
+    return dx + dy + (SQRT2 - 2) * Math.min(dx, dy);
+  }
+  var Heap = class {
+    items = [];
+    score;
+    constructor(score) {
+      this.score = score;
+    }
+    get size() {
+      return this.items.length;
+    }
+    push(i) {
+      const a = this.items;
+      a.push(i);
+      let c = a.length - 1;
+      while (c > 0) {
+        const p = c - 1 >> 1;
+        if (this.score[a[p]] <= this.score[a[c]]) break;
+        [a[p], a[c]] = [a[c], a[p]];
+        c = p;
+      }
+    }
+    pop() {
+      const a = this.items;
+      const top = a[0];
+      const last = a.pop();
+      if (a.length > 0) {
+        a[0] = last;
+        let p = 0;
+        for (; ; ) {
+          const l = 2 * p + 1;
+          const r = l + 1;
+          let m = p;
+          if (l < a.length && this.score[a[l]] < this.score[a[m]]) m = l;
+          if (r < a.length && this.score[a[r]] < this.score[a[m]]) m = r;
+          if (m === p) break;
+          [a[p], a[m]] = [a[m], a[p]];
+          p = m;
+        }
+      }
+      return top;
+    }
+  };
+  function findPath(m, start2, goal, maxNodes = 2e4, extraCost) {
+    const target = nearestPassable(m, goal);
+    if (!target) return [];
+    if (start2.x === target.x && start2.y === target.y) return [];
+    const n = m.w * m.h;
+    const g = new Float64Array(n).fill(Infinity);
+    const f = new Float64Array(n).fill(Infinity);
+    const from = new Int32Array(n).fill(-1);
+    const closed = new Uint8Array(n);
+    const open = new Heap(f);
+    const s = idx(m, start2.x, start2.y);
+    const t = idx(m, target.x, target.y);
+    g[s] = 0;
+    f[s] = octile(start2.x, start2.y, target.x, target.y);
+    open.push(s);
+    let best = s;
+    let bestH = f[s];
+    let expanded = 0;
+    while (open.size > 0 && expanded < maxNodes) {
+      const cur = open.pop();
+      if (closed[cur]) continue;
+      closed[cur] = 1;
+      expanded++;
+      if (cur === t) {
+        best = t;
+        break;
+      }
+      const cx = cur % m.w;
+      const cy = (cur - cx) / m.w;
+      const h = octile(cx, cy, target.x, target.y);
+      if (h < bestH) {
+        bestH = h;
+        best = cur;
+      }
+      for (const [dx, dy, cost] of DIRS) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (!isPassable(m, nx, ny)) continue;
+        if (dx !== 0 && dy !== 0 && (!isPassable(m, cx + dx, cy) || !isPassable(m, cx, cy + dy))) continue;
+        const ni = idx(m, nx, ny);
+        if (closed[ni]) continue;
+        const ng = g[cur] + cost + (extraCost ? extraCost(ni) : 0);
+        if (ng < g[ni]) {
+          g[ni] = ng;
+          f[ni] = ng + octile(nx, ny, target.x, target.y);
+          from[ni] = cur;
+          open.push(ni);
+        }
+      }
+    }
+    const path = [];
+    for (let i = best; i !== s && i !== -1; i = from[i]) {
+      const x = i % m.w;
+      path.push({ x, y: (i - x) / m.w });
+    }
+    return path.reverse();
+  }
+
+  // src/events.ts
+  var MAX_EVENTS = 96;
+  function emit(g, e) {
+    if (g.events.length < MAX_EVENTS) g.events.push(e);
+  }
+  function announce(g, line, gap = 0) {
+    const last = g.announced[line] ?? -Infinity;
+    if (g.time - last < gap) return;
+    g.announced[line] = g.time;
+    emit(g, { kind: "announce", line });
+  }
+
+  // src/veterancy.ts
+  var RANK_NAMES = ["", "Veteran", "Elite", "Heroic"];
+  var MAX_RANK = 3;
+  var VETERANCY = {
+    /** Damage needed per rank, as a multiple of the unit's cost. */
+    xpPerCost: 1.5,
+    /** Healing counts this many times over (healers don't fight). */
+    healXp: 2,
+    armor: 0.85,
+    cooldown: 0.9,
+    damage: 1.2,
+    sight: 1,
+    /** Heroic units regain this share of max health per second... */
+    regen: 0.015,
+    /** ...once this many seconds have passed since they were last hit. */
+    regenDelay: 4
+  };
+  function xpPerRank(u) {
+    return Math.max(100, UNIT_STATS[u.kind].cost) * VETERANCY.xpPerCost;
+  }
+  var rankArmor = (u) => u.rank >= 1 ? VETERANCY.armor : 1;
+  var rankCooldown = (u) => u.rank >= 1 ? VETERANCY.cooldown : 1;
+  var rankDamage = (u) => u.rank >= 2 ? VETERANCY.damage : 1;
+  var rankSight = (u) => u.rank >= 2 ? VETERANCY.sight : 0;
+  function gainXp(g, u, amount) {
+    if (u.rank >= MAX_RANK || amount <= 0) return;
+    u.xp += amount;
+    const per = xpPerRank(u);
+    while (u.rank < MAX_RANK && u.xp >= per) {
+      u.xp -= per;
+      u.rank++;
+      if (u.owner === g.local) {
+        notify(g, `${UNIT_STATS[u.kind].label} promoted: ${RANK_NAMES[u.rank]}`);
+        emit(g, { kind: "promote", x: u.x, y: u.y });
+        announce(g, "unit_promoted", 3);
+      }
+    }
+    if (u.rank >= MAX_RANK) u.xp = 0;
+  }
+  function updateVeterancy(g, dt) {
+    for (const u of g.units) {
+      if (u.rank < 3 || g.time - u.hitAt < VETERANCY.regenDelay) continue;
+      const max = UNIT_STATS[u.kind].maxHp;
+      u.hp = Math.min(max, u.hp + max * VETERANCY.regen * dt);
+    }
+  }
+
+  // src/fog.ts
+  function createFog(w, h, enabled) {
+    const fog = { enabled, explored: new Uint8Array(w * h), visible: new Uint8Array(w * h), timer: 0 };
+    if (!enabled) {
+      fog.explored.fill(1);
+      fog.visible.fill(1);
+    }
+    return fog;
+  }
+  function reveal(fog, g, cx, cy, r) {
+    const { explored, visible } = fog;
+    const r2 = r * r;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(g.map, x, y)) continue;
+        const dx = x + 0.5 - cx;
+        const dy = y + 0.5 - cy;
+        if (dx * dx + dy * dy > r2) continue;
+        const i = idx(g.map, x, y);
+        visible[i] = 1;
+        explored[i] = 1;
+      }
+    }
+  }
+  function refreshFog(g) {
+    for (const owner of g.humans) {
+      const fog = g.fogs[owner];
+      if (!fog.enabled) continue;
+      fog.visible.fill(0);
+      for (const u of g.units) {
+        if (u.owner === owner) reveal(fog, g, u.x / TILE, u.y / TILE, SIGHT[u.kind] + rankSight(u));
+      }
+      for (const b of g.buildings) {
+        if (b.owner !== owner) continue;
+        const own2 = SIGHT[b.kind];
+        reveal(fog, g, b.tx + b.w / 2, b.ty + b.h / 2, own2 ?? SIGHT.building + Math.max(b.w, b.h) / 2);
+      }
+    }
+  }
+  function updateFog(g, dt) {
+    if (!g.fog.enabled) return;
+    g.fog.timer -= dt;
+    if (g.fog.timer > 0) return;
+    g.fog.timer = FOG_INTERVAL;
+    refreshFog(g);
+  }
+  function visibleAt(g, wx, wy, owner = g.local) {
+    const tx = Math.floor(wx / TILE);
+    const ty = Math.floor(wy / TILE);
+    return inBounds(g.map, tx, ty) && g.fogs[owner].visible[idx(g.map, tx, ty)] === 1;
+  }
+  function exploredRect(g, tx, ty, w, h, owner = g.local) {
+    const fog = g.fogs[owner];
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        if (inBounds(g.map, x, y) && fog.explored[idx(g.map, x, y)]) return true;
+      }
+    }
+    return false;
+  }
+  function visibleRect(g, tx, ty, w, h, owner = g.local) {
+    const fog = g.fogs[owner];
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        if (inBounds(g.map, x, y) && fog.visible[idx(g.map, x, y)]) return true;
+      }
+    }
+    return false;
+  }
+
+  // src/research.ts
+  var RESEARCH_SPEED = 0.5;
+  var AI_RESERVE = 1500;
+  function createResearch() {
+    return { 0: { done: [], current: null }, 1: { done: [], current: null } };
+  }
+  function researchFor(faction) {
+    return Object.keys(RESEARCH).filter((id) => RESEARCH[id].faction === faction);
+  }
+  var ADDITIVE = ["startRank", "salvage"];
+  function bonus(g, owner, key) {
+    const additive = ADDITIVE.includes(key);
+    let v = additive ? 0 : 1;
+    for (const id of g.research[owner].done) {
+      const e = RESEARCH[id].effect[key];
+      if (e === void 0) continue;
+      v = additive ? v + e : v * e;
+    }
+    return v;
+  }
+  function researchBlocked(g, owner, id) {
+    const r = g.research[owner];
+    if (RESEARCH[id].faction !== g.factions[owner]) return "Not your faction's research.";
+    if (r.done.includes(id)) return "Already researched.";
+    if (!hasBuilding(g, "techCenter", owner)) return "Requires Tech Center";
+    if (r.current) return "Already researching something.";
+    return null;
+  }
+  function startResearch(g, owner, id) {
+    if (researchBlocked(g, owner, id)) return false;
+    g.research[owner].current = { id, spent: 0 };
+    if (owner === g.local) emit(g, { kind: "buildStart" });
+    return true;
+  }
+  function cancelResearch(g, owner) {
+    const r = g.research[owner];
+    if (!r.current) return;
+    walletOf(g, owner).credits += r.current.spent;
+    r.current = null;
+    if (owner === g.local) emit(g, { kind: "cancel" });
+  }
+  function updateResearch(g, dt) {
+    if (g.result) return;
+    const ai = g.research[ENEMY];
+    if (!ai.current && !g.humans.includes(ENEMY) && g.ai.builds && g.ai.credits > AI_RESERVE) {
+      const next = researchFor(g.factions[ENEMY]).find((id) => !researchBlocked(g, ENEMY, id));
+      if (next) startResearch(g, ENEMY, next);
+    }
+    for (const owner of [PLAYER, ENEMY]) {
+      const r = g.research[owner];
+      if (!r.current || !hasBuilding(g, "techCenter", owner)) continue;
+      const wallet = walletOf(g, owner);
+      const factor = (powerInfo(g, owner).low ? LOW_POWER_FACTOR : 1) * RESEARCH_SPEED;
+      if (advance(wallet, r.current, RESEARCH[r.current.id].cost, dt, factor)) {
+        r.done.push(r.current.id);
+        if (owner === g.local) {
+          notify(g, `Research complete: ${RESEARCH[r.current.id].label}`);
+          emit(g, { kind: "structureReady" });
+          announce(g, "research_complete");
+        }
+        r.current = null;
+      }
+    }
+  }
+  function researchTime(id) {
+    return RESEARCH[id].cost / BUILD_RATE / RESEARCH_SPEED;
+  }
+
+  // src/combat.ts
+  function power(g, source) {
+    return source ? rankDamage(source) * bonus(g, source.owner, "damage") : 1;
+  }
+  function buildingCentre(b) {
+    return { x: (b.tx + b.w / 2) * TILE, y: (b.ty + b.h / 2) * TILE };
+  }
+  function targetInfo(g, id) {
+    const u = g.units.find((x) => x.id === id);
+    if (u) return { id, x: u.x, y: u.y, r: UNIT_STATS[u.kind].radius, owner: u.owner, armor: UNIT_STATS[u.kind].armor };
+    const b = g.buildings.find((x) => x.id === id);
+    if (b) {
+      const c = buildingCentre(b);
+      return { id, x: c.x, y: c.y, r: Math.min(b.w, b.h) * TILE / 2, owner: b.owner, armor: "building" };
+    }
+    return null;
+  }
+  function edgeDist(x, y, t) {
+    return Math.max(0, Math.hypot(t.x - x, t.y - y) - t.r);
+  }
+  function nearestHostile(g, owner, x, y, maxDist, minDist = 0) {
+    let best = null;
+    let bestD = Infinity;
+    const blind = g.humans.includes(owner) && g.fogs[owner].enabled;
+    for (const u of g.units) {
+      if (u.owner === owner) continue;
+      if (blind && !visibleAt(g, u.x, u.y, owner)) continue;
+      const t = targetInfo(g, u.id);
+      const d = edgeDist(x, y, t);
+      if (minDist > 0 && Math.hypot(t.x - x, t.y - y) < minDist) continue;
+      if (d <= maxDist && d < bestD) {
+        best = t;
+        bestD = d;
+      }
+    }
+    if (best) return best;
+    for (const b of g.buildings) {
+      if (b.owner === owner) continue;
+      if (blind && !visibleRect(g, b.tx, b.ty, b.w, b.h, owner)) continue;
+      const t = targetInfo(g, b.id);
+      const d = edgeDist(x, y, t);
+      if (minDist > 0 && Math.hypot(t.x - x, t.y - y) < minDist) continue;
+      if (d <= maxDist && d < bestD) {
+        best = t;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+  function addEffect(g, e) {
+    g.effects.push({ x2: e.x, y2: e.y, age: 0, size: 1, ...e });
+  }
+  function damage(g, id, amount, source, attacker) {
+    const by = attacker ?? source?.owner;
+    const u = g.units.find((x) => x.id === id);
+    if (u) {
+      if (by !== void 0 && by !== u.owner && u.owner === g.local) underAttack(g, u.x, u.y, false);
+      const vehicle = UNIT_STATS[u.kind].armor !== "infantry";
+      const armour = (vehicle ? FACTIONS[g.factions[u.owner]].vehicleArmor * bonus(g, u.owner, "vehicleArmor") : 1) * bonus(g, u.owner, "armor");
+      const dealt = Math.min(u.hp, amount * armour * rankArmor(u) * wardFactor(g, u));
+      u.hp -= dealt;
+      u.hitAt = g.time;
+      if (source && source.owner !== u.owner) gainXp(g, source, dealt);
+      if (u.hp <= 0) destroyUnit(g, u);
+      return;
+    }
+    const b = g.buildings.find((x) => x.id === id);
+    if (b) {
+      if (by !== void 0 && by !== b.owner && b.owner === g.local) {
+        const c = buildingCentre(b);
+        underAttack(g, c.x, c.y, true);
+      }
+      const dealt = Math.min(b.hp, amount);
+      b.hp -= dealt;
+      if (source && source.owner !== b.owner) gainXp(g, source, dealt);
+      if (b.hp <= 0) destroyBuilding(g, b);
+    }
+  }
+  function destroyUnit(g, u) {
+    g.units = g.units.filter((x) => x !== u);
+    g.selection.delete(u.id);
+    const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
+    emit(g, { kind: "explode", big, x: u.x, y: u.y });
+    addEffect(g, { kind: big ? "bigBoom" : "boom", x: u.x, y: u.y, life: big ? 0.8 : 0.5, size: big ? 1.4 : u.kind === "infantry" ? 0.5 : 1 });
+    if (isHero(u.kind)) notify(g, u.owner === g.local ? `${UNIT_STATS[u.kind].label} has fallen!` : `Enemy hero ${UNIT_STATS[u.kind].label} is down!`);
+    if (u.owner === g.local && isHero(u.kind)) emit(g, { kind: "heroVoice", unit: u.kind, line: "fallen" });
+    else if (u.owner === g.local && u.kind !== "harvester") announce(g, "unit_lost", 6);
+    if (u.owner === g.local && u.kind === "harvester") {
+      announce(g, "harvester_lost");
+      notify(g, "Harvester lost");
+    }
+    if (u.owner === PLAYER && u.kind === "harvester") {
+      g.stats.harvestersLost++;
+    }
+    if (u.owner === ENEMY) g.stats.enemyUnitsDestroyed++;
+    const rival = u.owner === PLAYER ? ENEMY : PLAYER;
+    const share = FACTIONS[g.factions[rival]].salvage + bonus(g, rival, "salvage");
+    if (share > 0) {
+      const payout = unitCost(g.factions[u.owner], u.kind) * share;
+      walletOf(g, rival).credits += payout;
+    }
+  }
+  function destroyBuilding(g, b) {
+    g.buildings = g.buildings.filter((x) => x !== b);
+    for (let y = b.ty; y < b.ty + b.h; y++) {
+      for (let x = b.tx; x < b.tx + b.w; x++) {
+        if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = 0;
+      }
+    }
+    if (g.selectedBuilding === b.id) g.selectedBuilding = null;
+    const c = buildingCentre(b);
+    emit(g, { kind: "explode", big: true, x: c.x, y: c.y });
+    addEffect(g, { kind: "bigBoom", x: c.x, y: c.y, life: 1.1, size: 1 + Math.max(b.w, b.h) * 0.6 });
+    notify(g, b.owner === g.local ? `${BUILDING_STATS[b.kind].label} destroyed` : `Enemy ${BUILDING_STATS[b.kind].label} destroyed`);
+    if (b.owner === g.local) announce(g, "structure_lost", 3);
+  }
+  function fire(g, owner, x, y, weapon2, t, source) {
+    const w = weapon(weapon2);
+    emit(g, { kind: "shot", weapon: weapon2, x, y });
+    if (w.speed === 0) {
+      const look2 = w.style === "beam" ? "beam" : w.style === "flame" ? "flame" : "tracer";
+      addEffect(g, { kind: look2, x: t.x, y: t.y, x2: x, y2: y, life: look2 === "beam" ? 0.14 : look2 === "flame" ? 0.18 : 0.08 });
+      addEffect(g, { kind: "hit", x: t.x + (Math.random() - 0.5) * t.r, y: t.y + (Math.random() - 0.5) * t.r, life: 0.2, size: 0.5 });
+      damage(g, t.id, w.damage * w.vs[t.armor] * power(g, source), source, owner);
+    } else {
+      g.projectiles.push({ x, y, sx: x, sy: y, targetId: t.id, tx: t.x, ty: t.y, weapon: weapon2, style: w.style, owner, sourceId: source?.id ?? null, puff: 0 });
+    }
+  }
+  function splashDamage(g, owner, x, y, weapon2, source) {
+    const w = weapon(weapon2);
+    const r = (w.splash ?? 0) * TILE;
+    const hits = [];
+    for (const u of g.units) {
+      if (u.owner === owner) continue;
+      const d = Math.hypot(u.x - x, u.y - y);
+      if (d <= r) hits.push({ id: u.id, d, armor: UNIT_STATS[u.kind].armor });
+    }
+    for (const b of g.buildings) {
+      if (b.owner === owner) continue;
+      const c = buildingCentre(b);
+      const d = Math.max(0, Math.hypot(c.x - x, c.y - y) - Math.min(b.w, b.h) * TILE / 2);
+      if (d <= r) hits.push({ id: b.id, d, armor: "building" });
+    }
+    const mult = power(g, source);
+    for (const h of hits) damage(g, h.id, w.damage * w.vs[h.armor] * mult * (1 - 0.5 * (h.d / r)), source, owner);
+  }
+  function tileOf(t) {
+    return { x: Math.floor(t.x / TILE), y: Math.floor(t.y / TILE) };
+  }
+  function treats(h, o) {
+    const armor = UNIT_STATS[o.kind].armor;
+    return h.treats === "all" || (h.treats === "infantry" ? armor === "infantry" : armor !== "infantry");
+  }
+  function updateHealer(g, u, h, dt) {
+    u.cooldown = Math.max(0, u.cooldown - dt);
+    u.repath -= dt;
+    const hurt = (o) => o !== u && o.owner === u.owner && o.hp < UNIT_STATS[o.kind].maxHp && treats(h, o);
+    let target = u.targetId !== null ? g.units.find((o) => o.id === u.targetId) : void 0;
+    if (target && !hurt(target)) target = void 0;
+    if (!target && u.order !== "move") {
+      const reach = (u.order === "idle" || u.order === "attackMove" ? h.seek : h.range) * TILE;
+      let best = Infinity;
+      for (const o of g.units) {
+        if (!hurt(o)) continue;
+        const d2 = Math.hypot(o.x - u.x, o.y - u.y);
+        if (d2 > reach) continue;
+        const score = o.hp / UNIT_STATS[o.kind].maxHp + d2 / (reach * 4);
+        if (score < best) {
+          best = score;
+          target = o;
+        }
+      }
+    }
+    u.targetId = target?.id ?? null;
+    if (!target) {
+      if (u.order === "attackMove" && u.attackGoal && u.path.length === 0) {
+        const here = unitTile(u);
+        if (here.x === u.attackGoal.x && here.y === u.attackGoal.y) u.order = "idle";
+        else setPath(g, u, u.attackGoal);
+      }
+      return;
+    }
+    const d = Math.hypot(target.x - u.x, target.y - u.y) - UNIT_STATS[target.kind].radius;
+    if (d <= h.range * TILE) {
+      if (u.order !== "move") u.path = [];
+      u.angle = Math.atan2(target.y - u.y, target.x - u.x);
+      if (u.cooldown <= 0) {
+        const healed = Math.min(UNIT_STATS[target.kind].maxHp - target.hp, h.amount);
+        target.hp += healed;
+        gainXp(g, u, healed * VETERANCY.healXp);
+        u.cooldown = h.interval;
+        addEffect(g, { kind: "heal", x: target.x, y: target.y, x2: u.x, y2: u.y, life: 0.35 });
+        emit(g, { kind: "heal", x: u.x, y: u.y });
+      }
+    } else if (u.order !== "move" && (u.repath <= 0 || u.path.length === 0)) {
+      setPath(g, u, unitTile(target));
+      u.repath = 0.5;
+    }
+  }
+  function updateUnit(g, u, dt) {
+    const healer = HEALERS[u.kind];
+    if (healer) return updateHealer(g, u, healer, dt);
+    const weapon2 = UNIT_STATS[u.kind].weapon;
+    if (!weapon2) return;
+    const w = weapon(weapon2);
+    const range = w.range * bonus(g, u.owner, "range") * TILE;
+    const minRange = (w.minRange ?? 0) * TILE;
+    u.cooldown = Math.max(0, u.cooldown - dt);
+    u.repath -= dt;
+    let target = u.targetId !== null ? targetInfo(g, u.targetId) : null;
+    if (u.targetId !== null && !target) {
+      u.targetId = null;
+      u.explicitTarget = false;
+      if (u.order === "attack") u.order = "idle";
+    }
+    if (target && !u.explicitTarget) {
+      const fromPost = u.post ? Math.hypot(u.x - (u.post.x + 0.5) * TILE, u.y - (u.post.y + 0.5) * TILE) : 0;
+      const tooFar = u.post ? fromPost > LEASH * TILE : edgeDist(u.x, u.y, target) > range + (ALERT_MARGIN + 2) * TILE;
+      if (tooFar) {
+        target = null;
+        u.targetId = null;
+        u.path = [];
+      }
+    }
+    if (!target && u.order !== "move") {
+      target = u.post ? nearestHostile(g, u.owner, (u.post.x + 0.5) * TILE, (u.post.y + 0.5) * TILE, GUARD_RADIUS * TILE) : nearestHostile(g, u.owner, u.x, u.y, range + ALERT_MARGIN * TILE, minRange);
+      if (target) {
+        u.targetId = target.id;
+        u.explicitTarget = false;
+        u.repath = 0;
+      }
+    }
+    if (!target) {
+      if (u.order === "attackMove" && u.attackGoal && u.path.length === 0) {
+        const here = unitTile(u);
+        if (here.x === u.attackGoal.x && here.y === u.attackGoal.y) u.order = "idle";
+        else setPath(g, u, u.attackGoal);
+      } else if (u.post && u.path.length === 0) {
+        const here = unitTile(u);
+        if (Math.hypot(here.x - u.post.x, here.y - u.post.y) > 1.5) setPath(g, u, u.post);
+      }
+      return;
+    }
+    const d = edgeDist(u.x, u.y, target);
+    const tooClose = minRange > 0 && Math.hypot(target.x - u.x, target.y - u.y) < minRange;
+    if (tooClose) {
+      if (!u.explicitTarget) u.targetId = null;
+      return;
+    }
+    if (d <= range) {
+      u.path = [];
+      u.angle = Math.atan2(target.y - u.y, target.x - u.x);
+      if (u.cooldown <= 0) {
+        fire(g, u.owner, u.x, u.y, weapon2, target, u);
+        u.cooldown = w.cooldown * rankCooldown(u);
+      }
+    } else if (u.repath <= 0 || u.path.length === 0) {
+      setPath(g, u, tileOf(target));
+      u.repath = 0.5;
+    }
+  }
+  function updateTurret(g, b, dt, lowPower) {
+    const weapon2 = BUILDING_STATS[b.kind].weapon;
+    if (!weapon2) return;
+    const w = weapon(weapon2);
+    const range = w.range * TILE;
+    const c = buildingCentre(b);
+    b.cooldown = Math.max(0, b.cooldown - dt);
+    let target = b.targetId !== null ? targetInfo(g, b.targetId) : null;
+    if (!target || edgeDist(c.x, c.y, target) > range) {
+      target = nearestHostile(g, b.owner, c.x, c.y, range);
+      b.targetId = target?.id ?? null;
+    }
+    if (!target) return;
+    b.angle = Math.atan2(target.y - c.y, target.x - c.x);
+    if (b.cooldown <= 0) {
+      fire(g, b.owner, c.x + Math.cos(b.angle) * 12, c.y + Math.sin(b.angle) * 12, weapon2, target);
+      b.cooldown = w.cooldown * (lowPower ? 2 : 1);
+    }
+  }
+  function updateProjectiles(g, dt) {
+    const keep = [];
+    for (const p of g.projectiles) {
+      const t = targetInfo(g, p.targetId);
+      if (t) {
+        p.tx = t.x;
+        p.ty = t.y;
+      }
+      const w = weapon(p.weapon);
+      const step = w.speed * TILE * dt;
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      const d = Math.hypot(dx, dy);
+      if (p.style === "rocket") {
+        p.puff -= dt;
+        if (p.puff <= 0) {
+          p.puff = 0.03;
+          addEffect(g, { kind: "smoke", x: p.x, y: p.y, life: 0.5, size: 0.6 });
+        }
+      }
+      if (d <= step) {
+        emit(g, { kind: "impact", big: !!w.splash, x: p.tx, y: p.ty });
+        const source = p.sourceId !== null ? g.units.find((u) => u.id === p.sourceId) : void 0;
+        if (w.splash) {
+          splashDamage(g, p.owner, p.tx, p.ty, p.weapon, source);
+          addEffect(g, { kind: "bigBoom", x: p.tx, y: p.ty, life: 0.6, size: 0.9 });
+        } else {
+          if (t) damage(g, t.id, w.damage * w.vs[t.armor] * power(g, source), source, p.owner);
+          addEffect(g, { kind: "boom", x: p.tx, y: p.ty, life: 0.35, size: 0.6 });
+        }
+      } else {
+        p.x += dx / d * step;
+        p.y += dy / d * step;
+        keep.push(p);
+      }
+    }
+    g.projectiles = keep;
+  }
+  function updateCombat(g, dt) {
+    for (const u of [...g.units]) {
+      if (g.units.includes(u)) updateUnit(g, u, dt);
+    }
+    const low = { 0: powerInfo(g, PLAYER).low, 1: powerInfo(g, ENEMY).low };
+    for (const b of [...g.buildings]) {
+      if (g.buildings.includes(b)) updateTurret(g, b, dt, low[b.owner]);
+    }
+    updateProjectiles(g, dt);
+    for (const e of g.effects) e.age += dt;
+    g.effects = g.effects.filter((e) => e.age < e.life);
+    if (!g.result) {
+      if (g.mission) {
+        if (!g.buildings.some((b) => b.owner === PLAYER) && !g.units.some((u) => u.owner === PLAYER)) {
+          g.result = "defeat";
+          g.resultReason = "Your forces have been wiped out.";
+          emit(g, { kind: "defeat" });
+        }
+      } else {
+        if (!g.buildings.some((b) => b.owner === ENEMY)) g.result = "victory";
+        else if (!g.buildings.some((b) => b.owner === PLAYER)) g.result = "defeat";
+        if (g.result) emit(g, { kind: g.result });
+      }
+    }
+  }
+
+  // src/heroes.ts
+  var CHARGE = { delay: 3, damage: 1600, reach: 1.5 };
+  var WARD = { radius: 4, duration: 8, factor: 0.4 };
+  var CREW = { count: 3 };
+  function isHero(kind) {
+    return kind in HEROES;
+  }
+  function heroCount(g, owner) {
+    const lines2 = linesOf(g, owner);
+    const alive2 = g.units.filter((u) => u.owner === owner && isHero(u.kind)).length;
+    const building = Object.values(lines2).reduce(
+      (n, l) => n + (l.current && isHero(l.current.kind) ? 1 : 0) + ("queue" in l ? l.queue.filter(isHero).length : 0),
+      0
+    );
+    return alive2 + building;
+  }
+  function wardFactor(g, u) {
+    return g.time < u.shieldUntil ? WARD.factor : 1;
+  }
+  function nearestEnemyBuilding(g, u) {
+    let best = { d: Infinity, b: null };
+    for (const b of g.buildings) {
+      if (b.owner === u.owner) continue;
+      const dx = Math.max(b.tx * TILE - u.x, 0, u.x - (b.tx + b.w) * TILE);
+      const dy = Math.max(b.ty * TILE - u.y, 0, u.y - (b.ty + b.h) * TILE);
+      const d = Math.hypot(dx, dy);
+      if (d < best.d) best = { d, b };
+    }
+    return best;
+  }
+  function useAbility(g, u) {
+    const hero = HEROES[u.kind];
+    if (!hero) return "Only heroes have abilities.";
+    if (u.abilityCd > 0) return `${hero.ability} recharging (${Math.ceil(u.abilityCd)}s)`;
+    if (hero.kind === "charge") {
+      const { d, b } = nearestEnemyBuilding(g, u);
+      if (!b || d > CHARGE.reach * TILE) return "Move next to an enemy building first.";
+      if (g.charges.some((c2) => c2.buildingId === b.id)) return "A charge is already set there.";
+      const c = buildingCentre(b);
+      g.charges.push({ buildingId: b.id, owner: u.owner, sourceId: u.id, x: c.x, y: c.y, timer: CHARGE.delay });
+      if (u.owner === g.local) notify(g, "Charge set!");
+    } else if (hero.kind === "ward") {
+      for (const o of g.units) {
+        if (o.owner === u.owner && Math.hypot(o.x - u.x, o.y - u.y) <= WARD.radius * TILE) o.shieldUntil = g.time + WARD.duration;
+      }
+    } else {
+      const kind = factionUnit(g.factions[u.owner], "infantry");
+      const crew = formationTiles(g.map, unitTile(u), CREW.count + 1).filter((t) => !(t.x === unitTile(u).x && t.y === unitTile(u).y)).slice(0, CREW.count).map((t) => spawnUnit(g, kind, t.x, t.y, u.owner));
+      if (u.owner === ENEMY) g.ai.raiders.push(...crew.map((c) => c.id));
+    }
+    u.abilityCd = hero.cooldown;
+    emit(g, { kind: "ability", ability: hero.kind, owner: u.owner, x: u.x, y: u.y });
+    return null;
+  }
+  function updateHeroes(g, dt) {
+    for (const u of g.units) if (u.abilityCd > 0) u.abilityCd = Math.max(0, u.abilityCd - dt);
+    const ticking = [];
+    for (const c of g.charges) {
+      c.timer -= dt;
+      if (c.timer > 0) {
+        ticking.push(c);
+        continue;
+      }
+      const source = g.units.find((u) => u.id === c.sourceId);
+      if (g.buildings.some((b) => b.id === c.buildingId)) damage(g, c.buildingId, CHARGE.damage, source);
+    }
+    g.charges = ticking.filter((c) => g.buildings.some((b) => b.id === c.buildingId));
+    for (const u of g.units) {
+      const hero = HEROES[u.kind];
+      if (!hero || u.owner !== ENEMY || g.humans.includes(ENEMY) || u.abilityCd > 0) continue;
+      const fighting = nearestHostile(g, ENEMY, u.x, u.y, 5 * TILE) !== null;
+      if (hero.kind === "charge") {
+        const { d, b } = nearestEnemyBuilding(g, u);
+        if (b && d <= CHARGE.reach * TILE) useAbility(g, u);
+      } else if (hero.kind === "ward") {
+        const near = g.units.filter((o) => o.owner === ENEMY && Math.hypot(o.x - u.x, o.y - u.y) <= WARD.radius * TILE).length;
+        if (fighting && near >= 3) useAbility(g, u);
+      } else if (fighting) {
+        useAbility(g, u);
+      }
+    }
+  }
+  function abilityStatus(u) {
+    const hero = HEROES[u.kind];
+    if (!hero) return "";
+    return u.abilityCd > 0 ? `${hero.ability} \u2014 ${Math.ceil(u.abilityCd)}s` : `${hero.ability} \u2014 ready`;
+  }
+
+  // src/production.ts
+  function powerInfo(g, owner = PLAYER) {
+    let produced = 0;
+    let used = 0;
+    for (const b of g.buildings) {
+      if (b.owner !== owner) continue;
+      const p = BUILDING_STATS[b.kind].power;
+      if (p > 0) produced += p;
+      else used -= p;
+    }
+    return { produced, used, low: used > produced };
+  }
+  function hasBuilding(g, kind, owner = PLAYER) {
+    return g.buildings.some((b) => b.kind === kind && b.owner === owner);
+  }
+  function missingFor(g, kind, owner = PLAYER) {
+    const needs = kind in UNIT_STATS ? [UNIT_STATS[kind].producer, UNIT_STATS[kind].needs] : [BUILDING_STATS[kind].requires];
+    return needs.find((n) => !!n && !hasBuilding(g, n, owner)) ?? null;
+  }
+  function hasRadar(g, owner = PLAYER) {
+    return hasBuilding(g, "radar", owner) && !powerInfo(g, owner).low;
+  }
+  function updateRepairs(g, dt) {
+    for (const pad of g.buildings) {
+      if (pad.kind !== "repairPad") continue;
+      const wallet = walletOf(g, pad.owner);
+      for (const u of g.units) {
+        if (u.owner !== pad.owner || u.path.length > 0 || UNIT_STATS[u.kind].armor === "infantry") continue;
+        const max = UNIT_STATS[u.kind].maxHp;
+        if (u.hp >= max) continue;
+        const tx = Math.floor(u.x / 32);
+        const ty = Math.floor(u.y / 32);
+        if (tx < pad.tx || ty < pad.ty || tx >= pad.tx + pad.w || ty >= pad.ty + pad.h) continue;
+        const hp = Math.min(REPAIR.rate * dt, max - u.hp, wallet.credits / REPAIR.costPerHp);
+        if (hp <= 0) continue;
+        u.hp += hp;
+        wallet.credits -= hp * REPAIR.costPerHp;
+      }
+    }
+  }
+  function advance(wallet, job, cost, dt, factor) {
+    const step = cost / buildTime(cost) * factor * dt;
+    const spend = Math.min(step, cost - job.spent, wallet.credits);
+    wallet.credits -= spend;
+    job.spent += spend;
+    return job.spent >= cost - 1e-6;
+  }
+  function updateProduction(g, dt) {
+    if (g.result) return;
+    for (const owner of g.humans) updateSideProduction(g, owner, dt);
+  }
+  function updateSideProduction(g, owner, dt) {
+    const local = owner === g.local;
+    const wallet = walletOf(g, owner);
+    const lines2 = linesOf(g, owner);
+    const low = powerInfo(g, owner).low;
+    const factor = (low ? LOW_POWER_FACTOR : 1) * bonus(g, owner, "buildSpeed");
+    if (local) {
+      if (low && !g.lowPower) announce(g, "low_power", 10);
+      g.lowPower = low;
+    }
+    const job = structureOf(g, owner);
+    const building = job && !job.done || Object.values(lines2).some((l) => l.current);
+    if (local && building && wallet.credits < 1) announce(g, "insufficient_funds", 20);
+    if (job && !job.done && hasBuilding(g, "yard", owner)) {
+      if (advance(wallet, job, BUILDING_STATS[job.kind].cost, dt, factor)) {
+        job.done = true;
+        if (local) {
+          notify(g, `${BUILDING_STATS[job.kind].label} ready to place`);
+          emit(g, { kind: "structureReady" });
+          announce(g, "construction_complete");
+        }
+      }
+    }
+    for (const producer of Object.keys(lines2)) {
+      const line = lines2[producer];
+      const factory = g.buildings.find((b) => b.kind === producer && b.owner === owner);
+      if (!factory) continue;
+      if (!line.current && line.queue.length > 0) line.current = { kind: line.queue.shift(), spent: 0 };
+      const cur = line.current;
+      if (!cur) continue;
+      if (advance(wallet, cur, unitCost(g.factions[owner], cur.kind), dt, factor)) {
+        const t = exitTile(g, factory);
+        const u = spawnUnit(g, cur.kind, t.x, t.y, owner);
+        if (u.kind === "harvester") autoHarvest(g, u, t);
+        else if (factory.rally) commandMove(g, [u], factory.rally);
+        if (line.repeat === cur.kind && line.queue.length === 0 && !missingFor(g, cur.kind, owner)) line.queue.push(cur.kind);
+        if (local) {
+          notify(g, `${UNIT_STATS[cur.kind].label} ready`);
+          emit(g, { kind: "unitReady" });
+          if (isHero(cur.kind)) emit(g, { kind: "heroVoice", unit: cur.kind, line: "ready" });
+          else announce(g, "unit_ready", 1.5);
+        }
+        line.current = null;
+      }
+    }
+  }
+  function startStructure(g, kind, owner = PLAYER) {
+    if (structureOf(g, owner) || missingFor(g, kind, owner) || BUILDING_STATS[kind].cost <= 0) return false;
+    setStructureOf(g, owner, { kind, spent: 0, done: false });
+    if (owner === g.local) {
+      emit(g, { kind: "buildStart" });
+      announce(g, "building");
+    }
+    return true;
+  }
+  function cancelStructure(g, owner = PLAYER) {
+    const job = structureOf(g, owner);
+    if (!job) return;
+    walletOf(g, owner).credits += job.spent;
+    setStructureOf(g, owner, null);
+    if (owner === g.local) {
+      emit(g, { kind: "cancel" });
+      announce(g, "cancelled");
+    }
+  }
+  function placementTiles(g, kind, tx, ty, owner = PLAYER) {
+    const { w, h } = BUILDING_STATS[kind];
+    const occupied = new Set(g.units.map((u) => {
+      const t = unitTile(u);
+      return `${t.x},${t.y}`;
+    }));
+    const near = nearBase(g, tx, ty, w, h, owner);
+    const tiles = [];
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        tiles.push({ x, y, ok: near && isBuildable(g.map, x, y) && !occupied.has(`${x},${y}`) });
+      }
+    }
+    return tiles;
+  }
+  function nearBase(g, tx, ty, w, h, owner) {
+    return g.buildings.some(
+      (b) => b.owner === owner && tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP
+    );
+  }
+  function canPlace(g, kind, tx, ty, owner = PLAYER) {
+    return placementTiles(g, kind, tx, ty, owner).every((t) => t.ok);
+  }
+  function placeStructure(g, tx, ty, owner = PLAYER) {
+    const job = structureOf(g, owner);
+    if (!job?.done || !canPlace(g, job.kind, tx, ty, owner)) return false;
+    const b = placeBuilding(g, job.kind, tx, ty, owner);
+    if (b.kind === "refinery") spawnFreeHarvester(g, b);
+    setStructureOf(g, owner, null);
+    if (owner === g.local) {
+      emit(g, { kind: "place" });
+      if (b.kind === "radar" && !powerInfo(g, owner).low) announce(g, "radar_online");
+    }
+    return true;
+  }
+  function queuedCount(g, kind, owner = PLAYER) {
+    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
+    return line.queue.filter((k) => k === kind).length + (line.current?.kind === kind ? 1 : 0);
+  }
+  function queueUnits(g, kind, n, owner = PLAYER) {
+    let added = 0;
+    while (added < n && queueUnit(g, kind, added > 0, owner)) added++;
+    return added;
+  }
+  function toggleRepeat(g, kind, owner = PLAYER) {
+    if (!canTrain(g.factions[owner], kind) || missingFor(g, kind, owner) || isHero(kind)) return false;
+    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
+    line.repeat = line.repeat === kind ? null : kind;
+    if (line.repeat && !line.current && line.queue.length === 0) queueUnit(g, kind, false, owner);
+    return true;
+  }
+  function queueUnit(g, kind, quiet = false, owner = PLAYER) {
+    if (!canTrain(g.factions[owner], kind) || missingFor(g, kind, owner)) return false;
+    if (isHero(kind) && heroCount(g, owner) > 0) return false;
+    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
+    if (line.queue.length + (line.current ? 1 : 0) >= MAX_QUEUE) return false;
+    line.queue.push(kind);
+    if (!quiet && owner === g.local) {
+      emit(g, { kind: "buildStart" });
+      announce(g, "training", 1);
+    }
+    return true;
+  }
+  var SELL_REFUND = 0.5;
+  var BUILDING_REPAIR = { rate: 25, costShare: 0.5 };
+  function sellBuilding(g, b, owner = PLAYER) {
+    if (b.owner !== owner) return "That's not yours to sell.";
+    if (b.kind === "yard") return "The Construction Yard can't be sold.";
+    const refund = Math.floor(BUILDING_STATS[b.kind].cost * SELL_REFUND * (b.hp / BUILDING_STATS[b.kind].maxHp));
+    for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = 0;
+    g.buildings = g.buildings.filter((o) => o !== b);
+    g.charges = g.charges.filter((c) => c.buildingId !== b.id);
+    if (g.selectedBuilding === b.id) g.selectedBuilding = null;
+    walletOf(g, owner).credits += refund;
+    if (owner === g.local) {
+      notify(g, `Sold ${BUILDING_STATS[b.kind].label} for ${refund}`);
+      emit(g, { kind: "place" });
+    }
+    return null;
+  }
+  function toggleBuildingRepair(g, b, owner = PLAYER) {
+    if (b.owner !== owner) return "You can only repair your own buildings.";
+    if (!b.repairing && b.hp >= BUILDING_STATS[b.kind].maxHp) return "That building isn't damaged.";
+    b.repairing = !b.repairing;
+    if (owner === g.local) emit(g, { kind: b.repairing ? "buildStart" : "cancel" });
+    return null;
+  }
+  function updateBuildingRepairs(g, dt) {
+    for (const b of g.buildings) {
+      const max = BUILDING_STATS[b.kind].maxHp;
+      const wallet = walletOf(g, b.owner);
+      if (b.owner === ENEMY && !g.humans.includes(ENEMY) && !b.repairing && b.hp < max * 0.6 && g.ai.credits > 600) b.repairing = true;
+      if (!b.repairing) continue;
+      const perHp = BUILDING_STATS[b.kind].cost * BUILDING_REPAIR.costShare / max;
+      const hp = Math.min(max - b.hp, BUILDING_REPAIR.rate * dt, perHp > 0 ? wallet.credits / perHp : Infinity);
+      b.hp += hp;
+      wallet.credits -= hp * perHp;
+      if (b.hp >= max - 1e-6 || perHp > 0 && wallet.credits < perHp) b.repairing = false;
+    }
+  }
+  function dequeueUnit(g, kind, owner = PLAYER) {
+    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
+    const i = line.queue.lastIndexOf(kind);
+    if (i !== -1) {
+      line.queue.splice(i, 1);
+      return true;
+    }
+    if (line.current?.kind === kind) {
+      walletOf(g, owner).credits += line.current.spent;
+      line.current = null;
+      return true;
+    }
+    return false;
+  }
+
+  // src/ai.ts
+  var AI_LEVELS = {
+    easy: { startCredits: 1500, trickle: 1, buildSpeed: 0.7, firstWave: 330, waveGap: 210, waveStart: 3, waveGrow: 1, maxWave: 8 },
+    normal: { startCredits: 2500, trickle: 3, buildSpeed: 1, firstWave: 240, waveGap: 160, waveStart: 4, waveGrow: 2, maxWave: 12 },
+    hard: { startCredits: 4e3, trickle: 6, buildSpeed: 1.3, firstWave: 180, waveGap: 120, waveStart: 6, waveGrow: 2, maxWave: 16 }
+  };
+  var THINK_INTERVAL = 1;
+  var WAVE_PATIENCE = 90;
+  var MAX_TURRETS = 5;
+  var MAX_HARVESTERS = 4;
+  var MAX_ARMY = 24;
+  function createAiState(difficulty) {
+    const level = AI_LEVELS[difficulty];
+    return {
+      difficulty,
+      credits: level.startCredits,
+      structure: null,
+      lines: {
+        barracks: { current: null, queue: [] },
+        lightFactory: { current: null, queue: [] },
+        heavyFactory: { current: null, queue: [] }
+      },
+      think: 0,
+      nextWave: level.firstWave,
+      waveSize: level.waveStart,
+      waves: 0,
+      army: [],
+      raiders: [],
+      skipUntil: {},
+      builds: true
+    };
+  }
+  var count = (g, kind) => g.buildings.filter((b) => b.owner === ENEMY && b.kind === kind).length;
+  var alive = (g, ids) => ids.map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
+  function enemyYard(g) {
+    return g.buildings.find((b) => b.owner === ENEMY && b.kind === "yard");
+  }
+  function rallyPoint(g) {
+    const e = g.map.enemyStart;
+    const p = g.map.start;
+    const d = Math.hypot(p.x - e.x, p.y - e.y) || 1;
+    const target = { x: Math.round(e.x + (p.x - e.x) / d * 6), y: Math.round(e.y + (p.y - e.y) / d * 6) };
+    return nearestPassable(g.map, target) ?? e;
+  }
+  function chooseStructure(g) {
+    const power2 = powerInfo(g, ENEMY);
+    const headroom = power2.produced - power2.used;
+    const wants = [
+      [headroom < 20, "power"],
+      [count(g, "refinery") === 0, "refinery"],
+      [!hasBuilding(g, "lightFactory", ENEMY), "lightFactory"],
+      [!hasBuilding(g, "heavyFactory", ENEMY), "heavyFactory"],
+      [count(g, "refinery") < 2 && g.time > 300, "refinery"],
+      [count(g, "turret") < MAX_TURRETS && g.time > 200, "turret"],
+      [!hasBuilding(g, "radar", ENEMY) && g.time > 260, "radar"],
+      [count(g, "rocketTurret") < 3 && g.time > 420, "rocketTurret"],
+      [!hasBuilding(g, "techCenter", ENEMY) && g.time > 540, "techCenter"],
+      [headroom < 50, "power"]
+    ];
+    for (const [want, kind] of wants) {
+      const skipped = (g.ai.skipUntil[kind] ?? 0) > g.time;
+      if (want && !skipped && !missingFor(g, kind, ENEMY)) return kind;
+    }
+    return null;
+  }
+  function hasClearance(g, tx, ty, w, h) {
+    for (let y = ty - 1; y <= ty + h; y++) {
+      for (let x = tx - 1; x <= tx + w; x++) {
+        if (inBounds(g.map, x, y) && g.map.blocked[idx(g.map, x, y)]) return false;
+      }
+    }
+    return true;
+  }
+  function findSpot(g, kind) {
+    const yard = enemyYard(g) ?? g.buildings.find((b) => b.owner === ENEMY);
+    if (!yard) return null;
+    const { w, h } = BUILDING_STATS[kind];
+    const cx = yard.tx + 1;
+    const cy = yard.ty + 1;
+    const candidates = [];
+    for (let y = cy - 14; y <= cy + 14; y++) {
+      for (let x = cx - 14; x <= cx + 14; x++) {
+        if (!canPlace(g, kind, x, y, ENEMY)) continue;
+        if (kind === "refinery" && !isPassable(g.map, x + 1, y + h)) continue;
+        const fromYard = Math.hypot(x - cx, y - cy);
+        const toPlayer = Math.hypot(x - g.map.start.x, y - g.map.start.y);
+        const cramped = hasClearance(g, x, y, w, h) ? 0 : 100;
+        candidates.push({ x, y, score: cramped + (kind === "turret" ? toPlayer + fromYard * 0.5 : fromYard) });
+      }
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    return candidates[0] ?? null;
+  }
+  function chooseUnit(g, producer) {
+    const role = chooseRole(g, producer);
+    return factionUnit(g.factions[ENEMY], role);
+  }
+  function chooseRole(g, producer) {
+    const F = (k) => factionUnit(g.factions[ENEMY], k);
+    const mine = (k) => g.units.filter((u) => u.owner === ENEMY && u.kind === F(k)).length;
+    const mix = g.ai.waves > 0;
+    if (producer === "barracks") {
+      if (!missingFor(g, F("vance"), ENEMY) && heroCount(g, ENEMY) === 0) return "vance";
+      if (mix && mine("medic") * 4 < mine("infantry")) return "medic";
+      if (mix && !missingFor(g, F("marksman"), ENEMY) && mine("marksman") * 3 < mine("infantry")) return "marksman";
+      return mix && mine("rocketInfantry") * 2 < mine("infantry") ? "rocketInfantry" : "infantry";
+    }
+    if (producer === "lightFactory") return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
+    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery"))) return "harvester";
+    if (!missingFor(g, F("bastion"), ENEMY) && mine("bastion") * 2 <= mine("tank")) return "bastion";
+    if (!missingFor(g, F("artillery"), ENEMY) && mine("artillery") * 2 < mine("tank")) return "artillery";
+    return "tank";
+  }
+  function updateAi(g, dt) {
+    if (g.result || g.humans.includes(ENEMY)) return;
+    const ai = g.ai;
+    const level = AI_LEVELS[ai.difficulty];
+    ai.credits += level.trickle * dt;
+    const factor = (powerInfo(g, ENEMY).low ? LOW_POWER_FACTOR : 1) * level.buildSpeed * bonus(g, ENEMY, "buildSpeed");
+    const job = ai.structure;
+    if (job && enemyYard(g) && advance(ai, job, BUILDING_STATS[job.kind].cost, dt, factor)) {
+      const spot = findSpot(g, job.kind);
+      if (spot) {
+        const b = placeBuilding(g, job.kind, spot.x, spot.y, ENEMY);
+        if (b.kind === "refinery") spawnFreeHarvester(g, b);
+      } else {
+        ai.credits += job.spent;
+        ai.skipUntil[job.kind] = g.time + 60;
+      }
+      ai.structure = null;
+    }
+    for (const producer of Object.keys(ai.lines)) {
+      const line = ai.lines[producer];
+      const factory = g.buildings.find((b) => b.owner === ENEMY && b.kind === producer);
+      if (!factory || !line.current) continue;
+      if (advance(ai, line.current, unitCost(g.factions[ENEMY], line.current.kind), dt, factor)) {
+        const t = exitTile(g, factory);
+        const u = spawnUnit(g, line.current.kind, t.x, t.y, ENEMY);
+        if (u.kind === "harvester") autoHarvest(g, u, t);
+        else {
+          ai.army.push(u.id);
+          commandMove(g, [u], rallyPoint(g));
+        }
+        line.current = null;
+      }
+    }
+    ai.think -= dt;
+    if (ai.think > 0) return;
+    ai.think = THINK_INTERVAL;
+    think(g);
+  }
+  function think(g) {
+    const ai = g.ai;
+    const level = AI_LEVELS[ai.difficulty];
+    if (ai.builds && !ai.structure && enemyYard(g)) {
+      const kind = chooseStructure(g);
+      if (kind) ai.structure = { kind, spent: 0, done: false };
+    }
+    ai.army = alive(g, ai.army).map((u) => u.id);
+    ai.raiders = alive(g, ai.raiders).map((u) => u.id);
+    const reserve = ai.structure ? Math.min(600, BUILDING_STATS[ai.structure.kind].cost - ai.structure.spent) : 0;
+    const lines2 = Object.values(ai.lines);
+    const inProduction = lines2.filter((l) => l.current && l.current.kind !== "harvester").length;
+    let wanted = ai.waveSize - ai.army.length - inProduction;
+    const infantry = () => alive(g, ai.army).filter((u) => u.kind === "infantry" || u.kind === "rocketInfantry").length + (ai.lines.barracks.current ? 1 : 0);
+    for (const producer of ["heavyFactory", "lightFactory", "barracks"]) {
+      const line = ai.lines[producer];
+      if (line.current || !hasBuilding(g, producer, ENEMY)) continue;
+      const kind = chooseUnit(g, producer);
+      if (kind !== "harvester") {
+        if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
+        if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize / 2)) continue;
+      }
+      if (ai.credits < reserve + unitCost(g.factions[ENEMY], kind) * 0.25) continue;
+      line.current = { kind, spent: 0 };
+      if (kind !== "harvester") wanted--;
+    }
+    const army = alive(g, ai.army);
+    const due = g.time >= ai.nextWave;
+    const overdue = g.time >= ai.nextWave + WAVE_PATIENCE;
+    if (due && (army.length >= ai.waveSize || overdue && army.length >= 2)) {
+      const target = nearestPlayerBuilding(g, g.map.enemyStart.x * TILE, g.map.enemyStart.y * TILE);
+      if (target) {
+        commandAttackMove(g, army, target);
+        ai.raiders.push(...army.map((u) => u.id));
+        ai.army = [];
+        ai.waves++;
+        ai.waveSize = Math.min(level.maxWave, ai.waveSize + level.waveGrow);
+        ai.nextWave = g.time + level.waveGap;
+        notify(g, "Enemy attack incoming!");
+        emit(g, { kind: "alarm" });
+        announce(g, "enemy_approaching");
+      }
+    }
+    defendBase(g);
+    for (const u of alive(g, ai.raiders)) {
+      if (u.order !== "idle" || u.targetId !== null || u.path.length > 0) continue;
+      const target = nearestPlayerBuilding(g, u.x, u.y);
+      if (target) commandAttackMove(g, [u], target);
+    }
+  }
+  var DEFEND_RADIUS = 10;
+  function defendBase(g) {
+    const ai = g.ai;
+    const base = g.buildings.filter((b) => b.owner === ENEMY);
+    let intruder = null;
+    let best = Infinity;
+    for (const u of g.units) {
+      if (u.owner !== PLAYER) continue;
+      for (const b of base) {
+        const d = Math.hypot(u.x / TILE - (b.tx + b.w / 2), u.y / TILE - (b.ty + b.h / 2));
+        if (d < DEFEND_RADIUS && d < best) {
+          best = d;
+          intruder = u;
+        }
+      }
+    }
+    const army = alive(g, ai.army);
+    if (intruder) {
+      const spot = { x: Math.floor(intruder.x / TILE), y: Math.floor(intruder.y / TILE) };
+      for (const u of army) {
+        const goal = u.attackGoal;
+        const busy = u.targetId !== null || u.order === "attackMove" && goal && Math.hypot(goal.x - spot.x, goal.y - spot.y) < 4;
+        if (!busy) commandAttackMove(g, [u], spot);
+      }
+      return;
+    }
+    const rally = rallyPoint(g);
+    for (const u of army) {
+      if (u.order === "idle" && u.targetId === null && u.path.length === 0 && Math.hypot(u.x / TILE - rally.x, u.y / TILE - rally.y) > 6) {
+        commandMove(g, [u], rally);
+      }
+    }
+  }
+  function nearestPlayerBuilding(g, x, y) {
+    let best = null;
+    let bestD = Infinity;
+    for (const b of g.buildings) {
+      if (b.owner !== PLAYER) continue;
+      const c = { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h };
+      const d = Math.hypot(c.x * TILE - x, c.y * TILE - y);
+      if (d < bestD) {
+        best = c;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  // src/crystals.ts
+  function canGrowAt(m, x, y) {
+    if (!inBounds(m, x, y)) return false;
+    const i = idx(m, x, y);
+    return m.terrain[i] === Terrain.Sand && m.blocked[i] === 0;
+  }
+  function totalCrystal(m) {
+    let t = 0;
+    for (let i = 0; i < m.spice.length; i++) t += m.spice[i];
+    return t;
+  }
+  var NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  function updateCrystals(g, dt) {
+    g.crystalTimer -= dt;
+    if (g.crystalTimer > 0) return;
+    const step = CRYSTALS.interval;
+    g.crystalTimer += step;
+    const m = g.map;
+    g.crystalTotal = totalCrystal(m);
+    const canSpread = g.crystalTotal < g.crystalCap;
+    const seeds = [];
+    for (let y = 0; y < m.h; y++) {
+      for (let x = 0; x < m.w; x++) {
+        const i = idx(m, x, y);
+        const amt = m.spice[i];
+        if (amt <= 0) continue;
+        m.spice[i] = Math.min(CRYSTALS.maxPerTile, amt + CRYSTALS.regrowRate * step);
+        if (!canSpread || amt < CRYSTALS.spreadMin || g.crystalRng() >= CRYSTALS.spreadChance * step) continue;
+        const [dx, dy] = NEIGHBOURS[Math.floor(g.crystalRng() * 4)];
+        if (canGrowAt(m, x + dx, y + dy) && m.spice[idx(m, x + dx, y + dy)] === 0) seeds.push(idx(m, x + dx, y + dy));
+      }
+    }
+    for (const i of seeds) m.spice[i] = CRYSTALS.seedAmount;
+  }
+
+  // src/storm.ts
+  function spawnStorm(g, from, to) {
+    const W = g.map.w * TILE;
+    const H = g.map.h * TILE;
+    const r = g.hazardRng;
+    const edgePoint = (side2) => {
+      const t = 0.15 + r() * 0.7;
+      return [
+        { x: -STORMS.radius * TILE, y: t * H },
+        { x: W + STORMS.radius * TILE, y: t * H },
+        { x: t * W, y: -STORMS.radius * TILE },
+        { x: t * W, y: H + STORMS.radius * TILE }
+      ][side2];
+    };
+    const side = Math.floor(r() * 4);
+    const start2 = from ? { x: (from.x + 0.5) * TILE, y: (from.y + 0.5) * TILE } : edgePoint(side);
+    const end = to ? { x: (to.x + 0.5) * TILE, y: (to.y + 0.5) * TILE } : edgePoint(side ^ 1);
+    const d = Math.hypot(end.x - start2.x, end.y - start2.y) || 1;
+    const speed = STORMS.speed * TILE;
+    const s = {
+      id: g.nextId++,
+      x: start2.x,
+      y: start2.y,
+      vx: (end.x - start2.x) / d * speed,
+      vy: (end.y - start2.y) / d * speed,
+      life: d / speed,
+      age: 0,
+      seedDebt: 0
+    };
+    g.storms.push(s);
+    notify(g, "Crystal storm approaching!");
+    emit(g, { kind: "stormWarning" });
+    return s;
+  }
+  function stormNear(g, x, y, margin) {
+    return g.storms.some((s) => Math.hypot(x - s.x, y - s.y) <= (STORMS.radius + margin) * TILE);
+  }
+  function inStorm(s, x, y) {
+    return Math.hypot(x - s.x, y - s.y) <= STORMS.radius * TILE;
+  }
+  function updateStorm(g, s, dt) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.age += dt;
+    for (const u of [...g.units]) {
+      if (inStorm(s, u.x, u.y)) damage(g, u.id, STORMS.damage[UNIT_STATS[u.kind].armor] * FACTIONS[g.factions[u.owner]].stormDamage * bonus(g, u.owner, "storm") * dt);
+    }
+    for (const b of [...g.buildings]) {
+      const cx = (b.tx + b.w / 2) * TILE;
+      const cy = (b.ty + b.h / 2) * TILE;
+      if (inStorm(s, cx, cy)) damage(g, b.id, STORMS.damage.building * dt * (BUILDING_STATS[b.kind].maxHp / 500));
+    }
+    s.seedDebt += STORMS.seedRate * dt;
+    while (s.seedDebt >= 1 && g.crystalTotal < g.crystalCap) {
+      s.seedDebt -= 1;
+      const a = g.hazardRng() * Math.PI * 2;
+      const r = Math.sqrt(g.hazardRng()) * STORMS.radius;
+      const tx = Math.floor(s.x / TILE + Math.cos(a) * r);
+      const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
+      if (canGrowAt(g.map, tx, ty)) {
+        const i = idx(g.map, tx, ty);
+        g.crystalTotal += Math.max(0, STORMS.seedAmount - g.map.spice[i]);
+        g.map.spice[i] = Math.max(g.map.spice[i], STORMS.seedAmount);
+      }
+    }
+    return s.age < s.life;
+  }
+  function updateStorms(g, dt) {
+    if (g.result) return;
+    if (g.storms.length === 0) {
+      g.stormTimer -= dt;
+      if (g.stormTimer <= 0) {
+        spawnStorm(g);
+        g.stormTimer = Infinity;
+      }
+    }
+    const passed = g.storms.filter((s) => !updateStorm(g, s, dt));
+    if (passed.length > 0) {
+      g.storms = g.storms.filter((s) => !passed.includes(s));
+      if (g.storms.length === 0) {
+        const [lo, hi] = g.stormGap ?? [STORMS.gapMin, STORMS.gapMax];
+        g.stormTimer = lo + g.hazardRng() * (hi - lo);
+      }
+    }
+  }
+
+  // src/missions.ts
+  var has = (g, owner, kind) => g.buildings.some((b) => b.owner === owner && b.kind === kind);
+  var playerHarvesters = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind === "harvester").length;
+  var mins = (n) => n * 60;
+  function stripPlayerBase(g) {
+    for (const b of g.buildings.filter((b2) => b2.owner === PLAYER)) {
+      for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) g.map.blocked[idx(g.map, x, y)] = 0;
+    }
+    g.buildings = g.buildings.filter((b) => b.owner !== PLAYER);
+    g.units = g.units.filter((u) => u.owner !== PLAYER);
+  }
+  function openSpot(g, near, size) {
+    for (let r = 0; r < 30; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = near.x + dx;
+          const y = near.y + dy;
+          let ok = true;
+          for (let yy = y; ok && yy < y + size; yy++) for (let xx = x; ok && xx < x + size; xx++) ok = isPassable(g.map, xx, yy) && g.map.blocked[idx(g.map, xx, yy)] === 0;
+          if (ok) return { x, y };
+        }
+      }
+    }
+    return near;
+  }
+  function spawnGroup(g, owner, kinds, near) {
+    formationTiles(g.map, near, kinds.length).forEach((t, i) => spawnUnit(g, kinds[i], t.x, t.y, owner));
+  }
+  var MISSIONS = [
+    {
+      id: "landfall",
+      title: "1. Landfall",
+      briefing: [
+        "Commander, welcome to Vitrea. The colony company left this plateau in a hurry \u2014 the yard, a power plant and a refinery are still standing.",
+        "Get the colony working again: raise a Barracks, put a Radar Outpost up so we can see the land, and get the crystal flowing. Reclaimer scouts are watching from the far side of the map, but they won't move on us yet."
+      ],
+      seed: 11,
+      faction: "concord",
+      enemyFaction: "reclaimers",
+      difficulty: "easy",
+      hazards: false,
+      fog: true,
+      enemyBuilds: false,
+      enemyAttacks: false,
+      objectives: [
+        { text: "Build a Barracks", done: (g) => has(g, PLAYER, "barracks") },
+        { text: "Build a Radar Outpost", done: (g) => has(g, PLAYER, "radar") },
+        { text: "Harvest 4,000 credits of crystal", done: (g) => g.stats.creditsHarvested >= 4e3 }
+      ]
+    },
+    {
+      id: "storm-season",
+      title: "2. Storm Season",
+      briefing: [
+        "The storms are coming early this year, and they're coming often. The Shardbound know it \u2014 they'll use the weather as cover to raid us.",
+        "Hold out for eight minutes. Keep your harvesters out of the storms; they'll run for the refinery when one gets close, but they need somewhere safe to run to."
+      ],
+      seed: 23,
+      faction: "concord",
+      enemyFaction: "shardbound",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      enemyBuilds: false,
+      enemyAttacks: true,
+      setup(g) {
+        g.stormTimer = 45;
+        g.stormGap = [35, 60];
+        const e = g.map.enemyStart;
+        placeBuilding(g, "refinery", e.x + 4, e.y + 4, ENEMY);
+        placeBuilding(g, "lightFactory", e.x - 4, e.y + 4, ENEMY);
+        g.ai.nextWave = 150;
+        g.ai.credits = 2500;
+      },
+      objectives: [
+        { text: "Survive for 8 minutes", done: (g) => g.time >= mins(8) },
+        { text: "Bonus: don't lose a harvester", bonus: true, done: (g) => g.time >= mins(8) && g.stats.harvestersLost === 0 }
+      ],
+      // Lost only when nothing is left to rebuild the harvest with.
+      fail: (g) => playerHarvesters(g) === 0 && !has(g, PLAYER, "refinery") && !has(g, PLAYER, "yard") ? "Your colony has no way left to harvest." : null
+    },
+    {
+      id: "glass-teeth",
+      title: "3. Glass Teeth",
+      briefing: [
+        "This time you're with the Shardbound. The Reclaimers have built a radar outpost that watches every storm route on the plain \u2014 and while it stands, they see us coming.",
+        "There's no base this time: just a strike force of Prism Tanks, Skimmers and Glasswalkers. Take out the radar. Crystal will heal your units while they stand on it \u2014 use the fields."
+      ],
+      seed: 37,
+      faction: "shardbound",
+      enemyFaction: "reclaimers",
+      difficulty: "normal",
+      hazards: false,
+      fog: true,
+      enemyBuilds: false,
+      enemyAttacks: false,
+      setup(g) {
+        stripPlayerBase(g);
+        const s = g.map.start;
+        spawnGroup(g, PLAYER, ["prismTank", "prismTank", "prismTank", "skimmer", "skimmer", "glasswalker", "glasswalker", "glasswalker", "glasswalker"], { x: s.x + 4, y: s.y + 4 });
+        const spot = openSpot(g, { x: Math.round(g.map.w * 0.6), y: Math.round(g.map.h * 0.55) }, 4);
+        placeBuilding(g, "radar", spot.x + 1, spot.y + 1, ENEMY);
+        placeBuilding(g, "turret", spot.x, spot.y, ENEMY);
+        placeBuilding(g, "turret", spot.x + 3, spot.y + 3, ENEMY);
+        const guards = ["wrecker", "scrapper", "scrapper", "junker"];
+        formationTiles(g.map, { x: spot.x + 1, y: spot.y + 4 }, guards.length).forEach((t, i) => {
+          const u = spawnUnit(g, guards[i], t.x, t.y, ENEMY);
+          u.post = t;
+        });
+      },
+      objectives: [{ text: "Destroy the Reclaimer Radar Outpost", done: (g) => g.time > 1 && !has(g, ENEMY, "radar") }],
+      fail: (g) => g.time > 1 && !g.units.some((u) => u.owner === PLAYER) ? "Your strike force has been destroyed." : null
+    },
+    {
+      id: "salvage-rights",
+      title: "4. Salvage Rights",
+      briefing: [
+        "Now you lead the Reclaimers. Concord thinks the colony's wreckage belongs to them. We think anything left lying on the plain belongs to whoever can carry it.",
+        "Build up, and break their base. Remember: every Concord vehicle you destroy pays you salvage."
+      ],
+      seed: 52,
+      faction: "reclaimers",
+      enemyFaction: "concord",
+      difficulty: "easy",
+      hazards: true,
+      fog: true,
+      enemyBuilds: true,
+      enemyAttacks: true,
+      objectives: [{ text: "Destroy every Concord building", done: (g) => !g.buildings.some((b) => b.owner === ENEMY) }]
+    },
+    {
+      id: "glass-crown",
+      title: "5. The Glass Crown",
+      briefing: [
+        "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them.",
+        "End this. Destroy their base before the crystal swallows the plain."
+      ],
+      seed: 77,
+      faction: "concord",
+      enemyFaction: "shardbound",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      enemyBuilds: true,
+      enemyAttacks: true,
+      objectives: [
+        { text: "Destroy every Shardbound building", done: (g) => !g.buildings.some((b) => b.owner === ENEMY) },
+        { text: "Bonus: win within 20 minutes", bonus: true, done: (g) => !g.buildings.some((b) => b.owner === ENEMY) && g.time <= mins(20) }
+      ]
+    }
+  ];
+  function missionById(id) {
+    return MISSIONS.find((m) => m.id === id);
+  }
+  function createMissionGame(def) {
+    const g = createGame(def.seed, def.difficulty, {
+      hazards: def.hazards,
+      fog: def.fog,
+      playerFaction: def.faction,
+      enemyFaction: def.enemyFaction
+    });
+    g.ai.builds = def.enemyBuilds;
+    if (!def.enemyAttacks) g.ai.nextWave = Infinity;
+    def.setup?.(g);
+    g.mission = { def, done: def.objectives.map(() => false) };
+    return g;
+  }
+  function updateMission(g) {
+    const m = g.mission;
+    if (!m || g.result) return;
+    m.def.objectives.forEach((o, i) => {
+      if (m.done[i] || !o.done(g)) return;
+      m.done[i] = true;
+      notify(g, `Objective complete: ${o.text.replace(/^Bonus: /, "")}`);
+      emit(g, { kind: "structureReady" });
+    });
+    const reason = m.def.fail?.(g);
+    if (reason) {
+      g.result = "defeat";
+      g.resultReason = reason;
+      emit(g, { kind: "defeat" });
+      return;
+    }
+    const required = m.def.objectives.map((o, i) => o.bonus ? true : m.done[i]);
+    if (required.every(Boolean)) {
+      g.result = "victory";
+      g.resultReason = "Mission complete.";
+      emit(g, { kind: "victory" });
+    }
+  }
+  var PROGRESS_KEY = "vitrea.campaign";
+  function parseProgress(raw) {
+    try {
+      const v = raw ? JSON.parse(raw) : [];
+      return Array.isArray(v) ? v.filter((id) => typeof id === "string" && missionById(id)) : [];
+    } catch {
+      return [];
+    }
+  }
+  function isUnlocked(completed, index) {
+    return index === 0 || completed.includes(MISSIONS[index - 1].id);
+  }
+  function loadProgress() {
+    try {
+      return parseProgress(globalThis.localStorage?.getItem(PROGRESS_KEY));
+    } catch {
+      return [];
+    }
+  }
+  function saveCompleted(id) {
+    const done = new Set(loadProgress());
+    done.add(id);
+    try {
+      globalThis.localStorage?.setItem(PROGRESS_KEY, JSON.stringify([...done]));
+    } catch {
+    }
+  }
+
+  // src/game.ts
+  var CLOSE_ENOUGH = 2.5;
+  var PARKED_COST = 6;
+  var MOVING_COST = 3;
+  var FLOW_COST = 2.5;
+  var WAIT_MOVING = 0.35;
+  var WAIT_PARKED = 0.8;
+  var MAX_REPLANS = 10;
+  var PLAYER = 0;
+  var ENEMY = 1;
+  var PING_LIFE = 6;
+  var PING_SPACING = 8;
+  var ALERT_GAP = 15;
+  function underAttack(g, x, y, building) {
+    if (g.pings.some((p) => Math.hypot(p.x - x, p.y - y) < PING_SPACING * TILE)) return;
+    g.pings.push({ x, y, age: 0 });
+    if (g.time - g.lastAlert < ALERT_GAP) return;
+    g.lastAlert = g.time;
+    notify(g, building ? "Our base is under attack! (Space to look)" : "Our units are under attack! (Space to look)");
+    if (building) emit(g, { kind: "alarm" });
+    announce(g, building ? "base_under_attack" : "units_under_attack");
+  }
+  function createGame(seed = 1, difficulty = "normal", options = {}) {
+    const map = generateMap(seed);
+    const fogs = { 0: createFog(map.w, map.h, options.fog !== false), 1: createFog(map.w, map.h, options.fog !== false) };
+    const g = {
+      map,
+      units: [],
+      buildings: [],
+      credits: START_CREDITS,
+      selection: /* @__PURE__ */ new Set(),
+      selectedBuilding: null,
+      markers: [],
+      structure: null,
+      lines: {
+        barracks: { current: null, queue: [] },
+        lightFactory: { current: null, queue: [] },
+        heavyFactory: { current: null, queue: [] }
+      },
+      notices: [],
+      projectiles: [],
+      charges: [],
+      pings: [],
+      lastAlert: -Infinity,
+      announced: {},
+      lowPower: false,
+      research: createResearch(),
+      effects: [],
+      result: null,
+      ai: createAiState(difficulty),
+      storms: [],
+      stormTimer: options.hazards === false ? Infinity : STORMS.firstSpawn,
+      hazardRng: mulberry32(seed * 7919 + 17),
+      crystalTimer: 0,
+      crystalRng: mulberry32(seed * 104729 + 3),
+      crystalTotal: totalCrystal(map),
+      crystalCap: totalCrystal(map) * CRYSTALS.capFactor,
+      fog: fogs[0],
+      fogs,
+      local: 0,
+      humans: options.pvp ? [0, 1] : [0],
+      groups: {},
+      occupant: new Int32Array(map.w * map.h),
+      events: [],
+      factions: { 0: options.playerFaction ?? "concord", 1: options.enemyFaction ?? "shardbound" },
+      stats: { creditsHarvested: 0, harvestersLost: 0, enemyUnitsDestroyed: 0 },
+      mission: null,
+      resultReason: "",
+      stormGap: null,
+      nextId: 1,
+      time: 0
+    };
+    spawnStartingBase(g, PLAYER);
+    if (options.pvp) {
+      g.ai.credits = START_CREDITS;
+      spawnStartingBase(g, ENEMY);
+    } else {
+      spawnEnemyOutpost(g);
+    }
+    refreshFog(g);
+    return g;
+  }
+  function spawnStartingBase(g, owner) {
+    const s = g.map.start;
+    const at = (kind, x, y) => {
+      const { w, h } = BUILDING_STATS[kind];
+      return owner === PLAYER ? placeBuilding(g, kind, x, y, owner) : placeBuilding(g, kind, g.map.w - x - w, g.map.h - y - h, owner);
+    };
+    at("yard", s.x, s.y);
+    at("power", s.x, s.y + 4);
+    spawnFreeHarvester(g, at("refinery", s.x + 4, s.y + 1));
+    const near = owner === PLAYER ? { x: s.x + 3, y: s.y + 5 } : { x: g.map.w - 1 - (s.x + 3), y: g.map.h - 1 - (s.y + 5) };
+    for (const t of formationTiles(g.map, near, 3)) spawnUnit(g, factionUnit(g.factions[owner], "quad"), t.x, t.y, owner);
+  }
+  function walletOf(g, owner) {
+    return owner === PLAYER ? g : g.ai;
+  }
+  function linesOf(g, owner) {
+    return owner === PLAYER ? g.lines : g.ai.lines;
+  }
+  function structureOf(g, owner) {
+    return owner === PLAYER ? g.structure : g.ai.structure;
+  }
+  function setStructureOf(g, owner, job) {
+    if (owner === PLAYER) g.structure = job;
+    else g.ai.structure = job;
+  }
+  var ENEMY_LAYOUT = [
+    { kind: "yard", dx: 0, dy: 0 },
+    { kind: "power", dx: 4, dy: 0 },
+    { kind: "barracks", dx: 0, dy: 4 },
+    { kind: "turret", dx: -1, dy: 2 },
+    { kind: "turret", dx: 3, dy: -2 },
+    { kind: "turret", dx: 4, dy: 4 }
+  ];
+  function spawnEnemyOutpost(g) {
+    const e = g.map.enemyStart;
+    for (const { kind, dx, dy } of ENEMY_LAYOUT) placeBuilding(g, kind, e.x + dx, e.y + dy, ENEMY);
+    const garrison = ["tank", "tank", "quad", "quad", "infantry", "infantry", "infantry", "infantry"].map(
+      (k) => factionUnit(g.factions[ENEMY], k)
+    );
+    const tiles = formationTiles(g.map, { x: e.x + 2, y: e.y + 7 }, garrison.length);
+    garrison.forEach((kind, i) => {
+      const t = tiles[i];
+      if (!t) return;
+      const u = spawnUnit(g, kind, t.x, t.y, ENEMY);
+      u.post = t;
+      u.angle = -Math.PI * 0.75;
+    });
+  }
+  function spawnFreeHarvester(g, refinery) {
+    const dock = dockTile(refinery);
+    const h = spawnUnit(g, "harvester", dock.x, dock.y, refinery.owner);
+    h.refineryId = refinery.id;
+    autoHarvest(g, h, dock);
+    return h;
+  }
+  function exitTile(g, b) {
+    return nearestPassable(g.map, { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h }) ?? { x: b.tx, y: b.ty + b.h };
+  }
+  function notify(g, text) {
+    g.notices.push({ text, age: 0 });
+    if (g.notices.length > 3) g.notices.shift();
+  }
+  function placeBuilding(g, kind, tx, ty, owner = PLAYER) {
+    const { w, h, maxHp } = BUILDING_STATS[kind];
+    const b = { id: g.nextId++, kind, owner, tx, ty, w, h, hp: maxHp, rally: null, repairing: false, angle: Math.PI / 2, cooldown: 0, targetId: null };
+    const mark = DRIVABLE_BUILDINGS.includes(kind) ? 2 : 1;
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = mark;
+      }
+    }
+    g.buildings.push(b);
+    return b;
+  }
+  function spawnUnit(g, kind, tx, ty, owner = PLAYER) {
+    const u = {
+      id: g.nextId++,
+      kind,
+      owner,
+      x: (tx + 0.5) * TILE,
+      y: (ty + 0.5) * TILE,
+      angle: Math.PI / 2,
+      hp: UNIT_STATS[kind].maxHp,
+      path: [],
+      goal: null,
+      order: "idle",
+      targetId: null,
+      explicitTarget: false,
+      attackGoal: null,
+      cooldown: 0,
+      repath: 0,
+      post: null,
+      blocked: 0,
+      replans: 0,
+      xp: 0,
+      rank: Math.min(MAX_RANK, bonus(g, owner, "startRank")),
+      hitAt: -Infinity,
+      abilityCd: 0,
+      shieldUntil: -Infinity,
+      waypoints: [],
+      cargo: 0,
+      harvest: "idle",
+      harvestTile: null,
+      lastField: null,
+      refineryId: null,
+      retries: 0
+    };
+    g.units.push(u);
+    return u;
+  }
+  function dockTile(b) {
+    return { x: b.tx + 1, y: b.ty + b.h };
+  }
+  function unitTile(u) {
+    return { x: Math.floor(u.x / TILE), y: Math.floor(u.y / TILE) };
+  }
+  function getUnit(g, id) {
+    return g.units.find((u) => u.id === id);
+  }
+  function buildingAtTile(g, tx, ty) {
+    return g.buildings.find((b) => tx >= b.tx && ty >= b.ty && tx < b.tx + b.w && ty < b.ty + b.h);
+  }
+  function unitAtPoint(g, wx, wy) {
+    let best;
+    let bestD = Infinity;
+    for (const u of g.units) {
+      const d = Math.hypot(u.x - wx, u.y - wy);
+      if (d <= UNIT_STATS[u.kind].radius + 4 && d < bestD) {
+        best = u;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+  function selectKindInRect(g, kind, x0, y0, x1, y1, additive) {
+    if (!additive) g.selection.clear();
+    g.selectedBuilding = null;
+    let n = 0;
+    for (const u of g.units) {
+      if (u.owner === g.local && u.kind === kind && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) {
+        g.selection.add(u.id);
+        n++;
+      }
+    }
+    return n;
+  }
+  function selectInRect(g, x0, y0, x1, y1, additive) {
+    if (!additive) g.selection.clear();
+    const [ax, bx] = x0 < x1 ? [x0, x1] : [x1, x0];
+    const [ay, by] = y0 < y1 ? [y0, y1] : [y1, y0];
+    for (const u of g.units) {
+      if (u.owner === g.local && u.x >= ax && u.x <= bx && u.y >= ay && u.y <= by) g.selection.add(u.id);
+    }
+  }
+  function setPath(g, u, goal, opts = {}) {
+    u.goal = goal;
+    u.blocked = 0;
+    const me = u.id + 1;
+    const cost = (i) => {
+      if (i === opts.avoid) return 1e3;
+      let c = opts.flow ? opts.flow[i] * FLOW_COST : 0;
+      const who = g.occupant[i];
+      if (who === 0 || who === me) return c;
+      const other = g.units.find((o) => o.id === who - 1);
+      if (!other || passesThrough(u, other)) return c;
+      if (other.path.length === 0) c += PARKED_COST;
+      else if (opts.crowd) c += MOVING_COST;
+      return c;
+    };
+    u.path = findPath(g.map, unitTile(u), goal, 2e4, cost);
+  }
+  function passesThrough(mover, other) {
+    return mover.kind === "infantry" && other.kind === "infantry";
+  }
+  function rebuildOccupancy(g) {
+    g.occupant.fill(0);
+    for (const u of g.units) {
+      const next = u.path[0];
+      if (next && inBounds(g.map, next.x, next.y) && u.kind !== "infantry") g.occupant[idx(g.map, next.x, next.y)] = u.id + 1;
+    }
+    for (const u of g.units) {
+      const t = unitTile(u);
+      if (inBounds(g.map, t.x, t.y)) g.occupant[idx(g.map, t.x, t.y)] = u.id + 1;
+    }
+  }
+  function blockerAt(g, u, t) {
+    if (!inBounds(g.map, t.x, t.y)) return void 0;
+    const who = g.occupant[idx(g.map, t.x, t.y)];
+    if (who === 0 || who === u.id + 1) return void 0;
+    const other = g.units.find((o) => o.id === who - 1);
+    return other && !passesThrough(u, other) ? other : void 0;
+  }
+  function askToStepAside(g, blocker, mover) {
+    if (blocker.path.length > 0 || blocker.order !== "idle" || blocker.targetId !== null) return;
+    if (blocker.kind === "harvester" && blocker.harvest !== "idle") return;
+    const here = unitTile(blocker);
+    const onPath = new Set(mover.path.map((p) => `${p.x},${p.y}`));
+    let best = null;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const t = { x: here.x + dx, y: here.y + dy };
+      if (!isPassable(g.map, t.x, t.y) || onPath.has(`${t.x},${t.y}`) || blockerAt(g, blocker, t)) continue;
+      best = t;
+      break;
+    }
+    if (best) blocker.path = [best];
+  }
+  function holdForTraffic(g, u, dt) {
+    const next = u.path[0];
+    const here = unitTile(u);
+    if (next.x === here.x && next.y === here.y) return false;
+    const blocker = blockerAt(g, u, next);
+    if (!blocker) return false;
+    if (u.order === "move" && u.goal && Math.hypot(here.x - u.goal.x, here.y - u.goal.y) <= CLOSE_ENOUGH) {
+      u.path = [];
+      u.replans = 0;
+      return true;
+    }
+    const bTile = unitTile(blocker);
+    const bNext = blocker.path[0];
+    if (bNext && bNext.x === here.x && bNext.y === here.y && bTile.x === next.x && bTile.y === next.y) {
+      if (u.id > blocker.id && u.goal) setPath(g, u, u.goal, { avoid: idx(g.map, next.x, next.y), crowd: true });
+      return true;
+    }
+    const moving = blocker.path.length > 0;
+    if (!moving && blocker.owner === u.owner) askToStepAside(g, blocker, u);
+    u.blocked += dt;
+    if (u.blocked > (moving ? WAIT_MOVING : WAIT_PARKED) && u.goal) {
+      if (!moving && ++u.replans > MAX_REPLANS) {
+        u.path = [];
+        u.replans = 0;
+        return true;
+      }
+      setPath(g, u, u.goal, { avoid: idx(g.map, next.x, next.y), crowd: true });
+    }
+    return true;
+  }
+  function claimedTiles(g, except) {
+    const s = /* @__PURE__ */ new Set();
+    for (const u of g.units) {
+      if (u !== except && u.kind === "harvester" && u.harvestTile && u.harvest !== "idle") {
+        s.add(idx(g.map, u.harvestTile.x, u.harvestTile.y));
+      }
+    }
+    return s;
+  }
+  function nearestRefinery(g, u) {
+    let best;
+    let bestD = Infinity;
+    for (const b of g.buildings) {
+      if (b.kind !== "refinery" || b.owner !== u.owner) continue;
+      const d = b.id === u.refineryId ? -1 : Math.hypot(b.tx * TILE - u.x, b.ty * TILE - u.y);
+      if (d < bestD) {
+        best = b;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+  function sendToField(g, u, tile) {
+    u.harvestTile = tile;
+    u.lastField = tile;
+    u.harvest = "toField";
+    setPath(g, u, tile);
+  }
+  function autoHarvest(g, u, near, radius = HARVESTER.searchRadius) {
+    const tile = findNearestSpice(g.map, near, radius, claimedTiles(g, u));
+    if (tile) sendToField(g, u, tile);
+    else if (u.cargo > 0) sendToRefinery(g, u);
+    else goIdle(u);
+  }
+  function sendToRefinery(g, u, refinery) {
+    const ref = refinery ?? nearestRefinery(g, u);
+    if (!ref) {
+      goIdle(u);
+      return;
+    }
+    u.refineryId = ref.id;
+    u.harvest = "toRefinery";
+    setPath(g, u, dockTile(ref));
+  }
+  function dockBusy(g, ref, except) {
+    return g.units.some((o) => o !== except && o.harvest === "unloading" && o.refineryId === ref.id);
+  }
+  function goIdle(u) {
+    u.harvest = "idle";
+    u.harvestTile = null;
+  }
+  var STORM_SHELTER_MARGIN = 3;
+  function updateHarvester(g, u, dt) {
+    const m = g.map;
+    const arrived = u.path.length === 0;
+    const here = unitTile(u);
+    if ((u.harvest === "harvesting" || u.harvest === "toField") && stormNear(g, u.x, u.y, STORM_SHELTER_MARGIN)) {
+      sendToRefinery(g, u);
+      if (u.owner === g.local) notify(g, "Harvester returning: storm nearby");
+      return;
+    }
+    switch (u.harvest) {
+      case "idle":
+        return;
+      case "toField": {
+        if (!arrived) return;
+        const t = u.harvestTile;
+        if (t && here.x === t.x && here.y === t.y) {
+          u.harvest = "harvesting";
+          u.retries = 0;
+        } else if (m.spice[idx(m, here.x, here.y)] > 0) {
+          u.harvestTile = here;
+          u.harvest = "harvesting";
+        } else if (u.retries++ < 2) {
+          autoHarvest(g, u, here);
+        } else {
+          goIdle(u);
+        }
+        return;
+      }
+      case "harvesting": {
+        const t = u.harvestTile;
+        const i = idx(m, t.x, t.y);
+        const amount = Math.min(HARVESTER.harvestRate * dt, m.spice[i], HARVESTER.capacity - u.cargo);
+        m.spice[i] -= amount;
+        u.cargo += amount;
+        if (m.spice[i] < 0.01) m.spice[i] = 0;
+        if (u.cargo >= HARVESTER.capacity - 0.01) {
+          u.cargo = HARVESTER.capacity;
+          sendToRefinery(g, u);
+        } else if (m.spice[i] === 0) {
+          const next = findNearestSpice(m, t, HARVESTER.fieldRadius, claimedTiles(g, u));
+          if (next) sendToField(g, u, next);
+          else if (u.cargo > 0) sendToRefinery(g, u);
+          else goIdle(u);
+        }
+        return;
+      }
+      case "waitDock": {
+        const ref = g.buildings.find((b) => b.id === u.refineryId);
+        if (!ref) sendToRefinery(g, u);
+        else if (!dockBusy(g, ref, u)) sendToRefinery(g, u, ref);
+        return;
+      }
+      case "toRefinery": {
+        const ref = g.buildings.find((b) => b.id === u.refineryId);
+        const dock = ref && dockTile(ref);
+        if (ref && dock && dockBusy(g, ref, u) && Math.hypot(here.x - dock.x, here.y - dock.y) <= 2.5) {
+          u.path = [];
+          u.harvest = "waitDock";
+          return;
+        }
+        if (!arrived) return;
+        if (dock && here.x === dock.x && here.y === dock.y) {
+          u.harvest = "unloading";
+          if (u.owner === g.local) emit(g, { kind: "unload", x: u.x, y: u.y });
+          u.retries = 0;
+          u.x = (dock.x + 0.5) * TILE;
+          u.y = (dock.y + 0.5) * TILE;
+          u.angle = -Math.PI / 2;
+        } else if (u.retries++ < 2) {
+          sendToRefinery(g, u);
+        } else {
+          goIdle(u);
+        }
+        return;
+      }
+      case "unloading": {
+        if (!g.buildings.some((b) => b.id === u.refineryId)) {
+          sendToRefinery(g, u);
+          return;
+        }
+        const amount = Math.min(HARVESTER.unloadRate * dt, u.cargo);
+        u.cargo -= amount;
+        walletOf(g, u.owner).credits += amount;
+        if (u.owner === PLAYER) g.stats.creditsHarvested += amount;
+        if (u.cargo < 0.01) {
+          u.cargo = 0;
+          const field = u.lastField ?? here;
+          if (stormNear(g, (field.x + 0.5) * TILE, (field.y + 0.5) * TILE, STORM_SHELTER_MARGIN)) return;
+          autoHarvest(g, u, field);
+        }
+        return;
+      }
+    }
+  }
+  function moveAlongPath(g, u, dt) {
+    if (u.path.length === 0) return;
+    const next = u.path[0];
+    if (!isPassable(g.map, next.x, next.y) && u.goal) {
+      setPath(g, u, u.goal);
+      if (u.path.length === 0) return;
+    }
+    if (holdForTraffic(g, u, dt)) return;
+    if (u.path.length === 0) return;
+    let remaining = UNIT_STATS[u.kind].speed * bonus(g, u.owner, "speed") * TILE * dt;
+    const first = u.path[0];
+    const fx = (first.x + 0.5) * TILE - u.x;
+    const fy = (first.y + 0.5) * TILE - u.y;
+    const fd = Math.hypot(fx, fy);
+    if (fd > 1e-3) {
+      const step = Math.min(remaining, fd);
+      const nx = Math.floor((u.x + fx / fd * step) / TILE);
+      const ny = Math.floor((u.y + fy / fd * step) / TILE);
+      const here = unitTile(u);
+      if (nx !== here.x || ny !== here.y) {
+        const standing = standingIn(g, u, nx, ny);
+        if (standing) {
+          if (u.order === "move" && u.goal && Math.hypot(here.x - u.goal.x, here.y - u.goal.y) <= CLOSE_ENOUGH) {
+            u.path = [];
+            return;
+          }
+          const ddx = first.x - here.x;
+          const ddy = first.y - here.y;
+          if (ddx !== 0 && ddy !== 0 && (nx !== first.x || ny !== first.y)) {
+            const alt = nx === here.x + ddx && ny === here.y ? { x: here.x, y: here.y + ddy } : { x: here.x + ddx, y: here.y };
+            if (isPassable(g.map, alt.x, alt.y) && !standingIn(g, u, alt.x, alt.y)) {
+              u.path.unshift(alt);
+              return;
+            }
+          }
+          u.blocked += dt;
+          if (u.blocked > WAIT_PARKED && u.goal) setPath(g, u, u.goal, { avoid: idx(g.map, nx, ny), crowd: true });
+          return;
+        }
+      }
+    }
+    u.blocked = 0;
+    while (remaining > 0 && u.path.length > 0) {
+      const n = u.path[0];
+      const tx = (n.x + 0.5) * TILE;
+      const ty = (n.y + 0.5) * TILE;
+      const dx = tx - u.x;
+      const dy = ty - u.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 1e-3) u.angle = Math.atan2(dy, dx);
+      if (d <= remaining) {
+        u.x = tx;
+        u.y = ty;
+        remaining -= d;
+        u.path.shift();
+        u.replans = 0;
+      } else {
+        u.x += dx / d * remaining;
+        u.y += dy / d * remaining;
+        remaining = 0;
+      }
+    }
+  }
+  function standingIn(g, u, tx, ty) {
+    for (const o of g.units) {
+      if (o === u || passesThrough(u, o)) continue;
+      if (Math.floor(o.x / TILE) === tx && Math.floor(o.y / TILE) === ty) return o;
+    }
+    return void 0;
+  }
+  function isPushable(u) {
+    if (u.path.length > 0) return false;
+    return !(u.kind === "harvester" && (u.harvest === "harvesting" || u.harvest === "unloading"));
+  }
+  function separate(g) {
+    const us = g.units;
+    for (let i = 0; i < us.length; i++) {
+      for (let j = i + 1; j < us.length; j++) {
+        const a = us[i];
+        const b = us[j];
+        const pa = isPushable(a);
+        const pb = isPushable(b);
+        if (!pa && !pb) continue;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let d = Math.hypot(dx, dy);
+        const min = UNIT_STATS[a.kind].radius + UNIT_STATS[b.kind].radius;
+        if (d >= min) continue;
+        if (d < 1e-3) {
+          dx = 1;
+          dy = 0;
+          d = 1;
+        }
+        const push = (min - d) * 0.5;
+        const share = pa && pb ? 0.5 : 1;
+        if (pa) nudge(g, a, -dx / d * push * share, -dy / d * push * share);
+        if (pb) nudge(g, b, dx / d * push * share, dy / d * push * share);
+      }
+    }
+  }
+  function nudge(g, u, dx, dy) {
+    const nx = u.x + dx;
+    const ny = u.y + dy;
+    if (isPassable(g.map, Math.floor(nx / TILE), Math.floor(ny / TILE))) {
+      u.x = nx;
+      u.y = ny;
+    }
+  }
+  function update(g, dt) {
+    g.time += dt;
+    rebuildOccupancy(g);
+    for (const u of g.units) {
+      moveAlongPath(g, u, dt);
+      if (u.order === "move" && u.path.length === 0) u.order = "idle";
+      if (u.order === "idle" && u.path.length === 0 && u.waypoints.length > 0) {
+        u.order = "move";
+        u.replans = 0;
+        setPath(g, u, u.waypoints.shift());
+      }
+      if (u.kind === "harvester") updateHarvester(g, u, dt);
+    }
+    separate(g);
+    updateFog(g, dt);
+    updateCombat(g, dt);
+    updateProduction(g, dt);
+    updateRepairs(g, dt);
+    updateBuildingRepairs(g, dt);
+    updateCrystalRegen(g, dt);
+    updateVeterancy(g, dt);
+    updateHeroes(g, dt);
+    updateResearch(g, dt);
+    updateAi(g, dt);
+    updateStorms(g, dt);
+    updateCrystals(g, dt);
+    updateMission(g);
+    for (const p of g.pings) p.age += dt;
+    g.pings = g.pings.filter((p) => p.age < PING_LIFE);
+    for (const mk of g.markers) mk.age += dt;
+    g.markers = g.markers.filter((mk) => mk.age < 0.6);
+    for (const n of g.notices) n.age += dt;
+    g.notices = g.notices.filter((n) => n.age < 3);
+  }
+  function updateCrystalRegen(g, dt) {
+    for (const u of g.units) {
+      const regen = FACTIONS[g.factions[u.owner]].crystalRegen;
+      if (regen <= 0) continue;
+      const t = unitTile(u);
+      if (!inBounds(g.map, t.x, t.y) || g.map.spice[idx(g.map, t.x, t.y)] <= 0) continue;
+      u.hp = Math.min(UNIT_STATS[u.kind].maxHp, u.hp + regen * bonus(g, u.owner, "regen") * dt);
+    }
+  }
+  function formationTiles(m, target, n) {
+    const start2 = nearestPassable(m, target);
+    if (!start2) return [];
+    const out = [];
+    const seen = /* @__PURE__ */ new Set([idx(m, start2.x, start2.y)]);
+    const queue = [start2];
+    for (let head = 0; head < queue.length && out.length < n; head++) {
+      const p = queue[head];
+      out.push(p);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+        const x = p.x + dx;
+        const y = p.y + dy;
+        if (!isPassable(m, x, y)) continue;
+        const i = idx(m, x, y);
+        if (seen.has(i)) continue;
+        seen.add(i);
+        queue.push({ x, y });
+      }
+    }
+    return out;
+  }
+  function commandMove(g, units, target) {
+    if (units.length === 0) return;
+    const goals = groupGoals(g, units, target);
+    const flow = units.length > 1 ? new Float32Array(g.map.w * g.map.h) : void 0;
+    const order = units.map((_, k) => k).sort((a, b) => Math.hypot(units[a].x / TILE - target.x, units[a].y / TILE - target.y) - Math.hypot(units[b].x / TILE - target.x, units[b].y / TILE - target.y));
+    for (const k of order) {
+      const u = units[k];
+      if (u.kind === "harvester") goIdle(u);
+      clearCombat(u);
+      u.order = "move";
+      u.replans = 0;
+      setPath(g, u, goals[k], { flow });
+      if (flow && !(u.kind === "infantry")) for (const p of u.path) flow[idx(g.map, p.x, p.y)] += 1;
+    }
+  }
+  function groupGoals(g, units, target) {
+    const tiles = units.map(unitTile);
+    const cx = tiles.reduce((s, t) => s + t.x, 0) / tiles.length;
+    const cy = tiles.reduce((s, t) => s + t.y, 0) / tiles.length;
+    const spread = Math.max(...tiles.map((t) => Math.hypot(t.x - cx, t.y - cy)));
+    const taken = /* @__PURE__ */ new Set();
+    const claim = (p) => {
+      const options = formationTiles(g.map, p, units.length + taken.size + 1);
+      const pick = options.find((o) => !taken.has(idx(g.map, o.x, o.y))) ?? p;
+      taken.add(idx(g.map, pick.x, pick.y));
+      return pick;
+    };
+    if (units.length > 1 && spread <= 4) {
+      const order2 = units.map((_, k) => k).sort((a, b) => Math.hypot(tiles[a].x - target.x, tiles[a].y - target.y) - Math.hypot(tiles[b].x - target.x, tiles[b].y - target.y));
+      const goals2 = new Array(units.length);
+      for (const k of order2) {
+        goals2[k] = claim({ x: Math.round(target.x + tiles[k].x - cx), y: Math.round(target.y + tiles[k].y - cy) });
+      }
+      return goals2;
+    }
+    const spots = formationTiles(g.map, target, units.length);
+    const order = units.map((_, k) => k).sort((a, b) => Math.hypot(tiles[a].x - target.x, tiles[a].y - target.y) - Math.hypot(tiles[b].x - target.x, tiles[b].y - target.y));
+    const goals = new Array(units.length);
+    order.forEach((k, n) => goals[k] = spots[n] ?? target);
+    return goals;
+  }
+  function clearCombat(u) {
+    u.targetId = null;
+    u.explicitTarget = false;
+    u.attackGoal = null;
+    u.waypoints = [];
+  }
+  function commandQueueMove(g, units, target) {
+    const idle = units.filter((u) => u.order === "idle" && u.path.length === 0 && u.waypoints.length === 0 && u.kind !== "harvester");
+    const busy = units.filter((u) => !idle.includes(u));
+    commandMove(g, idle, target);
+    const goals = groupGoals(g, busy, target);
+    busy.forEach((u, k) => {
+      if (u.kind === "harvester") goIdle(u);
+      u.waypoints.push(goals[k]);
+    });
+  }
+  function setRally(g, b, target) {
+    b.rally = target;
+  }
+  function armyUnits(g) {
+    return g.units.filter((u) => u.owner === g.local && u.kind !== "harvester");
+  }
+  function commandAttack(g, units, targetId) {
+    for (const u of units) {
+      if (!UNIT_STATS[u.kind].weapon) continue;
+      clearCombat(u);
+      u.order = "attack";
+      u.targetId = targetId;
+      u.explicitTarget = true;
+      u.repath = 0;
+    }
+  }
+  function commandAttackMove(g, units, target) {
+    const armed = units.filter((u) => UNIT_STATS[u.kind].weapon);
+    commandMove(g, armed, target);
+    for (const u of armed) {
+      u.order = "attackMove";
+      u.attackGoal = u.goal;
+    }
+  }
+  function commandHarvest(g, harvesters, target) {
+    for (const u of harvesters) {
+      const tile = findNearestSpice(g.map, target, HARVESTER.fieldRadius, claimedTiles(g, u));
+      if (tile) sendToField(g, u, tile);
+      else commandMove(g, [u], target);
+    }
+  }
+  function assignGroup(g, n) {
+    g.groups[n] = selectedUnits(g).map((u) => u.id);
+  }
+  function selectGroup(g, n) {
+    const units = (g.groups[n] ?? []).map((id) => getUnit(g, id)).filter((u) => !!u);
+    g.groups[n] = units.map((u) => u.id);
+    if (units.length === 0) return units;
+    g.selection = new Set(units.map((u) => u.id));
+    g.selectedBuilding = null;
+    return units;
+  }
+  function commandStop(g, units) {
+    for (const u of units) {
+      u.path = [];
+      u.order = "idle";
+      clearCombat(u);
+      if (u.kind === "harvester") goIdle(u);
+    }
+  }
+  function selectedUnits(g) {
+    return [...g.selection].map((id) => getUnit(g, id)).filter((u) => !!u && u.owner === g.local);
+  }
+  function describeOrderAt(g, units, tx, ty, attackMove = false) {
+    if (units.length === 0 || !inBounds(g.map, tx, ty)) return null;
+    const owner = units[0].owner;
+    const b = buildingAtTile(g, tx, ty);
+    const hasHarvesters = units.some((u) => u.kind === "harvester");
+    if (b?.kind === "repairPad" && b.owner === owner && units.some((u) => UNIT_STATS[u.kind].armor !== "infantry")) return { marker: "move", sound: false };
+    if (b && b.owner !== owner || attackMove) return { marker: "attack", sound: true };
+    if (hasHarvesters && (b?.kind === "refinery" && b.owner === owner || g.map.spice[idx(g.map, tx, ty)] > 0)) return { marker: "harvest", sound: true };
+    return { marker: "move", sound: true };
+  }
+  function orderAt(g, units, tx, ty, attackMove = false) {
+    if (units.length === 0 || !inBounds(g.map, tx, ty)) return;
+    const owner = units[0].owner;
+    const harvesters = units.filter((u) => u.kind === "harvester");
+    let movers = units.filter((u) => u.kind !== "harvester");
+    const b = buildingAtTile(g, tx, ty);
+    if (b?.kind === "repairPad" && b.owner === owner) {
+      const vehicles = units.filter((u) => UNIT_STATS[u.kind].armor !== "infantry");
+      if (vehicles.length > 0) {
+        commandMove(g, vehicles, { x: b.tx, y: b.ty });
+        return;
+      }
+    }
+    if (b && b.owner !== owner) {
+      commandAttack(g, units, b.id);
+      return;
+    }
+    if (attackMove) {
+      commandAttackMove(g, units, { x: tx, y: ty });
+      return;
+    }
+    if (b?.kind === "refinery" && b.owner === owner && harvesters.length > 0) {
+      for (const u of harvesters) sendToRefinery(g, u, b);
+    } else if (g.map.spice[idx(g.map, tx, ty)] > 0 && harvesters.length > 0) {
+      commandHarvest(g, harvesters, { x: tx, y: ty });
+    } else {
+      movers = units;
+    }
+    if (movers.length > 0) commandMove(g, movers, { x: tx, y: ty });
+  }
+
+  // src/input.ts
+  var EDGE = 14;
+  var FACTORIES = ["barracks", "lightFactory", "heavyFactory"];
+  var SCROLL_SPEED = 900;
+  var DRAG_THRESHOLD = 5;
+  var SIDEBAR_WIDTH = 240;
+  var Input = class {
+    game;
+    cam;
+    view;
+    minimap;
+    mouseX = 0;
+    mouseY = 0;
+    inside = false;
+    dragStart = null;
+    dragging = false;
+    keys = /* @__PURE__ */ new Set();
+    /** Last single click on a unit, for double-click detection. */
+    lastClick = { kind: null, time: 0 };
+    /** Structure being placed, if the player is in placement mode. */
+    placing = null;
+    /** Sell / repair mode: the next left-clicks on your buildings sell or repair them. */
+    mode = null;
+    /** Scroll when the mouse touches the screen edge (a start-menu option). */
+    edgeScroll = true;
+    /** Health bars on everything: toggled with ` and shown while Alt is held. */
+    alwaysHealth = false;
+    /** Camera bookmarks: Shift+F1-F4 to set, F1-F4 to jump. */
+    bookmarks = [null, null, null, null];
+    /** Sends a command for the local player (set by main: applied at once offline, sent over the network online). */
+    issue = () => {
+    };
+    lastArmyKey = 0;
+    constructor(game, cam, view, minimap) {
+      this.game = game;
+      this.cam = cam;
+      this.view = view;
+      this.minimap = minimap;
+      view.addEventListener("contextmenu", (e) => e.preventDefault());
+      minimap.addEventListener("contextmenu", (e) => e.preventDefault());
+      view.addEventListener("mousedown", (e) => this.onDown(e));
+      window.addEventListener("mousemove", (e) => this.onMove(e));
+      window.addEventListener("mouseup", (e) => this.onUp(e));
+      view.addEventListener("mouseenter", () => this.inside = true);
+      view.addEventListener("mouseleave", () => this.inside = false);
+      window.addEventListener("blur", () => {
+        this.keys.clear();
+        this.inside = false;
+      });
+      window.addEventListener("keydown", (e) => {
+        this.keys.add(e.key.toLowerCase());
+        this.onHotkey(e);
+        if (e.key === "Escape") {
+          if (this.placing) this.placing = null;
+          else if (this.mode) this.mode = null;
+          else {
+            this.game.selection.clear();
+            this.game.selectedBuilding = null;
+          }
+        }
+        if (e.key.startsWith("Arrow")) e.preventDefault();
+      });
+      window.addEventListener("keyup", (e) => this.keys.delete(e.key.toLowerCase()));
+      const miniNav = (e) => {
+        const p = this.minimapToWorld(e);
+        if (e.buttons & 1) this.centreOn(p.x, p.y);
+      };
+      minimap.addEventListener("mousedown", (e) => {
+        const p = this.minimapToWorld(e);
+        if (e.button === 2) this.orderAt(Math.floor(p.x / TILE), Math.floor(p.y / TILE), e.ctrlKey);
+        else miniNav(e);
+      });
+      minimap.addEventListener("mousemove", miniNav);
+    }
+    get drag() {
+      if (!this.dragging || !this.dragStart) return null;
+      return { x0: this.dragStart.x, y0: this.dragStart.y, x1: this.mouseX, y1: this.mouseY };
+    }
+    /** Top-left tile for the structure being placed, centred on the mouse. */
+    placementOrigin(kind) {
+      const { w, h } = BUILDING_STATS[kind];
+      return {
+        tx: Math.floor((this.mouseX + this.cam.x) / TILE) - Math.floor((w - 1) / 2),
+        ty: Math.floor((this.mouseY + this.cam.y) / TILE) - Math.floor((h - 1) / 2)
+      };
+    }
+    /** Footprint preview for the renderer while placing. */
+    get ghost() {
+      if (!this.placing || !this.inside) return null;
+      const { tx, ty } = this.placementOrigin(this.placing);
+      return placementTiles(this.game, this.placing, tx, ty);
+    }
+    screenPos(e) {
+      const r = this.view.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    minimapToWorld(e) {
+      const r = this.minimap.getBoundingClientRect();
+      const m = this.game.map;
+      return {
+        x: (e.clientX - r.left) / r.width * m.w * TILE,
+        y: (e.clientY - r.top) / r.height * m.h * TILE
+      };
+    }
+    onDown(e) {
+      const p = this.screenPos(e);
+      if (this.mode) {
+        if (e.button === 2) {
+          this.mode = null;
+          return;
+        }
+        if (e.button !== 0) return;
+        const g = this.game;
+        const b = buildingAtTile(g, Math.floor((p.x + this.cam.x) / TILE), Math.floor((p.y + this.cam.y) / TILE));
+        if (!b || b.owner !== g.local) {
+          notify(g, "Click one of your buildings.");
+          emit(g, { kind: "error" });
+        } else if (this.mode === "sell" && b.kind === "yard") {
+          notify(g, "The Construction Yard can't be sold.");
+          emit(g, { kind: "error" });
+        } else {
+          this.issue({ t: this.mode, building: b.id });
+        }
+        return;
+      }
+      if (this.placing) {
+        if (e.button === 0) {
+          const { tx, ty } = this.placementOrigin(this.placing);
+          if (canPlace(this.game, this.placing, tx, ty, this.game.local)) {
+            this.issue({ t: "place", x: tx, y: ty });
+            this.placing = null;
+          } else {
+            notify(this.game, "Can't build there: needs clear rock near your base");
+            announce(this.game, "cannot_deploy", 2);
+            emit(this.game, { kind: "error" });
+          }
+        } else if (e.button === 2) {
+          this.placing = null;
+        }
+        return;
+      }
+      if (e.button === 0) {
+        this.dragStart = p;
+        this.dragging = false;
+      } else if (e.button === 2) {
+        const wx = p.x + this.cam.x;
+        const wy = p.y + this.cam.y;
+        const enemy = unitAtPoint(this.game, wx, wy);
+        const me = this.game.local;
+        const factory = this.game.buildings.find((b) => b.id === this.game.selectedBuilding && b.owner === me && FACTORIES.includes(b.kind));
+        const selected = selectedUnits(this.game);
+        if (factory && selected.length === 0) {
+          this.issue({ t: "rally", building: factory.id, x: Math.floor(wx / TILE), y: Math.floor(wy / TILE) });
+          this.game.markers.push({ x: wx, y: wy, age: 0, kind: "move" });
+          emit(this.game, { kind: "command" });
+          return;
+        }
+        if (e.shiftKey && !(enemy && enemy.owner !== me) && selected.length > 0) {
+          this.issue({ t: "order", units: selected.map((u) => u.id), x: Math.floor(wx / TILE), y: Math.floor(wy / TILE), queue: true });
+          this.game.markers.push({ x: wx, y: wy, age: 0, kind: "move" });
+          emit(this.game, { kind: "command" });
+          return;
+        }
+        if (enemy && enemy.owner !== me && visibleAt(this.game, enemy.x, enemy.y)) {
+          if (selected.length > 0) emit(this.game, { kind: "command", attack: true });
+          this.issue({ t: "attack", units: selected.map((u) => u.id), target: enemy.id });
+          this.game.markers.push({ x: enemy.x, y: enemy.y, age: 0, kind: "attack" });
+        } else {
+          this.orderAt(Math.floor(wx / TILE), Math.floor(wy / TILE), e.ctrlKey);
+        }
+      }
+    }
+    onMove(e) {
+      const p = this.screenPos(e);
+      this.mouseX = p.x;
+      this.mouseY = p.y;
+      if (this.dragStart && Math.hypot(p.x - this.dragStart.x, p.y - this.dragStart.y) > DRAG_THRESHOLD) {
+        this.dragging = true;
+      }
+      this.updateCursor();
+    }
+    onUp(e) {
+      if (e.button !== 0 || !this.dragStart) return;
+      const g = this.game;
+      const additive = e.shiftKey;
+      const wx = this.mouseX + this.cam.x;
+      const wy = this.mouseY + this.cam.y;
+      if (this.dragging) {
+        const s = this.dragStart;
+        selectInRect(g, s.x + this.cam.x, s.y + this.cam.y, wx, wy, additive);
+        g.selectedBuilding = null;
+        if (g.selection.size > 0) emit(g, { kind: "select" });
+      } else {
+        const hit = unitAtPoint(g, wx, wy);
+        const u = hit?.owner === g.local ? hit : void 0;
+        const now = performance.now();
+        const double = !!u && this.lastClick.kind === u.kind && now - this.lastClick.time < 350;
+        this.lastClick = { kind: u?.kind ?? null, time: now };
+        if (u && double) {
+          selectKindInRect(g, u.kind, this.cam.x, this.cam.y, this.cam.x + this.cam.w, this.cam.y + this.cam.h, additive);
+          emit(g, { kind: "select" });
+          this.dragStart = null;
+          this.dragging = false;
+          return;
+        }
+        if (!additive) g.selection.clear();
+        g.selectedBuilding = null;
+        if (u) {
+          emit(g, { kind: "select" });
+          if (additive && g.selection.has(u.id)) g.selection.delete(u.id);
+          else g.selection.add(u.id);
+        } else if (!additive) {
+          const b = buildingAtTile(g, Math.floor(wx / TILE), Math.floor(wy / TILE));
+          if (b && (b.owner === g.local || exploredRect(g, b.tx, b.ty, b.w, b.h))) g.selectedBuilding = b.id;
+        }
+      }
+      this.dragStart = null;
+      this.dragging = false;
+    }
+    updateCursor() {
+      const g = this.game;
+      const wx = this.mouseX + this.cam.x;
+      const wy = this.mouseY + this.cam.y;
+      const tx = Math.floor(wx / TILE);
+      const ty = Math.floor(wy / TILE);
+      let cursor = "default";
+      const hit = unitAtPoint(g, wx, wy);
+      const b = inBounds(g.map, tx, ty) ? buildingAtTile(g, tx, ty) : void 0;
+      const hostile = hit && hit.owner !== g.local && visibleAt(g, hit.x, hit.y) || b && b.owner !== g.local && exploredRect(g, b.tx, b.ty, b.w, b.h);
+      if (this.mode === "sell") {
+        cursor = "alias";
+      } else if (this.mode === "repair") {
+        cursor = "context-menu";
+      } else if (this.placing) {
+        cursor = "copy";
+      } else if (hostile && g.selection.size > 0) {
+        cursor = "crosshair";
+      } else if (hit?.owner === g.local) {
+        cursor = "pointer";
+      } else if (g.selection.size > 0) {
+        const hasHarvester = [...g.selection].some((id) => getUnit(g, id)?.kind === "harvester");
+        const onSpice = inBounds(g.map, tx, ty) && g.map.spice[idx(g.map, tx, ty)] > 0;
+        cursor = hasHarvester && onSpice ? "cell" : "default";
+      }
+      this.view.style.cursor = cursor;
+    }
+    lastGroupKey = { n: 0, time: 0 };
+    /** Control groups (Ctrl/Shift + 1-9 to assign, 1-9 to select, twice to jump) and X to stop. */
+    onHotkey(e) {
+      const g = this.game;
+      const digit = /^Digit([1-9])$/.exec(e.code);
+      if (digit) {
+        const n = Number(digit[1]);
+        e.preventDefault();
+        if (e.ctrlKey || e.shiftKey) {
+          assignGroup(g, n);
+          notify(g, `Group ${n} set`);
+          return;
+        }
+        const units = selectGroup(g, n);
+        const now = performance.now();
+        if (units.length > 0 && this.lastGroupKey.n === n && now - this.lastGroupKey.time < 400) {
+          const cx = units.reduce((s, u) => s + u.x, 0) / units.length;
+          const cy = units.reduce((s, u) => s + u.y, 0) / units.length;
+          this.centreOn(cx, cy);
+        }
+        this.lastGroupKey = { n, time: now };
+      } else if (e.code === "KeyX") {
+        const units = selectedUnits(g);
+        if (units.length > 0) this.issue({ t: "stop", units: units.map((u) => u.id) });
+      } else if (e.code === "KeyQ") {
+        this.heroAbility();
+      } else if (e.code === "KeyH") {
+        this.goHome();
+      } else if (e.code === "KeyE" && !e.shiftKey && !e.ctrlKey) {
+        this.selectArmy();
+      } else if (e.code === "Space") {
+        e.preventDefault();
+        const ping = [...g.pings].sort((a, b) => a.age - b.age)[0];
+        if (ping && ping.age < PING_LIFE) this.centreOn(ping.x, ping.y);
+      } else if (e.code === "Backquote") {
+        this.alwaysHealth = !this.alwaysHealth;
+        notify(g, this.alwaysHealth ? "Health bars: always" : "Health bars: when damaged");
+      } else if (e.code === "KeyZ" && !e.ctrlKey) {
+        this.toggleMode("sell");
+      } else if (e.code === "KeyC" && !e.ctrlKey) {
+        this.toggleMode("repair");
+      } else if (e.key === "Alt") {
+        e.preventDefault();
+      } else {
+        const f = /^F([1-4])$/.exec(e.code);
+        if (f) {
+          e.preventDefault();
+          const n = Number(f[1]) - 1;
+          if (e.shiftKey) {
+            this.bookmarks[n] = { x: this.cam.x + this.cam.w / 2, y: this.cam.y + this.cam.h / 2 };
+            notify(g, `Camera bookmark F${n + 1} set`);
+          } else if (this.bookmarks[n]) {
+            this.centreOn(this.bookmarks[n].x, this.bookmarks[n].y);
+          }
+        }
+      }
+    }
+    /** Health bars on everything? (toggle, or hold Alt) */
+    get showAllHealth() {
+      return this.alwaysHealth || this.keys.has("alt");
+    }
+    toggleMode(mode) {
+      this.mode = this.mode === mode ? null : mode;
+      this.placing = null;
+    }
+    /** H: back to the Construction Yard (or wherever the base began). */
+    goHome() {
+      const g = this.game;
+      const yard = g.buildings.find((b) => b.owner === g.local && b.kind === "yard");
+      const anything = g.buildings.find((b) => b.owner === g.local);
+      const home = yard ?? anything;
+      if (home) this.centreOn((home.tx + home.w / 2) * TILE, (home.ty + home.h / 2) * TILE);
+      else this.centreOn((g.map.start.x + 1.5) * TILE, (g.map.start.y + 1.5) * TILE);
+    }
+    /** E: select every combat unit; press twice quickly to look at them. */
+    selectArmy() {
+      const g = this.game;
+      const army = armyUnits(g);
+      g.selection = new Set(army.map((u) => u.id));
+      g.selectedBuilding = null;
+      if (army.length === 0) return;
+      emit(g, { kind: "select" });
+      const now = performance.now();
+      if (now - this.lastArmyKey < 400) {
+        this.centreOn(army.reduce((s, u) => s + u.x, 0) / army.length, army.reduce((s, u) => s + u.y, 0) / army.length);
+      }
+      this.lastArmyKey = now;
+    }
+    /** Q (or the ability button): the selected hero uses its ability. */
+    heroAbility() {
+      const g = this.game;
+      const hero = selectedUnits(g).find((u) => isHero(u.kind));
+      if (!hero) return;
+      if (hero.abilityCd > 0) {
+        notify(g, `${HEROES[hero.kind].ability} recharging (${Math.ceil(hero.abilityCd)}s)`);
+        emit(g, { kind: "error" });
+        return;
+      }
+      this.issue({ t: "ability", unit: hero.id });
+    }
+    /** Right-click on the ground or a building: show the order now, send it to be carried out. */
+    orderAt(tx, ty, attackMove) {
+      const g = this.game;
+      const selected = selectedUnits(g);
+      const feedback = describeOrderAt(g, selected, tx, ty, attackMove);
+      if (!feedback) return;
+      if (feedback.sound) emit(g, { kind: "command", attack: feedback.marker === "attack" });
+      g.markers.push({ x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE, age: 0, kind: feedback.marker });
+      this.issue({ t: "order", units: selected.map((u) => u.id), x: tx, y: ty, attackMove });
+    }
+    centreOn(wx, wy) {
+      this.cam.x = wx - this.cam.w / 2;
+      this.cam.y = wy - this.cam.h / 2;
+      this.clampCamera();
+    }
+    clampCamera() {
+      const m = this.game.map;
+      this.cam.x = Math.max(0, Math.min(this.cam.x, m.w * TILE - this.cam.w + SIDEBAR_WIDTH));
+      this.cam.y = Math.max(0, Math.min(this.cam.y, m.h * TILE - this.cam.h));
+    }
+    update(dt) {
+      let dx = 0;
+      let dy = 0;
+      const k = this.keys;
+      if (k.has("arrowleft") || k.has("a")) dx -= 1;
+      if (k.has("arrowright") || k.has("d")) dx += 1;
+      if (k.has("arrowup") || k.has("w")) dy -= 1;
+      if (k.has("arrowdown") || k.has("s")) dy += 1;
+      if (this.edgeScroll && this.inside && !this.dragStart) {
+        if (this.mouseX < EDGE) dx -= 1;
+        if (this.mouseX > this.cam.w - EDGE) dx += 1;
+        if (this.mouseY < EDGE) dy -= 1;
+        if (this.mouseY > this.cam.h - EDGE) dy += 1;
+      }
+      if (dx || dy) {
+        this.cam.x += Math.sign(dx) * SCROLL_SPEED * dt;
+        this.cam.y += Math.sign(dy) * SCROLL_SPEED * dt;
+        this.clampCamera();
+      }
+    }
+  };
+
+  // src/terrain.ts
+  var HEIGHT = { [Terrain.Sand]: 0, [Terrain.Rock]: 1, [Terrain.Cliff]: 2 };
+  var TERRAIN_SCALE = 2;
+  var WOBBLE = 0.38;
+  function hash(x, y, seed) {
+    let h = x * 374761393 + y * 668265263 + seed * 2147483647 | 0;
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
+  var smooth = (t) => t * t * (3 - 2 * t);
+  var PERIOD = 480;
+  var mod = (a, n) => (a % n + n) % n;
+  function vnoise(x, y, cell, seed) {
+    const n = PERIOD / cell;
+    const gx = x / cell;
+    const gy = y / cell;
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const tx = smooth(gx - x0);
+    const ty = smooth(gy - y0);
+    const a = hash(mod(x0, n), mod(y0, n), seed);
+    const b = hash(mod(x0 + 1, n), mod(y0, n), seed);
+    const c = hash(mod(x0, n), mod(y0 + 1, n), seed);
+    const d = hash(mod(x0 + 1, n), mod(y0 + 1, n), seed);
+    return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+  }
+  function fbmRaw(x, y, seed) {
+    return 0.55 * vnoise(x, y, 40, seed) + 0.3 * vnoise(x, y, 16, seed + 1) + 0.15 * vnoise(x, y, 6, seed + 2);
+  }
+  var tables = /* @__PURE__ */ new Map();
+  function table(key, fill) {
+    let t = tables.get(key);
+    if (!t) {
+      t = new Float32Array(PERIOD * PERIOD);
+      for (let y = 0; y < PERIOD; y++) for (let x = 0; x < PERIOD; x++) t[y * PERIOD + x] = fill(x, y);
+      tables.set(key, t);
+    }
+    return t;
+  }
+  var look = (t, x, y) => t[mod(Math.floor(y), PERIOD) * PERIOD + mod(Math.floor(x), PERIOD)];
+  function fbm(x, y, seed) {
+    const t = tables.get(seed * 1e3) ?? table(seed * 1e3, (tx, ty) => fbmRaw(tx, ty, seed));
+    return look(t, x, y);
+  }
+  function noise(x, y, cell, seed) {
+    const key = seed * 1e3 + cell;
+    const t = tables.get(key) ?? table(key, (tx, ty) => vnoise(tx, ty, cell, seed));
+    return look(t, x, y);
+  }
+  function tileHeight(m, tx, ty) {
+    const x = Math.min(m.w - 1, Math.max(0, tx));
+    const y = Math.min(m.h - 1, Math.max(0, ty));
+    return HEIGHT[m.terrain[idx(m, x, y)]];
+  }
+  function heightAt(m, px, py, seed = 0) {
+    const fx = px / TILE - 0.5;
+    const fy = py / TILE - 0.5;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const tx = smooth(fx - x0);
+    const ty = smooth(fy - y0);
+    const a = tileHeight(m, x0, y0);
+    const b = tileHeight(m, x0 + 1, y0);
+    const c = tileHeight(m, x0, y0 + 1);
+    const d = tileHeight(m, x0 + 1, y0 + 1);
+    const base = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+    const centre = Math.min(1, 2 * Math.hypot(fx - Math.round(fx), fy - Math.round(fy)));
+    return base + (fbm(px, py, seed) - 0.5) * 2 * WOBBLE * centre;
+  }
+  function lerp3(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+  function sandColour(px, py, seed) {
+    const tone = noise(px, py, 96, seed + 10);
+    const c = lerp3([200, 193, 178], [182, 174, 160], tone);
+    const warp = fbm(px, py, seed + 20) * 9;
+    const r = Math.sin(px * 0.09 + py * 0.035 + warp);
+    const crest = r > 0.82 ? (r - 0.82) / 0.18 : 0;
+    const trough = r < -0.85 ? (-0.85 - r) / 0.15 : 0;
+    const grain = (hash(px, py, seed + 30) - 0.5) * 8;
+    const k = 1 + crest * 0.07 - trough * 0.05;
+    if (hash(px, py, seed + 35) > 0.9985) return [215, 245, 255];
+    return [c[0] * k + grain, c[1] * k + grain, c[2] * k + grain + 3];
+  }
+  function rockColour(px, py, seed) {
+    const mottle = fbm(px, py, seed + 40);
+    const c = lerp3([112, 116, 128], [88, 92, 104], mottle);
+    const crack = Math.abs(noise(px, py, 24, seed + 50) - 0.5) < 0.018 ? 0.75 : 1;
+    const grain = (hash(px, py, seed + 60) - 0.5) * 10;
+    return [c[0] * crack + grain, c[1] * crack + grain, c[2] * crack + grain];
+  }
+  function cliffColour(px, py, seed) {
+    const mottle = fbm(px, py, seed + 70);
+    const c = lerp3([66, 66, 80], [50, 50, 62], mottle);
+    const strata = Math.sin(py * 0.32 + noise(px, py, 30, seed + 80) * 5) * 5;
+    const grain = (hash(px, py, seed + 90) - 0.5) * 8;
+    return [c[0] + strata + grain, c[1] + strata + grain, c[2] + strata + grain];
+  }
+  function paintTerrain(m, seed = 0, scale = TERRAIN_SCALE) {
+    const W = m.w * TILE / scale;
+    const H = m.h * TILE / scale;
+    const heights = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) heights[y * W + x] = heightAt(m, (x + 0.5) * scale, (y + 0.5) * scale, seed);
+    }
+    const hAt = (x, y) => heights[Math.min(H - 1, Math.max(0, y)) * W + Math.min(W - 1, Math.max(0, x))];
+    const reach = Math.max(1, Math.round(2 / scale));
+    const out = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const h = heights[y * W + x];
+        const px = x * scale;
+        const py = y * scale;
+        let c;
+        if (h < 1) {
+          const t = smooth(Math.min(1, Math.max(0, (h - 0.42) / 0.16)));
+          c = t <= 0 ? sandColour(px, py, seed) : t >= 1 ? rockColour(px, py, seed) : lerp3(sandColour(px, py, seed), rockColour(px, py, seed), t);
+        } else {
+          const t = smooth(Math.min(1, Math.max(0, (h - 1.42) / 0.16)));
+          c = t <= 0 ? rockColour(px, py, seed) : t >= 1 ? cliffColour(px, py, seed) : lerp3(rockColour(px, py, seed), cliffColour(px, py, seed), t);
+        }
+        const slope = hAt(x + reach, y + reach) - hAt(x - reach, y - reach);
+        const light = 1 + Math.max(-0.42, Math.min(0.3, slope * 0.9));
+        const o = (y * W + x) * 4;
+        out[o] = c[0] * light;
+        out[o + 1] = c[1] * light;
+        out[o + 2] = c[2] * light;
+        out[o + 3] = 255;
+      }
+    }
+    return out;
+  }
+
+  // src/render.ts
+  var COLORS = {
+    sandA: [196, 189, 174],
+    sandB: [180, 172, 158],
+    rockA: [104, 108, 120],
+    rockB: [86, 90, 102],
+    cliff: [58, 58, 70],
+    player: "#2f6fb0",
+    playerDark: "#1d4a78",
+    select: "#7dff7a",
+    spice: "#5fd8f0",
+    concrete: "#c9c2b4"
+  };
+  var TEAM = {
+    0: { main: "#2f6fb0", dark: "#1d4a78", mini: "#8fc3ff" },
+    1: { main: "#c0392b", dark: "#7d2219", mini: "#ff8a7a" }
+  };
+  function hash2(i, k) {
+    let h = i * 374761393 + k * 668265263 | 0;
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
+  var Renderer = class {
+    ctx;
+    mini;
+    terrain;
+    spice;
+    miniTiles;
+    miniAge = Infinity;
+    constructor(view, minimap, map, factions) {
+      this.sprites = new SpriteBank(factions);
+      this.ctx = view.getContext("2d");
+      this.mini = minimap.getContext("2d");
+      this.terrain = buildTerrain(map);
+      this.spice = new SpiceLayer(map);
+      this.miniTiles = document.createElement("canvas");
+      this.miniTiles.width = map.w;
+      this.miniTiles.height = map.h;
+    }
+    sprites;
+    /** Health bars on every unit and building, not just damaged ones. */
+    showAllHealth = false;
+    /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
+    fogPixels = null;
+    /**
+     * Fog of war: black where never explored, dimmed where explored but not
+     * watched. Painted into a tiny one-pixel-per-tile image and scaled up with
+     * smoothing, so edges fade over about a tile instead of stepping.
+     */
+    drawShroud(ctx, g) {
+      const m = g.map;
+      if (!this.fogPixels) {
+        this.fogPixels = document.createElement("canvas");
+        this.fogPixels.width = m.w;
+        this.fogPixels.height = m.h;
+      }
+      const fctx = this.fogPixels.getContext("2d");
+      const img = fctx.createImageData(m.w, m.h);
+      for (let i = 0; i < m.w * m.h; i++) {
+        const alpha = g.fog.visible[i] ? 0 : g.fog.explored[i] ? 128 : 255;
+        img.data[i * 4] = 12;
+        img.data[i * 4 + 1] = 10;
+        img.data[i * 4 + 2] = 9;
+        img.data[i * 4 + 3] = alpha;
+      }
+      fctx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(this.fogPixels, 0, 0, m.w * TILE, m.h * TILE);
+      ctx.imageSmoothingEnabled = false;
+    }
+    draw(g, cam, drag, ghost, dt) {
+      const ctx = this.ctx;
+      const m = g.map;
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = "#1b1612";
+      ctx.fillRect(0, 0, cam.w, cam.h);
+      const k = TERRAIN_SCALE;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.terrain, cam.x / k, cam.y / k, cam.w / k, cam.h / k, 0, 0, cam.w, cam.h);
+      ctx.imageSmoothingEnabled = false;
+      ctx.save();
+      ctx.translate(-cam.x, -cam.y);
+      this.spice.update(m);
+      ctx.drawImage(this.spice.canvas, cam.x, cam.y, cam.w, cam.h, cam.x, cam.y, cam.w, cam.h);
+      const x0 = Math.max(0, Math.floor(cam.x / TILE));
+      const y0 = Math.max(0, Math.floor(cam.y / TILE));
+      const x1 = Math.min(m.w - 1, Math.floor((cam.x + cam.w) / TILE));
+      const y1 = Math.min(m.h - 1, Math.floor((cam.y + cam.h) / TILE));
+      const known = (b) => b.owner === g.local || exploredRect(g, b.tx, b.ty, b.w, b.h);
+      const seen = (u) => u.owner === g.local || visibleAt(g, u.x, u.y);
+      for (const b of [...g.buildings].sort((p, q) => p.ty + p.h - (q.ty + q.h))) if (known(b)) drawBuilding(ctx, b, this.sprites);
+      const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
+      if (sel) drawBuildingSelection(ctx, sel);
+      if (sel?.rally && sel.owner === g.local) drawRally(ctx, sel);
+      for (const b of g.buildings) if (b.repairing && b.owner === g.local) drawRepairing(ctx, b, g.time);
+      for (const u of g.units) if (seen(u)) drawUnit(ctx, u, g.time, this.sprites);
+      for (const u of g.units) {
+        if (!seen(u)) continue;
+        if (g.selection.has(u.id)) {
+          drawSelection(ctx, u);
+          if (u.owner === g.local && u.waypoints.length > 0) drawWaypoints(ctx, u);
+        } else if (u.hp < UNIT_STATS[u.kind].maxHp || this.showAllHealth) drawHpBar(ctx, u.x - UNIT_STATS[u.kind].radius, u.y - UNIT_STATS[u.kind].radius - 6, UNIT_STATS[u.kind].radius * 2, u.hp / UNIT_STATS[u.kind].maxHp);
+        if (u.rank > 0) drawRank(ctx, u);
+        if (g.time < u.shieldUntil) drawWard(ctx, u, g.time);
+      }
+      for (const b of g.buildings) {
+        if (!known(b)) continue;
+        if (b.id !== g.selectedBuilding && (b.hp < BUILDING_STATS[b.kind].maxHp || this.showAllHealth)) {
+          drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
+        }
+      }
+      for (const c of g.charges) drawCharge(ctx, c, g.time);
+      for (const p of g.projectiles) drawProjectile(ctx, p);
+      for (const e of g.effects) drawEffect(ctx, e);
+      if (g.fog.enabled) this.drawShroud(ctx, g);
+      for (const st of g.storms) drawStorm(ctx, st, g.time);
+      for (const mk of g.markers) {
+        const t = mk.age / 0.6;
+        ctx.strokeStyle = mk.kind === "move" ? `rgba(125,255,122,${1 - t})` : mk.kind === "attack" ? `rgba(255,80,60,${1 - t})` : `rgba(255,170,60,${1 - t})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(mk.x, mk.y, 14 * (1 - t) + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (ghost) {
+        for (const t of ghost) {
+          ctx.fillStyle = t.ok ? "rgba(90,220,90,0.35)" : "rgba(230,60,50,0.45)";
+          ctx.fillRect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2);
+          ctx.strokeStyle = t.ok ? "rgba(140,255,140,0.8)" : "rgba(255,110,90,0.85)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(t.x * TILE + 1.5, t.y * TILE + 1.5, TILE - 3, TILE - 3);
+        }
+      }
+      ctx.restore();
+      if (drag) {
+        const x = Math.min(drag.x0, drag.x1);
+        const y = Math.min(drag.y0, drag.y1);
+        const w = Math.abs(drag.x1 - drag.x0);
+        const h = Math.abs(drag.y1 - drag.y0);
+        ctx.fillStyle = "rgba(125,255,122,0.08)";
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = COLORS.select;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+      }
+      this.drawMinimap(g, cam, dt);
+    }
+    drawMinimap(g, cam, dt) {
+      this.drawMinimapBody(g, cam, dt);
+      const mini = this.mini;
+      const scale = mini.canvas.width / (g.map.w * TILE);
+      for (const p of g.pings) {
+        const t = p.age % 1.5 / 1.5;
+        mini.strokeStyle = `rgba(255,70,50,${1 - t})`;
+        mini.lineWidth = 2;
+        mini.beginPath();
+        mini.arc(p.x * scale, p.y * scale, 3 + 12 * t, 0, Math.PI * 2);
+        mini.stroke();
+      }
+    }
+    drawMinimapBody(g, cam, dt) {
+      const m = g.map;
+      const mini = this.mini;
+      const size = mini.canvas.width;
+      const scale = size / (m.w * TILE);
+      this.miniAge += dt;
+      if (this.miniAge > 0.25) {
+        this.miniAge = 0;
+        const tctx = this.miniTiles.getContext("2d");
+        const img = tctx.createImageData(m.w, m.h);
+        for (let i = 0; i < m.w * m.h; i++) {
+          const t = m.terrain[i];
+          let c = t === Terrain.Cliff ? COLORS.cliff : t === Terrain.Rock ? COLORS.rockA : COLORS.sandA;
+          if (m.spice[i] > 0) c = [90, 220, 250];
+          if (!g.fog.explored[i]) c = [14, 11, 9];
+          else if (!g.fog.visible[i]) c = c.map((v) => Math.round(v * 0.55));
+          img.data[i * 4] = c[0];
+          img.data[i * 4 + 1] = c[1];
+          img.data[i * 4 + 2] = c[2];
+          img.data[i * 4 + 3] = 255;
+        }
+        tctx.putImageData(img, 0, 0);
+      }
+      mini.imageSmoothingEnabled = false;
+      mini.drawImage(this.miniTiles, 0, 0, size, size);
+      if (!hasRadar(g, g.local)) {
+        mini.fillStyle = "#14110e";
+        mini.fillRect(0, 0, size, size);
+        for (let k = 0; k < 140; k++) {
+          const v = 30 + Math.floor(Math.random() * 40);
+          mini.fillStyle = `rgb(${v},${v - 4},${v - 8})`;
+          mini.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+        }
+        mini.fillStyle = "#b9a37f";
+        mini.font = "bold 11px system-ui, sans-serif";
+        mini.textAlign = "center";
+        const offline = hasBuilding(g, "radar", g.local);
+        mini.fillText(offline ? "RADAR OFFLINE" : "NO RADAR", size / 2, size / 2 - 4);
+        mini.font = "10px system-ui, sans-serif";
+        mini.fillText(offline ? "low power" : "build a Radar Outpost", size / 2, size / 2 + 10);
+        return;
+      }
+      for (const b of g.buildings) {
+        if (b.owner !== g.local && !exploredRect(g, b.tx, b.ty, b.w, b.h)) continue;
+        mini.fillStyle = TEAM[b.owner].main;
+        mini.fillRect(b.tx * TILE * scale, b.ty * TILE * scale, b.w * TILE * scale, b.h * TILE * scale);
+      }
+      for (const u of g.units) {
+        if (u.owner !== g.local && !visibleAt(g, u.x, u.y)) continue;
+        mini.fillStyle = g.selection.has(u.id) ? "#ffffff" : TEAM[u.owner].mini;
+        mini.fillRect(u.x * scale - 1.5, u.y * scale - 1.5, 3, 3);
+      }
+      for (const st of g.storms) {
+        mini.strokeStyle = Math.floor(g.time * 3) % 2 ? "rgba(180,240,255,0.9)" : "rgba(120,200,230,0.6)";
+        mini.lineWidth = 1.5;
+        mini.beginPath();
+        mini.arc(st.x * scale, st.y * scale, STORMS.radius * TILE * scale, 0, Math.PI * 2);
+        mini.stroke();
+      }
+      mini.strokeStyle = "rgba(255,255,255,0.85)";
+      mini.lineWidth = 1;
+      mini.strokeRect(cam.x * scale + 0.5, cam.y * scale + 0.5, cam.w * scale, cam.h * scale);
+    }
+  };
+  function buildTerrain(m) {
+    const c = document.createElement("canvas");
+    c.width = m.w * TILE / TERRAIN_SCALE;
+    c.height = m.h * TILE / TERRAIN_SCALE;
+    const pixels = paintTerrain(m);
+    c.getContext("2d").putImageData(new ImageData(pixels, c.width, c.height), 0, 0);
+    return c;
+  }
+  var SpiceLayer = class _SpiceLayer {
+    canvas;
+    ctx;
+    levels;
+    ready = false;
+    constructor(m) {
+      this.canvas = document.createElement("canvas");
+      this.canvas.width = m.w * TILE;
+      this.canvas.height = m.h * TILE;
+      this.ctx = this.canvas.getContext("2d");
+      this.levels = new Int8Array(m.w * m.h);
+    }
+    static level(amount) {
+      return amount <= 0 ? 0 : 1 + Math.min(5, Math.floor(amount / 90));
+    }
+    update(m) {
+      if (!this.ready) {
+        for (let i = 0; i < m.w * m.h; i++) this.levels[i] = _SpiceLayer.level(m.spice[i]);
+        for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) this.drawTile(m, x, y);
+        this.ready = true;
+        return;
+      }
+      for (let y = 0; y < m.h; y++) {
+        for (let x = 0; x < m.w; x++) {
+          const i = idx(m, x, y);
+          const lvl = _SpiceLayer.level(m.spice[i]);
+          if (lvl === this.levels[i]) continue;
+          this.levels[i] = lvl;
+          this.redrawAround(m, x, y);
+        }
+      }
+    }
+    redrawAround(m, cx, cy) {
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect((cx - 1) * TILE, (cy - 1) * TILE, TILE * 3, TILE * 3);
+      ctx.clip();
+      ctx.clearRect((cx - 1) * TILE, (cy - 1) * TILE, TILE * 3, TILE * 3);
+      for (let y = cy - 2; y <= cy + 2; y++) {
+        for (let x = cx - 2; x <= cx + 2; x++) {
+          if (x >= 0 && y >= 0 && x < m.w && y < m.h) this.drawTile(m, x, y);
+        }
+      }
+      ctx.restore();
+    }
+    drawTile(m, x, y) {
+      const i = idx(m, x, y);
+      const lvl = this.levels[i];
+      if (lvl <= 0) return;
+      const ctx = this.ctx;
+      const a = lvl / 6;
+      const cx = (x + 0.5) * TILE + (hash2(i, 1) - 0.5) * 8;
+      const cy = (y + 0.5) * TILE + (hash2(i, 2) - 0.5) * 8;
+      const r = TILE * (0.7 + 0.35 * a);
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, `rgba(110,225,250,${0.1 + 0.22 * a})`);
+      grad.addColorStop(1, "rgba(110,225,250,0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      const shards = 1 + lvl;
+      for (let k = 0; k < shards; k++) {
+        const px = x * TILE + 4 + hash2(i, k + 5) * (TILE - 8);
+        const py = y * TILE + 6 + hash2(i, k + 37) * (TILE - 10);
+        const h = 5 + 9 * a * (0.6 + 0.4 * hash2(i, k + 71));
+        const w = 2 + 2 * hash2(i, k + 91);
+        const lean = (hash2(i, k + 13) - 0.5) * 0.8;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(lean);
+        ctx.fillStyle = "rgba(20,60,80,0.35)";
+        ctx.beginPath();
+        ctx.ellipse(1, 1, w + 1, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = k % 3 === 0 ? "#3fb8d8" : "#5fd8f0";
+        ctx.beginPath();
+        ctx.moveTo(0, -h);
+        ctx.lineTo(w, -h * 0.35);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-w, -h * 0.35);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "rgba(230,255,255,0.75)";
+        ctx.beginPath();
+        ctx.moveTo(0, -h);
+        ctx.lineTo(-w, -h * 0.35);
+        ctx.lineTo(0, -h * 0.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  };
+  function drawBuilding(ctx, b, sprites) {
+    const team = TEAM[b.owner];
+    const x = b.tx * TILE;
+    const y = b.ty * TILE;
+    const w = b.w * TILE;
+    const h = b.h * TILE;
+    if (b.kind === "refinery") {
+      const d = dockTile(b);
+      ctx.fillStyle = "rgba(60,60,60,0.45)";
+      ctx.fillRect(d.x * TILE + 2, d.y * TILE, TILE - 4, TILE - 4);
+      ctx.strokeStyle = "rgba(255,210,80,0.7)";
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(d.x * TILE + 2.5, d.y * TILE + 0.5, TILE - 5, TILE - 5);
+      ctx.setLineDash([]);
+    }
+    const turretSheet = TURRET_SPRITES[b.kind];
+    if (turretSheet) {
+      const img = sprites.get(b.kind, b.owner);
+      if (img) {
+        drawStrip(ctx, img, turretSheet, b.angle, x + w / 2, y + h / 2);
+        return;
+      }
+    } else {
+      const img = sprites.get(b.kind, b.owner);
+      if (img) {
+        const { marginX, marginY, scale } = BUILDING_SPRITE;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(img, x - marginX * scale, y - marginY * scale, img.naturalWidth * scale, img.naturalHeight * scale);
+        ctx.imageSmoothingEnabled = false;
+        return;
+      }
+    }
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(x + 5, y + 5, w - 4, h - 4);
+    ctx.fillStyle = COLORS.concrete;
+    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    if (turretSheet) {
+      drawTurret(ctx, b);
+      return;
+    }
+    ctx.fillStyle = team.main;
+    ctx.fillRect(x + 2, y + 2, w - 4, 7);
+    ctx.strokeStyle = "#5c5548";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5);
+    switch (b.kind) {
+      case "yard":
+        ctx.fillStyle = "#a59d8d";
+        ctx.fillRect(x + 14, y + 22, w - 28, h - 36);
+        ctx.strokeStyle = team.dark;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + w - 18, y + 20);
+        ctx.lineTo(x + w - 18, y + h - 12);
+        ctx.lineTo(x + 18, y + h - 12);
+        ctx.stroke();
+        break;
+      case "refinery":
+        ctx.fillStyle = "#8f8778";
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          ctx.arc(x + 18 + k * 30, y + 34, 10, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      case "power": {
+        const cx = x + w / 2;
+        const cy = y + h / 2 + 2;
+        ctx.fillStyle = "#8f8778";
+        ctx.beginPath();
+        ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#6fb3d9";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) {
+          const a = k * Math.PI * 2 / 3;
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(a) * 12, cy + Math.sin(a) * 12);
+        }
+        ctx.stroke();
+        break;
+      }
+      case "barracks":
+        ctx.fillStyle = "#7a8f5a";
+        ctx.fillRect(x + 10, y + 16, w - 20, h - 30);
+        ctx.fillStyle = "#5d6e43";
+        for (let k = 0; k < 3; k++) ctx.fillRect(x + 14 + k * 14, y + 20, 8, h - 38);
+        break;
+      case "lightFactory":
+      case "heavyFactory": {
+        const doorW = b.kind === "heavyFactory" ? 44 : 34;
+        ctx.fillStyle = "#6e675a";
+        ctx.fillRect(x + w / 2 - doorW / 2, y + h - 26, doorW, 22);
+        ctx.strokeStyle = "#4e483e";
+        ctx.lineWidth = 1;
+        for (let k = 1; k < 4; k++) {
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2 - doorW / 2, y + h - 26 + k * 5.5);
+          ctx.lineTo(x + w / 2 + doorW / 2, y + h - 26 + k * 5.5);
+          ctx.stroke();
+        }
+        break;
+      }
+    }
+    ctx.fillStyle = "#2b2620";
+    ctx.font = "bold 9px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    const label = BUILDING_STATS[b.kind].label.toUpperCase();
+    ctx.fillText(b.w <= 2 ? label.split(" ")[0] : label, x + w / 2, b.kind.endsWith("Factory") ? y + 13 + 9 : y + h - 6);
+  }
+  function drawTurret(ctx, b) {
+    const team = TEAM[b.owner];
+    const c = buildingCentre(b);
+    ctx.fillStyle = team.main;
+    ctx.fillRect(b.tx * TILE + 2, b.ty * TILE + 2, TILE - 4, 4);
+    ctx.save();
+    ctx.translate(c.x, c.y + 1);
+    ctx.rotate(b.angle);
+    ctx.fillStyle = "#3a3f46";
+    ctx.fillRect(2, -2.5, 16, 5);
+    ctx.fillStyle = team.dark;
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = team.main;
+    ctx.beginPath();
+    ctx.arc(-1, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawHpBar(ctx, x, y, w, frac) {
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(x, y, w, 3);
+    ctx.fillStyle = frac > 0.5 ? "#5fd35a" : frac > 0.25 ? "#e8c35a" : "#e0503a";
+    ctx.fillRect(x, y, w * Math.max(0, frac), 3);
+  }
+  function drawEffect(ctx, e) {
+    const t = e.age / e.life;
+    switch (e.kind) {
+      case "tracer":
+        ctx.strokeStyle = `rgba(255,235,150,${1 - t})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(e.x2, e.y2);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+        break;
+      case "beam": {
+        ctx.lineCap = "round";
+        ctx.strokeStyle = `rgba(95,216,240,${0.45 * (1 - t)})`;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(e.x2, e.y2);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(235,255,255,${1 - t})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.lineCap = "butt";
+        break;
+      }
+      case "heal": {
+        ctx.lineCap = "round";
+        ctx.strokeStyle = `rgba(120,240,140,${0.5 * (1 - t)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(e.x2, e.y2);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+        ctx.lineCap = "butt";
+        ctx.strokeStyle = `rgba(160,255,170,${1 - t})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 4 + 8 * t, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "flame": {
+        const a = Math.atan2(e.y - e.y2, e.x - e.x2);
+        const len = Math.hypot(e.x - e.x2, e.y - e.y2);
+        ctx.save();
+        ctx.translate(e.x2, e.y2);
+        ctx.rotate(a);
+        const grad = ctx.createLinearGradient(0, 0, len, 0);
+        grad.addColorStop(0, `rgba(255,240,170,${0.9 * (1 - t)})`);
+        grad.addColorStop(0.5, `rgba(255,140,40,${0.75 * (1 - t)})`);
+        grad.addColorStop(1, `rgba(200,60,20,${0.2 * (1 - t)})`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(len * 0.6, -9, len, -4 - 6 * t);
+        ctx.lineTo(len, 4 + 6 * t);
+        ctx.quadraticCurveTo(len * 0.6, 9, 0, 0);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case "smoke":
+        ctx.fillStyle = `rgba(150,140,130,${0.45 * (1 - t)})`;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y - 4 * t, 2 + 4 * t, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "hit":
+        ctx.fillStyle = `rgba(255,220,120,${1 - t})`;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 2 + 3 * t, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      case "boom":
+      case "bigBoom": {
+        const r = (e.kind === "bigBoom" ? 18 : 10) * e.size * (0.4 + t);
+        ctx.fillStyle = `rgba(80,70,60,${0.5 * (1 - t)})`;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y - t * 8, r * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(255,${Math.round(200 - 120 * t)},60,${1 - t})`;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r * (1 - t * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+  }
+  function drawProjectile(ctx, p) {
+    if (p.style === "arc") {
+      const total = Math.hypot(p.tx - p.sx, p.ty - p.sy) || 1;
+      const done = Math.min(1, Math.hypot(p.x - p.sx, p.y - p.sy) / total);
+      const lift = Math.sin(done * Math.PI) * Math.min(90, total * 0.35);
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, 3, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#3a3128";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - lift, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if (p.style === "rocket") {
+      const a = Math.atan2(p.ty - p.y, p.tx - p.x);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(a);
+      ctx.fillStyle = "rgba(255,170,60,0.9)";
+      ctx.beginPath();
+      ctx.ellipse(-6, 0, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d8dde4";
+      ctx.fillRect(-3, -1.5, 8, 3);
+      ctx.restore();
+      return;
+    }
+    ctx.fillStyle = "#2b2620";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,220,140,0.9)";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawStorm(ctx, st, time) {
+    const r = STORMS.radius * TILE;
+    const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
+    const grad = ctx.createRadialGradient(st.x, st.y, r * 0.2, st.x, st.y, r * 1.15);
+    grad.addColorStop(0, `rgba(30,45,65,${0.62 * fade})`);
+    grad.addColorStop(0.75, `rgba(60,100,135,${0.45 * fade})`);
+    grad.addColorStop(1, "rgba(70,110,140,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(st.x, st.y, r * 1.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(170,230,255,${0.6 * fade})`;
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 3; k++) {
+      const a0 = time * 1.6 + k * Math.PI * 2 / 3;
+      ctx.beginPath();
+      ctx.arc(st.x, st.y, r * (0.45 + k * 0.18), a0, a0 + 1.6);
+      ctx.stroke();
+    }
+    for (let k = 0; k < 48; k++) {
+      const a = time * (1.2 + k % 5 * 0.25) + k * 2.39;
+      const rr = r * (0.2 + k * 37 % 80 / 100);
+      const px = st.x + Math.cos(a) * rr;
+      const py = st.y + Math.sin(a) * rr * 0.8;
+      ctx.fillStyle = k % 4 === 0 ? `rgba(230,255,255,${0.9 * fade})` : `rgba(95,216,240,${0.8 * fade})`;
+      ctx.fillRect(px, py, 4, 2);
+    }
+  }
+  function drawBuildingSelection(ctx, b) {
+    const x = b.tx * TILE;
+    const y = b.ty * TILE;
+    const w = b.w * TILE;
+    const h = b.h * TILE;
+    ctx.strokeStyle = COLORS.select;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.setLineDash([]);
+    const hpFrac = b.hp / BUILDING_STATS[b.kind].maxHp;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(x, y - 7, w, 4);
+    ctx.fillStyle = "#5fd35a";
+    ctx.fillRect(x, y - 7, w * hpFrac, 4);
+  }
+  var SpriteBank = class {
+    images = /* @__PURE__ */ new Map();
+    /** Each side's buildings come from its faction's art (assets/buildings/<faction>/). */
+    constructor(factions) {
+      const strips = [...Object.keys(UNIT_SPRITES), ...Object.keys(TURRET_SPRITES)];
+      const buildings = Object.keys(BUILDING_STATS).filter((k) => !(k in TURRET_SPRITES));
+      for (const owner of [0, 1]) {
+        for (const kind of strips) this.load(`${kind}_${owner}`, `assets/units/${kind}_${owner}.png`);
+        for (const kind of buildings) this.load(`${kind}_${owner}`, `assets/buildings/${factions[owner]}/${kind}_${owner}.png`);
+      }
+    }
+    load(key, src) {
+      const img = new Image();
+      img.src = src;
+      this.images.set(key, img);
+    }
+    get(kind, owner) {
+      const img = this.images.get(`${kind}_${owner}`);
+      return img && img.complete && img.naturalWidth > 0 ? img : null;
+    }
+  };
+  function drawStrip(ctx, img, sheet, angle, x, y) {
+    const step = Math.PI * 2 / sheet.frames;
+    const a = (angle % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const frame = Math.round(a / step) % sheet.frames;
+    const s = sheet.size * sheet.scale;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, frame * sheet.size, 0, sheet.size, sheet.size, x - s / 2, y - s / 2, s, s);
+    ctx.imageSmoothingEnabled = false;
+  }
+  function drawUnit(ctx, u, time, sprites) {
+    const sheet = UNIT_SPRITES[u.kind];
+    const img = sheet && sprites.get(u.kind, u.owner);
+    if (sheet && img) {
+      if (u.kind === "harvester" && u.harvest === "harvesting") {
+        ctx.save();
+        ctx.translate(u.x, u.y);
+        ctx.rotate(u.angle);
+        drawDust(ctx, time);
+        ctx.restore();
+      }
+      drawStrip(ctx, img, sheet, u.angle, u.x, u.y);
+      return;
+    }
+    const team = TEAM[u.owner];
+    ctx.save();
+    ctx.translate(u.x, u.y);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.beginPath();
+    ctx.ellipse(2, 3, UNIT_STATS[u.kind].radius, UNIT_STATS[u.kind].radius * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.rotate(u.angle);
+    if (u.kind === "harvester") {
+      if (u.harvest === "harvesting") drawDust(ctx, time);
+      ctx.fillStyle = team.dark;
+      ctx.fillRect(-13, -10, 26, 20);
+      ctx.fillStyle = team.main;
+      ctx.fillRect(-11, -8, 16, 16);
+      ctx.fillStyle = "#e8c35a";
+      ctx.fillRect(5, -9, 8, 18);
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.fillRect(-9, -6, 6, 4);
+    } else if (u.kind === "tank") {
+      ctx.fillStyle = "#2b3038";
+      ctx.fillRect(-11, -9, 22, 4);
+      ctx.fillRect(-11, 5, 22, 4);
+      ctx.fillStyle = team.dark;
+      ctx.fillRect(-10, -6, 20, 12);
+      ctx.fillStyle = team.main;
+      ctx.beginPath();
+      ctx.arc(-1, 0, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d8dde4";
+      ctx.fillRect(3, -1.5, 11, 3);
+    } else if (u.kind === "infantry") {
+      ctx.fillStyle = team.dark;
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#e9dcc4";
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#222";
+      ctx.fillRect(3, -0.75, 5, 1.5);
+    } else {
+      ctx.fillStyle = team.dark;
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = team.main;
+      ctx.beginPath();
+      ctx.arc(-1, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(3, -4);
+      ctx.lineTo(3, 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawDust(ctx, time) {
+    const p = time * 3 % 1;
+    ctx.fillStyle = `rgba(220,150,90,${0.5 * (1 - p)})`;
+    ctx.beginPath();
+    ctx.arc(20 + p * 8, 0, 4 + p * 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawRally(ctx, b) {
+    const c = buildingCentre(b);
+    const x = (b.rally.x + 0.5) * TILE;
+    const y = (b.rally.y + 0.5) * TILE;
+    ctx.strokeStyle = "rgba(125,255,122,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "#d8dde4";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y - 16);
+    ctx.stroke();
+    ctx.fillStyle = "#7dff7a";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 16);
+    ctx.lineTo(x + 10, y - 12);
+    ctx.lineTo(x, y - 8);
+    ctx.fill();
+  }
+  function drawWaypoints(ctx, u) {
+    const pts = [u.goal, ...u.waypoints].filter((p) => !!p);
+    ctx.strokeStyle = "rgba(125,255,122,0.55)";
+    ctx.fillStyle = "rgba(125,255,122,0.8)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(u.x, u.y);
+    for (const p of pts) ctx.lineTo((p.x + 0.5) * TILE, (p.y + 0.5) * TILE);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const p of pts) ctx.fillRect((p.x + 0.5) * TILE - 2, (p.y + 0.5) * TILE - 2, 4, 4);
+  }
+  function drawRepairing(ctx, b, time) {
+    const c = buildingCentre(b);
+    const a = 0.55 + 0.35 * Math.sin(time * 5);
+    ctx.fillStyle = `rgba(20,30,20,${a * 0.7})`;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(140,255,140,${a})`;
+    ctx.fillRect(c.x - 7, c.y - 2.5, 14, 5);
+    ctx.fillRect(c.x - 2.5, c.y - 7, 5, 14);
+  }
+  function drawCharge(ctx, c, time) {
+    const rate = c.timer < 1 ? 12 : 5;
+    const on2 = Math.sin(time * rate * Math.PI) > 0;
+    ctx.fillStyle = "#1b1612";
+    ctx.fillRect(c.x - 4, c.y - 3, 8, 6);
+    ctx.fillStyle = on2 ? "#ff3a2a" : "#6a1a14";
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    if (on2) {
+      ctx.fillStyle = "rgba(255,60,40,0.25)";
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  function drawWard(ctx, u, time) {
+    const r = UNIT_STATS[u.kind].radius + 4;
+    ctx.strokeStyle = `rgba(140,235,255,${0.45 + 0.25 * Math.sin(time * 6 + u.id)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  function drawRank(ctx, u) {
+    const r = UNIT_STATS[u.kind].radius;
+    const x = u.x + r + 2;
+    let y = u.y - r + 2;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    for (let i = 0; i < u.rank; i++) {
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.beginPath();
+      ctx.moveTo(x - 3, y + 1);
+      ctx.lineTo(x, y - 2);
+      ctx.lineTo(x + 3, y + 1);
+      ctx.stroke();
+      ctx.strokeStyle = u.rank >= 3 ? "#ff9a3c" : "#ffd75a";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      y += 4;
+    }
+    ctx.lineJoin = "miter";
+  }
+  function drawSelection(ctx, u) {
+    const r = UNIT_STATS[u.kind].radius + 4;
+    const l = 5;
+    ctx.strokeStyle = COLORS.select;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const cx = u.x + sx * r;
+      const cy = u.y + sy * r;
+      ctx.moveTo(cx, cy - sy * l);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx - sx * l, cy);
+    }
+    ctx.stroke();
+    const w = r * 2;
+    const hpFrac = u.hp / UNIT_STATS[u.kind].maxHp;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(u.x - r, u.y - r - 7, w, 4);
+    ctx.fillStyle = hpFrac > 0.5 ? "#5fd35a" : hpFrac > 0.25 ? "#e8c35a" : "#e0503a";
+    ctx.fillRect(u.x - r, u.y - r - 7, w * hpFrac, 4);
+    if (u.kind === "harvester") {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.fillRect(u.x - r, u.y + r + 3, w, 4);
+      ctx.fillStyle = COLORS.spice;
+      ctx.fillRect(u.x - r, u.y + r + 3, w * u.cargo / HARVESTER.capacity, 4);
+    }
+  }
+
+  // src/sidebar.ts
+  var HOTKEYS = ["R", "T", "Y", "U", "I", "O", "F", "G", "J", "K", "L", "N", "B", "V"];
+  var ICON = {
+    yard: "#a59d8d",
+    power: "#6fb3d9",
+    refinery: "#c4572a",
+    barracks: "#7a8f5a",
+    turret: "#9aa3ad",
+    lightFactory: "#b59a5a",
+    heavyFactory: "#8a6f9e",
+    infantry: "#7a8f5a",
+    quad: "#2f6fb0",
+    tank: "#556070",
+    harvester: "#e8c35a",
+    rocketInfantry: "#8f6f4f",
+    raider: "#4f8fc0",
+    artillery: "#a08060",
+    radar: "#5fb0a0",
+    repairPad: "#7f8a90",
+    rocketTurret: "#b07070",
+    glasswalker: "#5fd8f0",
+    skimmer: "#3fb8d8",
+    prismTank: "#8fe8fa",
+    resonator: "#6fc8e0",
+    scrapper: "#b08050",
+    junker: "#d07030",
+    wrecker: "#8a7058",
+    mortarCrawler: "#a07848",
+    techCenter: "#9a8ac0",
+    medic: "#e8e8e8",
+    mender: "#a8f0f8",
+    mechanic: "#d0a060",
+    marksman: "#4f6040",
+    lancer: "#4fa8c8",
+    deadeye: "#7a5838",
+    bastion: "#3f4a58",
+    monolith: "#b0f0ff",
+    titan: "#6a5040",
+    vance: "#d8b040",
+    seer: "#e0f8ff",
+    rook: "#e07a30"
+  };
+  var Sidebar = class {
+    buttons = [];
+    structureKeys = /* @__PURE__ */ new Map();
+    unitKeys = /* @__PURE__ */ new Map();
+    constructor(structures, units, research, game, hooks) {
+      const me = game.local;
+      const issue = hooks.issue;
+      BUILDABLE.forEach((kind, i) => {
+        const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i]);
+        b.press = () => {
+          const job = structureOf(game, me);
+          if (job?.kind === kind && job.done) hooks.beginPlacing(kind);
+          else if (!job) issue({ t: "build", kind });
+        };
+        if (HOTKEYS[i]) this.structureKeys.set(HOTKEYS[i], b);
+        b.el.addEventListener("click", () => b.press());
+        b.el.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          if (structureOf(game, me)?.kind === kind) {
+            issue({ t: "cancelBuild" });
+            hooks.cancelPlacing();
+          }
+        });
+        b.update = () => {
+          const job = structureOf(game, me);
+          const missing = missingFor(game, kind, me);
+          const mine = job?.kind === kind;
+          setState(b, {
+            locked: !!missing,
+            busy: !!job && !mine,
+            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : "Left-click to build, right-click to cancel",
+            progress: mine ? job.spent / BUILDING_STATS[kind].cost : 0,
+            badge: mine && job.done ? "READY" : "",
+            ready: mine && job.done
+          });
+        };
+        structures.append(b.el);
+        this.buttons.push(b);
+      });
+      const faction = game.factions[me];
+      TRAINABLE.filter((k) => canTrain(faction, k)).forEach((kind, i) => {
+        const cost = unitCost(faction, kind);
+        const key = HOTKEYS[i];
+        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`);
+        b.press = () => issue({ t: "train", kind, n: 1 });
+        if (key) this.unitKeys.set(key, b);
+        b.el.addEventListener("click", (e) => {
+          if (e.ctrlKey) issue({ t: "repeat", kind });
+          else issue({ t: "train", kind, n: e.shiftKey ? 5 : 1 });
+        });
+        b.el.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          if (linesOf(game, me)[UNIT_STATS[kind].producer].repeat === kind) issue({ t: "repeat", kind });
+          issue({ t: "untrain", kind, n: e.shiftKey ? 5 : 1 });
+        });
+        const hero = HEROES[kind];
+        b.update = () => {
+          const missing = missingFor(game, kind, me);
+          const line = linesOf(game, me)[UNIT_STATS[kind].producer];
+          const n = queuedCount(game, kind, me);
+          const cur = line.current?.kind === kind ? line.current : null;
+          const heroTaken = !!hero && n === 0 && heroCount(game, me) > 0;
+          const repeating = line.repeat === kind;
+          setState(b, {
+            locked: !!missing,
+            busy: heroTaken,
+            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : hero ? `Hero \u2014 one at a time. ${hero.ability} (Q): ${hero.blurb}` : "Click: queue one \xB7 Shift-click: five \xB7 Ctrl-click: keep building \xB7 Right-click: remove",
+            progress: cur ? cur.spent / cost : 0,
+            badge: repeating ? `\u21BB${n > 1 ? n : ""}` : n > 0 ? String(n) : "",
+            ready: false
+          });
+        };
+        units.append(b.el);
+        this.buttons.push(b);
+      });
+      window.addEventListener("keydown", (e) => {
+        if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+        const m = /^Key([A-Z])$/.exec(e.code);
+        if (!m) return;
+        const b = (e.shiftKey ? this.unitKeys : this.structureKeys).get(m[1]);
+        if (b?.press && !b.el.classList.contains("locked")) b.press();
+      });
+      for (const id of researchFor(faction)) {
+        const r = RESEARCH[id];
+        const b = makeButton(r.label, r.cost, "#9a8ac0");
+        b.el.addEventListener("click", () => issue({ t: "research", id }));
+        b.el.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          if (game.research[me].current?.id === id) issue({ t: "cancelResearch" });
+        });
+        b.update = () => {
+          const state = game.research[me];
+          const done = state.done.includes(id);
+          const mine = state.current?.id === id ? state.current : null;
+          const blocked = researchBlocked(game, me, id);
+          setState(b, {
+            locked: blocked === "Requires Tech Center",
+            busy: !done && !mine && !!state.current,
+            title: `${r.blurb} (${Math.round(researchTime(id))}s)${done ? " \u2014 done" : blocked === "Requires Tech Center" ? " \u2014 requires Tech Center" : ""}`,
+            progress: mine ? mine.spent / r.cost : 0,
+            badge: done ? "\u2714" : "",
+            ready: done
+          });
+        };
+        research.append(b.el);
+        this.buttons.push(b);
+      }
+    }
+    update() {
+      for (const b of this.buttons) b.update();
+    }
+  };
+  function makeButton(label, cost, color, key) {
+    const el2 = document.createElement("button");
+    el2.className = "build";
+    const icon = document.createElement("span");
+    icon.className = "icon";
+    icon.style.background = color;
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = label;
+    const price = document.createElement("span");
+    price.className = "cost";
+    price.textContent = cost.toLocaleString();
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    el2.append(bar, icon, name, price, badge);
+    if (key) {
+      const k = document.createElement("span");
+      k.className = "key";
+      k.textContent = key;
+      el2.append(k);
+    }
+    return { el: el2, bar, badge, update: () => {
+    } };
+  }
+  function setState(b, s) {
+    b.el.classList.toggle("locked", s.locked);
+    b.el.classList.toggle("busy", s.busy);
+    b.el.classList.toggle("ready", s.ready);
+    if (b.el.title !== s.title) b.el.title = s.title;
+    const width = `${Math.round(s.progress * 100)}%`;
+    if (b.bar.style.width !== width) b.bar.style.width = width;
+    if (b.badge.textContent !== s.badge) b.badge.textContent = s.badge;
+  }
+
+  // src/settings.ts
+  var SPEEDS = { slow: 0.6, normal: 1, fast: 1.5, fastest: 2.2 };
+  var SPEED_ORDER = ["slow", "normal", "fast", "fastest"];
+  var SPEED_LABELS = { slow: "Slow", normal: "Normal", fast: "Fast", fastest: "Fastest" };
+  var DEFAULT_SETTINGS = {
+    seed: 1,
+    difficulty: "normal",
+    hazards: true,
+    fog: true,
+    faction: "concord",
+    enemyFaction: "random",
+    speed: "normal",
+    edgeScroll: true
+  };
+  var CHOICES = [...FACTION_IDS, "random"];
+  var isChoice = (v) => CHOICES.includes(v);
+  var LEVELS = ["easy", "normal", "hard"];
+  var MAX_SEED = 99999;
+  function validSeed(n) {
+    const v = Math.floor(Number(n));
+    return Number.isFinite(v) && v >= 1 && v <= MAX_SEED ? v : null;
+  }
+  function flag(value) {
+    if (value === "1" || value === "on" || value === "true") return true;
+    if (value === "0" || value === "off" || value === "false") return false;
+    return null;
+  }
+  function parseSettings(query, saved) {
+    const base = { ...DEFAULT_SETTINGS };
+    if (saved) {
+      base.seed = validSeed(saved.seed) ?? base.seed;
+      if (LEVELS.includes(saved.difficulty)) base.difficulty = saved.difficulty;
+      if (typeof saved.hazards === "boolean") base.hazards = saved.hazards;
+      if (typeof saved.fog === "boolean") base.fog = saved.fog;
+      if (isChoice(saved.faction)) base.faction = saved.faction;
+      if (isChoice(saved.enemyFaction)) base.enemyFaction = saved.enemyFaction;
+      if (SPEED_ORDER.includes(saved.speed)) base.speed = saved.speed;
+      if (typeof saved.edgeScroll === "boolean") base.edgeScroll = saved.edgeScroll;
+    }
+    const speed = query.get("speed");
+    const faction = query.get("faction");
+    const enemy = query.get("enemy");
+    return {
+      seed: validSeed(query.get("seed")) ?? base.seed,
+      difficulty: LEVELS.find((l) => l === query.get("ai")) ?? base.difficulty,
+      hazards: flag(query.get("storms")) ?? base.hazards,
+      fog: flag(query.get("fog")) ?? base.fog,
+      faction: isChoice(faction) ? faction : base.faction,
+      enemyFaction: isChoice(enemy) ? enemy : base.enemyFaction,
+      speed: SPEED_ORDER.includes(speed) ? speed : base.speed,
+      edgeScroll: flag(query.get("edge")) ?? base.edgeScroll
+    };
+  }
+  function resolveFactions(s, rand) {
+    const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand() * FACTION_IDS.length)] : s.faction;
+    const others = FACTION_IDS.filter((f) => f !== player);
+    const enemy = s.enemyFaction === "random" ? others[Math.floor(rand() * others.length)] : s.enemyFaction;
+    return { player, enemy };
+  }
+  function settingsToQuery(s, play) {
+    const q = new URLSearchParams({
+      seed: String(s.seed),
+      ai: s.difficulty,
+      storms: s.hazards ? "1" : "0",
+      fog: s.fog ? "1" : "0",
+      faction: s.faction,
+      enemy: s.enemyFaction,
+      speed: s.speed
+    });
+    if (!s.edgeScroll) q.set("edge", "0");
+    if (play) q.set("play", "1");
+    return q;
+  }
+  function randomSeed(rand = Math.random) {
+    return 1 + Math.floor(rand() * MAX_SEED);
+  }
+  var STORAGE_KEY = "vitrea.settings";
+  function loadSaved() {
+    try {
+      const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+  function save(s) {
+    try {
+      globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(s));
+    } catch {
+    }
+  }
+
+  // src/samples.ts
+  var WEAPON_FAMILY = {
+    rifle: "rifle",
+    shardRifle: "laser",
+    scattergun: "shotgun",
+    mg: "mg",
+    raiderGun: "mg",
+    shardRepeater: "laser",
+    cannon: "cannon",
+    turretGun: "cannon",
+    twinCannon: "cannon",
+    autocannon: "cannon",
+    scrapCannon: "cannon",
+    rocket: "rocket",
+    turretRocket: "rocket",
+    artilleryShell: "artillery",
+    mortar: "artillery",
+    resonance: "artillery",
+    prismBeam: "beam",
+    lancerBeam: "beam",
+    monolithBeam: "beam",
+    seerBeam: "laser",
+    flamer: "flame",
+    marksmanRifle: "sniper",
+    deadeyeRifle: "sniper",
+    vancePistols: "pistol",
+    rookCannon: "shotgun"
+  };
+  function weaponSampleKeys(weapon2) {
+    return [`shot_${weapon2}`, `shot_${WEAPON_FAMILY[weapon2]}`];
+  }
+  var AUDIO_FILE = /\.(ogg|mp3|wav|m4a)$/i;
+  function sampleKey(file) {
+    if (!AUDIO_FILE.test(file)) return null;
+    const base = file.replace(/^.*[\\/]/, "").replace(AUDIO_FILE, "");
+    return base.replace(/_\d+$/, "").toLowerCase() || null;
+  }
+  function groupSamples(files) {
+    const out = {};
+    for (const f of [...files].sort()) {
+      const key = sampleKey(f);
+      if (key) (out[key] ??= []).push(f);
+    }
+    return out;
+  }
+  var SampleBank = class {
+    buffers = /* @__PURE__ */ new Map();
+    /** True once loading has finished (or found nothing to load). */
+    loaded = false;
+    async load(ctx, base = "assets/sounds/") {
+      try {
+        await this.loadAll(ctx, base);
+      } finally {
+        this.loaded = true;
+      }
+    }
+    async loadAll(ctx, base) {
+      let files;
+      try {
+        const res = await fetch(`${base}manifest.json`);
+        if (!res.ok) return;
+        files = await res.json();
+      } catch {
+        return;
+      }
+      for (const [key, list] of Object.entries(groupSamples(files))) {
+        for (const f of list) {
+          try {
+            const data = await (await fetch(base + f)).arrayBuffer();
+            const buf = await ctx.decodeAudioData(data);
+            const takes = this.buffers.get(key) ?? [];
+            takes.push(buf);
+            this.buffers.set(key, takes);
+          } catch {
+          }
+        }
+      }
+    }
+    /** A random take of the first key that has any, or null. */
+    pick(keys) {
+      for (const k of keys) {
+        const takes = this.buffers.get(k);
+        if (takes?.length) return takes[Math.floor(Math.random() * takes.length)];
+      }
+      return null;
+    }
+  };
+
+  // src/audio.ts
+  var THROTTLE = {
+    rifle: 0.05,
+    mg: 0.06,
+    raiderGun: 0.06,
+    cannon: 0.08,
+    turretGun: 0.08,
+    rocket: 0.1,
+    turretRocket: 0.1,
+    artilleryShell: 0.15,
+    shardRifle: 0.06,
+    shardRepeater: 0.06,
+    prismBeam: 0.1,
+    resonance: 0.15,
+    marksmanRifle: 0.1,
+    lancerBeam: 0.1,
+    deadeyeRifle: 0.1,
+    twinCannon: 0.1,
+    monolithBeam: 0.15,
+    scrapCannon: 0.1,
+    heal: 0.25,
+    vancePistols: 0.06,
+    seerBeam: 0.08,
+    rookCannon: 0.08,
+    scattergun: 0.06,
+    flamer: 0.12,
+    autocannon: 0.08,
+    mortar: 0.12,
+    impact: 0.06,
+    explodeSmall: 0.06,
+    explodeBig: 0.1,
+    unload: 0.4,
+    select: 0.05,
+    command: 0.08
+  };
+  var MUTE_KEY = "vitrea.muted";
+  var Sound = class {
+    ctx = null;
+    master = null;
+    noise = null;
+    muted = false;
+    last = /* @__PURE__ */ new Map();
+    wind = null;
+    engines = null;
+    samples = new SampleBank();
+    /** One line at a time per channel: unit replies and the announcer don't talk over themselves. */
+    voices = {
+      unit: { until: 0, src: null },
+      announcer: { until: 0, src: null },
+      briefing: { until: 0, src: null }
+    };
+    constructor() {
+      try {
+        this.muted = globalThis.localStorage?.getItem(MUTE_KEY) === "1";
+      } catch {
+      }
+      const wake = () => this.ensure();
+      window.addEventListener("pointerdown", wake);
+      window.addEventListener("keydown", wake);
+    }
+    /** Create or resume the audio context. Safe to call repeatedly. */
+    ensure() {
+      if (!this.ctx) {
+        const Ctor = window.AudioContext ?? window.webkitAudioContext;
+        if (!Ctor) return;
+        this.ctx = new Ctor();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.muted ? 0 : 0.5;
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.value = -12;
+        comp.ratio.value = 6;
+        this.master.connect(comp).connect(this.ctx.destination);
+        const len = this.ctx.sampleRate * 1.5;
+        this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const data = this.noise.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+        void this.samples.load(this.ctx);
+      }
+      if (this.ctx.state === "suspended") void this.ctx.resume();
+    }
+    toggleMute() {
+      this.muted = !this.muted;
+      if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime, 0.02);
+      try {
+        globalThis.localStorage?.setItem(MUTE_KEY, this.muted ? "1" : "0");
+      } catch {
+      }
+      return this.muted;
+    }
+    ready() {
+      return !!this.ctx && this.ctx.state === "running" && !!this.master && !this.muted;
+    }
+    throttled(key) {
+      const gap = THROTTLE[key];
+      if (!gap || !this.ctx) return false;
+      const now = this.ctx.currentTime;
+      const prev = this.last.get(key) ?? -1;
+      if (now - prev < gap) return true;
+      this.last.set(key, now);
+      return false;
+    }
+    // ------------------------------------------------------------ building blocks
+    /**
+     * Speak a voice line on a channel (a random take of the first key with a
+     * recording). Skipped if that channel is still talking, unless `interrupt`.
+     */
+    voice(channel, keys, interrupt = false) {
+      if (!this.ready()) return false;
+      const buf = this.samples.pick(keys);
+      if (!buf) return false;
+      const ctx = this.ctx;
+      const ch = this.voices[channel];
+      if (ctx.currentTime < ch.until && !interrupt) return false;
+      try {
+        ch.src?.stop();
+      } catch {
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = channel === "briefing" ? 1 : 0.9;
+      src.connect(g).connect(this.master);
+      src.start();
+      ch.src = src;
+      ch.until = ctx.currentTime + buf.duration;
+      return true;
+    }
+    stopVoice(channel) {
+      const ch = this.voices[channel];
+      try {
+        ch.src?.stop();
+      } catch {
+      }
+      ch.src = null;
+      ch.until = 0;
+    }
+    /** Who answers for the current selection: the hero if one is selected, else the faction. */
+    speaker(g) {
+      const units = [...g.selection].map((id) => g.units.find((u) => u.id === id)).filter((u) => u && u.owner === g.local && u.kind !== "harvester");
+      if (units.length === 0) return null;
+      const hero = units.find((u) => isHero(u.kind));
+      return hero ? hero.kind : g.factions[g.local];
+    }
+    /** Play a recording for the first of `keys` that has one, slightly re-pitched each time. False if none. */
+    sample(keys, vol, pan) {
+      const buf = this.samples.pick(keys);
+      if (!buf) return false;
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = 0.94 + Math.random() * 0.12;
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      src.connect(g).connect(p).connect(this.master);
+      src.start();
+      return true;
+    }
+    /** A burst of filtered noise with a fast attack and exponential decay. */
+    burst(o) {
+      const ctx = this.ctx;
+      const t = ctx.currentTime + (o.delay ?? 0);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.playbackRate.value = 0.8 + Math.random() * 0.4;
+      const f = ctx.createBiquadFilter();
+      f.type = o.type;
+      f.frequency.setValueAtTime(o.freq, t);
+      if (o.freqEnd) f.frequency.exponentialRampToValueAtTime(o.freqEnd, t + o.dur);
+      f.Q.value = o.q ?? 0.8;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(o.vol, t + 5e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + o.dur);
+      const p = ctx.createStereoPanner();
+      p.pan.value = o.pan;
+      src.connect(f).connect(g).connect(p).connect(this.master);
+      src.start(t, Math.random() * 1);
+      src.stop(t + o.dur + 0.05);
+    }
+    /** An oscillator note, optionally sliding in pitch. */
+    tone(o) {
+      const ctx = this.ctx;
+      const t = ctx.currentTime + (o.delay ?? 0);
+      const osc = ctx.createOscillator();
+      osc.type = o.type;
+      osc.frequency.setValueAtTime(o.freq, t);
+      if (o.freqEnd) osc.frequency.exponentialRampToValueAtTime(o.freqEnd, t + o.dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(o.vol, t + (o.attack ?? 8e-3));
+      g.gain.exponentialRampToValueAtTime(1e-4, t + o.dur);
+      const p = ctx.createStereoPanner();
+      p.pan.value = o.pan ?? 0;
+      osc.connect(g).connect(p).connect(this.master);
+      osc.start(t);
+      osc.stop(t + o.dur + 0.05);
+    }
+    // ------------------------------------------------------------ the sounds
+    shot(weapon2, vol, pan) {
+      if (this.sample(weaponSampleKeys(weapon2), 0.7 * vol, pan)) return;
+      switch (weapon2) {
+        case "rifle":
+          this.burst({ dur: 0.07, type: "highpass", freq: 1800, vol: 0.35 * vol, pan });
+          break;
+        case "mg":
+        case "raiderGun":
+          this.burst({ dur: 0.04, type: "bandpass", freq: 2600, q: 1.2, vol: 0.3 * vol, pan });
+          break;
+        case "cannon":
+        case "turretGun":
+          this.burst({ dur: 0.28, type: "lowpass", freq: 900, freqEnd: 150, vol: 0.6 * vol, pan });
+          this.tone({ freq: 130, freqEnd: 45, type: "sine", dur: 0.25, vol: 0.5 * vol, pan });
+          break;
+        case "rocket":
+        case "turretRocket":
+          this.burst({ dur: 0.45, type: "bandpass", freq: 500, freqEnd: 2400, q: 2, vol: 0.35 * vol, pan });
+          break;
+        case "artilleryShell":
+          this.burst({ dur: 0.6, type: "lowpass", freq: 600, freqEnd: 90, vol: 0.75 * vol, pan });
+          this.tone({ freq: 90, freqEnd: 32, type: "sine", dur: 0.55, vol: 0.6 * vol, pan });
+          break;
+        // Shardbound: crystalline zaps and a sonic thrum.
+        case "shardRifle":
+        case "shardRepeater":
+          this.tone({ freq: 2400, freqEnd: 900, type: "triangle", dur: 0.07, vol: 0.18 * vol, pan });
+          break;
+        case "prismBeam":
+          this.tone({ freq: 1800, freqEnd: 420, type: "sawtooth", dur: 0.22, vol: 0.18 * vol, pan });
+          this.tone({ freq: 3600, freqEnd: 1200, type: "sine", dur: 0.18, vol: 0.12 * vol, pan });
+          break;
+        case "resonance":
+          this.tone({ freq: 70, freqEnd: 140, type: "sine", dur: 0.5, vol: 0.5 * vol, pan });
+          this.tone({ freq: 1320, type: "sine", dur: 0.4, vol: 0.08 * vol, pan, delay: 0.05 });
+          break;
+        // Reclaimers: scrap weapons.
+        case "scattergun":
+          this.burst({ dur: 0.14, type: "lowpass", freq: 2400, freqEnd: 600, vol: 0.45 * vol, pan });
+          break;
+        case "flamer":
+          this.burst({ dur: 0.3, type: "bandpass", freq: 700, q: 0.5, vol: 0.3 * vol, pan });
+          break;
+        case "autocannon":
+          this.burst({ dur: 0.16, type: "lowpass", freq: 1200, freqEnd: 300, vol: 0.45 * vol, pan });
+          this.tone({ freq: 160, freqEnd: 80, type: "sine", dur: 0.12, vol: 0.3 * vol, pan });
+          break;
+        case "mortar":
+          this.burst({ dur: 0.35, type: "lowpass", freq: 700, freqEnd: 150, vol: 0.5 * vol, pan });
+          this.tone({ freq: 220, freqEnd: 90, type: "sine", dur: 0.2, vol: 0.3 * vol, pan });
+          break;
+        // Snipers: a sharp crack that rings out.
+        case "marksmanRifle":
+        case "deadeyeRifle":
+          this.burst({ dur: 0.12, type: "highpass", freq: 2200, vol: 0.5 * vol, pan });
+          this.burst({ dur: 0.5, type: "bandpass", freq: 900, freqEnd: 400, q: 1, vol: 0.12 * vol, pan, delay: 0.04 });
+          break;
+        case "vancePistols":
+          this.burst({ dur: 0.06, type: "highpass", freq: 2e3, vol: 0.35 * vol, pan });
+          this.burst({ dur: 0.06, type: "highpass", freq: 2300, vol: 0.3 * vol, pan, delay: 0.09 });
+          break;
+        case "seerBeam":
+          this.tone({ freq: 2600, freqEnd: 1300, type: "triangle", dur: 0.12, vol: 0.2 * vol, pan });
+          this.tone({ freq: 3900, freqEnd: 1950, type: "sine", dur: 0.1, vol: 0.08 * vol, pan });
+          break;
+        case "rookCannon":
+          this.burst({ dur: 0.18, type: "lowpass", freq: 2e3, freqEnd: 500, vol: 0.5 * vol, pan });
+          break;
+        case "lancerBeam":
+          this.tone({ freq: 3200, freqEnd: 600, type: "sine", dur: 0.28, vol: 0.2 * vol, pan });
+          break;
+        case "twinCannon":
+          this.burst({ dur: 0.3, type: "lowpass", freq: 900, freqEnd: 140, vol: 0.65 * vol, pan });
+          this.tone({ freq: 120, freqEnd: 40, type: "sine", dur: 0.28, vol: 0.55 * vol, pan });
+          this.burst({ dur: 0.25, type: "lowpass", freq: 800, freqEnd: 140, vol: 0.45 * vol, pan, delay: 0.12 });
+          break;
+        case "monolithBeam":
+          this.tone({ freq: 900, freqEnd: 160, type: "sawtooth", dur: 0.45, vol: 0.2 * vol, pan });
+          this.tone({ freq: 2700, freqEnd: 700, type: "sine", dur: 0.35, vol: 0.12 * vol, pan });
+          break;
+        case "scrapCannon":
+          this.burst({ dur: 0.3, type: "lowpass", freq: 1e3, freqEnd: 200, vol: 0.6 * vol, pan });
+          this.tone({ freq: 140, freqEnd: 55, type: "sine", dur: 0.22, vol: 0.45 * vol, pan });
+          break;
+        default: {
+          const missing = weapon2;
+          void missing;
+        }
+      }
+    }
+    explosion(big, vol, pan) {
+      const dur = big ? 1.3 : 0.55;
+      this.burst({ dur, type: "lowpass", freq: big ? 1400 : 2200, freqEnd: 120, vol: (big ? 0.9 : 0.5) * vol, pan });
+      this.tone({ freq: big ? 70 : 110, freqEnd: 28, type: "sine", dur: dur * 0.8, vol: (big ? 0.7 : 0.35) * vol, pan });
+      if (big) this.burst({ dur: 0.9, type: "bandpass", freq: 300, q: 0.6, vol: 0.3 * vol, pan, delay: 0.08 });
+    }
+    /** A short rising arpeggio, used for "ready" chimes and jingles. */
+    arpeggio(notes, type, step, vol, dur = 0.35) {
+      notes.forEach((f, i) => this.tone({ freq: f, type, dur, vol, delay: i * step }));
+    }
+    /** Crystal shimmer: a few high, slightly detuned bell tones. */
+    shimmer(vol, pan) {
+      for (const [f, d] of [[1760, 0], [2217, 0.04], [2637, 0.09], [3520, 0.14]]) {
+        this.tone({ freq: f, type: "sine", dur: 0.6, vol: 0.12 * vol, pan, delay: d });
+      }
+    }
+    // ------------------------------------------------------------ public
+    /** Play everything the game emitted this frame, positioned relative to the camera, then clear. */
+    playEvents(g, cam) {
+      if (!this.ready()) {
+        g.events.length = 0;
+        return;
+      }
+      const cx = cam.x + cam.w / 2;
+      const cy = cam.y + cam.h / 2;
+      const reach = Math.max(cam.w, cam.h) * 0.9;
+      const place = (x, y) => {
+        const d = Math.hypot(x - cx, y - cy);
+        const vol = Math.max(0, 1 - d / reach) ** 1.5;
+        const pan = Math.max(-0.8, Math.min(0.8, (x - cx) / (cam.w / 2)));
+        return { vol, pan };
+      };
+      for (const e of g.events) {
+        switch (e.kind) {
+          case "shot": {
+            if (!visibleAt(g, e.x, e.y)) break;
+            const { vol, pan } = place(e.x, e.y);
+            if (vol > 0.02 && !this.throttled(e.weapon)) this.shot(e.weapon, vol, pan);
+            break;
+          }
+          case "impact": {
+            if (!visibleAt(g, e.x, e.y)) break;
+            const { vol, pan } = place(e.x, e.y);
+            if (vol > 0.02 && !this.throttled("impact") && !this.sample([e.big ? "impact_big" : "impact_small"], vol * (e.big ? 0.8 : 0.5), pan)) {
+              this.explosion(e.big, vol * (e.big ? 0.8 : 0.4), pan);
+            }
+            break;
+          }
+          case "explode": {
+            const { vol, pan } = place(e.x, e.y);
+            const heard = visibleAt(g, e.x, e.y) ? vol : e.big ? vol * 0.4 : 0;
+            if (heard > 0.02 && !this.throttled(e.big ? "explodeBig" : "explodeSmall") && !this.sample([e.big ? "explode_big" : "explode_small"], heard, pan)) {
+              this.explosion(e.big, heard, pan);
+            }
+            break;
+          }
+          case "ability": {
+            if (e.owner === g.local) this.voice("unit", [{ charge: "vance_ability", ward: "seer_ability", crew: "rook_ability" }[e.ability]], true);
+            const { vol, pan } = place(e.x, e.y);
+            if (!visibleAt(g, e.x, e.y) || vol < 0.02) break;
+            if (e.ability === "charge") {
+              for (let k = 0; k < 3; k++) this.tone({ freq: 1760, type: "square", dur: 0.05, vol: 0.08 * vol, pan, delay: k * 0.25 });
+            } else if (e.ability === "ward") {
+              this.tone({ freq: 520, freqEnd: 1560, type: "sine", dur: 0.6, vol: 0.18 * vol, pan });
+              this.tone({ freq: 2080, type: "triangle", dur: 0.5, vol: 0.06 * vol, pan, delay: 0.1 });
+            } else {
+              this.tone({ freq: 220, type: "sawtooth", dur: 0.18, vol: 0.12 * vol, pan });
+              this.tone({ freq: 330, type: "sawtooth", dur: 0.25, vol: 0.12 * vol, pan, delay: 0.18 });
+            }
+            break;
+          }
+          case "promote":
+            this.arpeggio([659, 784, 988, 1319], "triangle", 0.06, 0.14);
+            break;
+          case "heal": {
+            if (!visibleAt(g, e.x, e.y)) break;
+            const { vol, pan } = place(e.x, e.y);
+            if (vol > 0.02 && !this.throttled("heal")) this.tone({ freq: 880, freqEnd: 1320, type: "sine", dur: 0.14, vol: 0.05 * vol, pan });
+            break;
+          }
+          case "unload": {
+            const { vol, pan } = place(e.x, e.y);
+            if (!this.throttled("unload")) this.shimmer(Math.max(0.35, vol), pan);
+            break;
+          }
+          case "unitReady":
+            this.arpeggio([523, 659, 784], "triangle", 0.07, 0.18);
+            break;
+          case "structureReady":
+            this.arpeggio([392, 523, 659, 784], "triangle", 0.08, 0.18, 0.45);
+            break;
+          case "place":
+            this.burst({ dur: 0.35, type: "lowpass", freq: 500, freqEnd: 100, vol: 0.5, pan: 0 });
+            this.tone({ freq: 160, freqEnd: 60, type: "sine", dur: 0.3, vol: 0.4 });
+            break;
+          case "buildStart":
+            this.tone({ freq: 660, type: "square", dur: 0.06, vol: 0.06 });
+            this.tone({ freq: 990, type: "square", dur: 0.06, vol: 0.06, delay: 0.06 });
+            break;
+          case "cancel":
+            this.tone({ freq: 660, freqEnd: 330, type: "square", dur: 0.15, vol: 0.06 });
+            break;
+          case "error":
+            this.tone({ freq: 140, type: "sawtooth", dur: 0.22, vol: 0.12 });
+            break;
+          case "announce":
+            this.voice("announcer", [`announcer_${e.line}`], e.line === "victory" || e.line === "defeat");
+            break;
+          case "heroVoice":
+            this.voice("unit", [`${e.unit}_${e.line}`], e.line === "fallen");
+            break;
+          case "select": {
+            const who = this.speaker(g);
+            if (who) this.voice("unit", [`${who}_select`]);
+            if (!this.throttled("select")) this.tone({ freq: 1320, type: "sine", dur: 0.05, vol: 0.12 });
+            break;
+          }
+          case "command": {
+            const who = this.speaker(g);
+            if (who) this.voice("unit", [`${who}_${e.attack ? "attack" : "move"}`]);
+            if (!this.throttled("command")) {
+              this.tone({ freq: 880, type: "sine", dur: 0.05, vol: 0.12 });
+              this.tone({ freq: 1175, type: "sine", dur: 0.06, vol: 0.12, delay: 0.05 });
+            }
+            break;
+          }
+          case "stormWarning":
+            this.voice("announcer", ["announcer_storm_warning"]);
+            this.burst({ dur: 2.2, type: "bandpass", freq: 300, freqEnd: 900, q: 0.7, vol: 0.35, pan: 0 });
+            this.tone({ freq: 220, freqEnd: 110, type: "triangle", dur: 1.6, vol: 0.15, attack: 0.4 });
+            break;
+          case "alarm":
+            for (let i = 0; i < 3; i++) {
+              this.tone({ freq: 740, type: "square", dur: 0.16, vol: 0.08, delay: i * 0.36 });
+              this.tone({ freq: 554, type: "square", dur: 0.16, vol: 0.08, delay: i * 0.36 + 0.18 });
+            }
+            break;
+          case "victory":
+            if (g.local !== 0) {
+              this.voice("announcer", ["announcer_defeat"], true);
+              this.arpeggio([392, 330, 262, 196], "triangle", 0.22, 0.2, 0.9);
+              break;
+            }
+            this.voice("announcer", ["announcer_victory"], true);
+            this.arpeggio([523, 659, 784, 1047, 1319], "triangle", 0.12, 0.2, 0.7);
+            break;
+          case "defeat":
+            if (g.local !== 0) {
+              this.voice("announcer", ["announcer_victory"], true);
+              this.arpeggio([523, 659, 784, 1047, 1319], "triangle", 0.12, 0.2, 0.7);
+              break;
+            }
+            this.voice("announcer", ["announcer_defeat"], true);
+            this.arpeggio([392, 330, 262, 196], "triangle", 0.22, 0.2, 0.9);
+            break;
+        }
+      }
+      g.events.length = 0;
+    }
+    /**
+     * Engines: a low rumble that grows with the number of vehicles moving on
+     * screen (yours or visible enemies). Uses the `engine_loop` recording if
+     * there is one, otherwise filtered noise over a low saw.
+     */
+    updateEngines(g, cam) {
+      if (!this.ctx || !this.master || this.ctx.state !== "running") return;
+      if (!this.engines) {
+        if (!this.samples.loaded) return;
+        const ctx = this.ctx;
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 160;
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        filter.connect(gain).connect(this.master);
+        const loop = this.samples.pick(["engine_loop"]);
+        if (loop) {
+          const src = ctx.createBufferSource();
+          src.buffer = loop;
+          src.loop = true;
+          src.connect(gain);
+          src.start();
+        } else {
+          const rumble = ctx.createBufferSource();
+          rumble.buffer = this.noise;
+          rumble.loop = true;
+          rumble.playbackRate.value = 0.5;
+          rumble.connect(filter);
+          rumble.start();
+          const growl = ctx.createOscillator();
+          growl.type = "sawtooth";
+          growl.frequency.value = 42;
+          const growlGain = ctx.createGain();
+          growlGain.gain.value = 0.35;
+          growl.connect(growlGain).connect(filter);
+          growl.start();
+        }
+        this.engines = { gain, filter };
+      }
+      let moving = 0;
+      for (const u of g.units) {
+        if (UNIT_STATS[u.kind].armor === "infantry" || u.path.length === 0) continue;
+        if (u.x < cam.x || u.x > cam.x + cam.w || u.y < cam.y || u.y > cam.y + cam.h) continue;
+        if (u.owner !== 0 && !visibleAt(g, u.x, u.y)) continue;
+        moving++;
+      }
+      const level = Math.min(1, moving / 5);
+      const t = this.ctx.currentTime;
+      this.engines.gain.gain.setTargetAtTime(level * 0.22, t, 0.25);
+      this.engines.filter.frequency.setTargetAtTime(120 + 90 * level, t, 0.3);
+    }
+    /** Storm wind that rises and falls with how close the nearest storm is to the camera. */
+    updateWind(g, cam) {
+      if (!this.ctx || !this.master || this.ctx.state !== "running") return;
+      if (!this.wind) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.noise;
+        src.loop = true;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.Q.value = 0.9;
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0;
+        src.connect(filter).connect(gain).connect(this.master);
+        src.start();
+        this.wind = { gain, filter };
+      }
+      const cx = cam.x + cam.w / 2;
+      const cy = cam.y + cam.h / 2;
+      let level = 0;
+      for (const s of g.storms) {
+        const d = Math.hypot(s.x - cx, s.y - cy) / TILE;
+        level = Math.max(level, Math.max(0, 1 - d / 28));
+      }
+      const t = this.ctx.currentTime;
+      this.wind.gain.gain.setTargetAtTime(level * 0.35, t, 0.4);
+      this.wind.filter.frequency.setTargetAtTime(350 + 500 * level + 120 * Math.sin(t * 0.7), t, 0.3);
+    }
+  };
+
+  // src/voicelines.ts
+  var lines = (role, entries) => entries.map(([file, text]) => ({ role, file, text }));
+  var VOICE_LINES = [
+    ...lines("announcer", [
+      ["announcer_building", "Building."],
+      ["announcer_construction_complete", "Construction complete."],
+      ["announcer_training", "Training."],
+      ["announcer_unit_ready", "Unit ready."],
+      ["announcer_cancelled", "Cancelled."],
+      ["announcer_insufficient_funds", "Insufficient funds."],
+      ["announcer_low_power", "Low power."],
+      ["announcer_cannot_deploy", "Cannot deploy here."],
+      ["announcer_base_under_attack", "Our base is under attack."],
+      ["announcer_units_under_attack", "Our units are under attack."],
+      ["announcer_unit_lost", "Unit lost."],
+      ["announcer_harvester_lost", "Harvester lost."],
+      ["announcer_structure_lost", "Structure lost."],
+      ["announcer_storm_warning", "Crystal storm approaching."],
+      ["announcer_enemy_approaching", "Enemy forces approaching."],
+      ["announcer_research_complete", "Research complete."],
+      ["announcer_unit_promoted", "Unit promoted."],
+      ["announcer_radar_online", "Radar online."],
+      ["announcer_victory", "Mission accomplished."],
+      ["announcer_defeat", "Mission failed."]
+    ]),
+    ...lines("concord", [
+      ["concord_select_1", "Concord, standing by."],
+      ["concord_select_2", "Go ahead, Commander."],
+      ["concord_select_3", "Ready for orders."],
+      ["concord_select_4", "Sir?"],
+      ["concord_move_1", "Moving out."],
+      ["concord_move_2", "Copy that."],
+      ["concord_move_3", "On our way."],
+      ["concord_move_4", "Relocating."],
+      ["concord_attack_1", "Engaging!"],
+      ["concord_attack_2", "Target acquired."],
+      ["concord_attack_3", "Weapons free!"],
+      ["concord_attack_4", "Lighting them up."]
+    ]),
+    ...lines("shardbound", [
+      ["shardbound_select_1", "The glass hears you."],
+      ["shardbound_select_2", "We are here."],
+      ["shardbound_select_3", "Speak."],
+      ["shardbound_select_4", "The crystal is listening."],
+      ["shardbound_move_1", "We go."],
+      ["shardbound_move_2", "Like light through glass."],
+      ["shardbound_move_3", "Following the hum."],
+      ["shardbound_move_4", "As the storm moves."],
+      ["shardbound_attack_1", "Shatter them."],
+      ["shardbound_attack_2", "They will break."],
+      ["shardbound_attack_3", "Let the glass sing."],
+      ["shardbound_attack_4", "Into the shards."]
+    ]),
+    ...lines("reclaimers", [
+      ["reclaimers_select_1", "Yeah, what?"],
+      ["reclaimers_select_2", "Got a job for us?"],
+      ["reclaimers_select_3", "Talk to me."],
+      ["reclaimers_select_4", "Engine's warm, boss."],
+      ["reclaimers_move_1", "Rollin'!"],
+      ["reclaimers_move_2", "Yeah, yeah, going."],
+      ["reclaimers_move_3", "Hope there's loot."],
+      ["reclaimers_move_4", "Clear the road!"],
+      ["reclaimers_attack_1", "Strip 'em for parts!"],
+      ["reclaimers_attack_2", "Scrap 'em!"],
+      ["reclaimers_attack_3", "That one's mine!"],
+      ["reclaimers_attack_4", "Break it, take it!"]
+    ]),
+    ...lines("vance", [
+      ["vance_ready", "Captain Vance, reporting for duty."],
+      ["vance_select_1", "Vance here."],
+      ["vance_select_2", "What's the plan, Commander?"],
+      ["vance_move_1", "On it."],
+      ["vance_move_2", "Keep up, people."],
+      ["vance_attack", "Let's make this quick."],
+      ["vance_ability", "Charge set. Clear out!"],
+      ["vance_fallen", "Tell them we held."]
+    ]),
+    ...lines("seer", [
+      ["seer_ready", "The storm sent me."],
+      ["seer_select_1", "I have seen this."],
+      ["seer_select_2", "Ask, and the glass will answer."],
+      ["seer_move_1", "The path is clear to me."],
+      ["seer_move_2", "I walk where the light bends."],
+      ["seer_attack", "Their ending is already written."],
+      ["seer_ability", "Stand within the glass. It will hold."],
+      ["seer_fallen", "The light fades."]
+    ]),
+    ...lines("rook", [
+      ["rook_ready", "Rook's here. Who's paying?"],
+      ["rook_select_1", "Whaddaya want?"],
+      ["rook_select_2", "Make it worth my while."],
+      ["rook_move_1", "Outta my way!"],
+      ["rook_move_2", "Fine. Walking."],
+      ["rook_attack", "Mine now!"],
+      ["rook_ability", "Oi! Crew! Get over here!"],
+      ["rook_fallen", "Ain't done yet."]
+    ]),
+    ...lines("briefing", [
+      ["briefing_landfall", "Commander, welcome to Vitrea. The colony company left this plateau in a hurry. The yard, a power plant and a refinery are still standing. Get the colony working again: raise a Barracks, put a Radar Outpost up so we can see the land, and get the crystal flowing. Reclaimer scouts are watching from the far side of the map, but they won't move on us yet."],
+      ["briefing_storm_season", "The storms are coming early this year, and they're coming often. The Shardbound know it. They'll use the weather as cover to raid us. Hold out for eight minutes. Keep your harvesters out of the storms; they'll run for the refinery when one gets close, but they need somewhere safe to run to."],
+      ["briefing_glass_teeth", "This time you're with the Shardbound. The Reclaimers have built a radar outpost that watches every storm route on the plain, and while it stands, they see us coming. There's no base this time: just a strike force of Prism Tanks, Skimmers and Glasswalkers. Take out the radar. Crystal will heal your units while they stand on it. Use the fields."],
+      ["briefing_salvage_rights", "Now you lead the Reclaimers. Concord thinks the colony's wreckage belongs to them. We think anything left lying on the plain belongs to whoever can carry it. Build up, and break their base. Remember: every Concord vehicle you destroy pays you salvage."],
+      ["briefing_glass_crown", "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them. End this. Destroy their base before the crystal swallows the plain."]
+    ])
+  ];
+  function briefingKey(missionId) {
+    return `briefing_${missionId.replace(/-/g, "_")}`;
+  }
+
+  // src/net/commands.ts
+  function own(g, owner, ids) {
+    const set = new Set(ids);
+    return g.units.filter((u) => set.has(u.id) && u.owner === owner);
+  }
+  function applyCommand(g, owner, c) {
+    const building = (id) => g.buildings.find((b) => b.id === id && b.owner === owner);
+    switch (c.t) {
+      case "order": {
+        const units = own(g, owner, c.units);
+        if (c.queue) commandQueueMove(g, units.filter((u) => u.kind !== "harvester"), { x: c.x, y: c.y });
+        else orderAt(g, units, c.x, c.y, c.attackMove);
+        return null;
+      }
+      case "attack":
+        commandAttack(g, own(g, owner, c.units), c.target);
+        return null;
+      case "stop":
+        commandStop(g, own(g, owner, c.units));
+        return null;
+      case "build":
+        return startStructure(g, c.kind, owner) ? null : "Can't start that building now.";
+      case "cancelBuild":
+        cancelStructure(g, owner);
+        return null;
+      case "place":
+        return placeStructure(g, c.x, c.y, owner) ? null : "Can't build there: needs clear rock near your base";
+      case "train":
+        if (!(c.kind in UNIT_STATS)) return null;
+        return queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0 ? null : "Can't train that now.";
+      case "untrain":
+        for (let k = 0; k < Math.max(1, Math.min(5, c.n)); k++) dequeueUnit(g, c.kind, owner);
+        return null;
+      case "repeat":
+        return toggleRepeat(g, c.kind, owner) ? null : "Can't build that now.";
+      case "research":
+        if (!(c.id in RESEARCH)) return null;
+        return startResearch(g, owner, c.id) ? null : "Can't research that now.";
+      case "cancelResearch":
+        cancelResearch(g, owner);
+        return null;
+      case "sell": {
+        const b = building(c.building);
+        return b ? sellBuilding(g, b, owner) : null;
+      }
+      case "repair": {
+        const b = building(c.building);
+        return b ? toggleBuildingRepair(g, b, owner) : null;
+      }
+      case "rally": {
+        const b = building(c.building);
+        if (b) setRally(g, b, { x: c.x, y: c.y });
+        return null;
+      }
+      case "ability": {
+        const u = own(g, owner, [c.unit])[0];
+        return u && HEROES[u.kind] ? useAbility(g, u) : null;
+      }
+      case "surrender":
+        g.result = owner === 0 ? "defeat" : "victory";
+        g.resultReason = owner === g.local ? "You surrendered." : "Your opponent surrendered.";
+        return null;
+    }
+  }
+
+  // src/net/lockstep.ts
+  var STEP = 1 / 60;
+  var TURN_STEPS = 6;
+  var DELAY_TURNS = 2;
+  var HASH_EVERY = 25;
+  function stateHash(g) {
+    let h = 2166136261;
+    const mix = (n) => {
+      h ^= Math.round(n * 1e3) | 0;
+      h = Math.imul(h, 16777619);
+    };
+    mix(g.credits);
+    mix(g.ai.credits);
+    mix(g.nextId);
+    for (const u of g.units) {
+      mix(u.id);
+      mix(u.x);
+      mix(u.y);
+      mix(u.hp);
+      mix(u.cargo);
+    }
+    for (const b of g.buildings) {
+      mix(b.id);
+      mix(b.hp);
+    }
+    return h >>> 0;
+  }
+  var Lockstep = class {
+    /** The turn about to run, and how many of its steps have run. */
+    turn = 0;
+    step = 0;
+    incoming = /* @__PURE__ */ new Map();
+    mine = /* @__PURE__ */ new Map();
+    outbox = [];
+    hashes = /* @__PURE__ */ new Map();
+    /** Called with the commanding side's error text when one of the local player's commands fails. */
+    onError = () => {
+    };
+    /** Called once if the two games drift apart. */
+    onDesync = () => {
+    };
+    desynced = false;
+    g;
+    local;
+    send;
+    constructor(g, local, send) {
+      this.g = g;
+      this.local = local;
+      this.send = send;
+      for (let t = 0; t < DELAY_TURNS; t++) {
+        this.mine.set(t, []);
+        this.incoming.set(t, []);
+      }
+    }
+    /** Queue a local command; it goes out with the next turn. */
+    issue(c) {
+      this.outbox.push(c);
+    }
+    receive(m) {
+      if (m.type === "turn") this.incoming.set(m.turn, m.cmds);
+      else if (m.type === "hash") {
+        const mine = this.hashes.get(m.turn);
+        if (mine !== void 0 && mine !== m.hash && !this.desynced) {
+          this.desynced = true;
+          this.onDesync(m.turn);
+        }
+      }
+    }
+    /** True if the next turn is waiting on the other player's commands. */
+    get waiting() {
+      return this.step === 0 && !this.incoming.has(this.turn);
+    }
+    /** Run up to `steps` simulation steps; returns how many ran (fewer while waiting for the other side). */
+    advance(steps) {
+      let ran = 0;
+      while (ran < steps) {
+        if (this.step === 0) {
+          const theirs = this.incoming.get(this.turn);
+          if (!theirs) break;
+          const later = this.turn + DELAY_TURNS;
+          const outgoing = this.outbox;
+          this.outbox = [];
+          this.mine.set(later, outgoing);
+          this.send({ type: "turn", turn: later, cmds: outgoing });
+          const mine = this.mine.get(this.turn) ?? [];
+          const [first, second] = this.local === 0 ? [mine, theirs] : [theirs, mine];
+          for (const c of first) this.apply(0, c);
+          for (const c of second) this.apply(1, c);
+          this.mine.delete(this.turn);
+          this.incoming.delete(this.turn);
+        }
+        update(this.g, STEP);
+        ran++;
+        if (++this.step === TURN_STEPS) {
+          this.step = 0;
+          if (this.turn % HASH_EVERY === 0) {
+            const hash3 = stateHash(this.g);
+            this.hashes.set(this.turn, hash3);
+            this.send({ type: "hash", turn: this.turn, hash: hash3 });
+          }
+          this.turn++;
+        }
+      }
+      return ran;
+    }
+    apply(owner, c) {
+      const problem = applyCommand(this.g, owner, c);
+      if (problem && owner === this.local) this.onError(problem);
+    }
+  };
+
+  // node_modules/peerjs-js-binarypack/dist/binarypack.mjs
+  var $e8379818650e2442$export$93654d4f2d6cd524 = class {
+    constructor() {
+      this.encoder = new TextEncoder();
+      this._pieces = [];
+      this._parts = [];
+    }
+    append_buffer(data) {
+      this.flush();
+      this._parts.push(data);
+    }
+    append(data) {
+      this._pieces.push(data);
+    }
+    flush() {
+      if (this._pieces.length > 0) {
+        const buf = new Uint8Array(this._pieces);
+        this._parts.push(buf);
+        this._pieces = [];
+      }
+    }
+    toArrayBuffer() {
+      const buffer = [];
+      for (const part of this._parts) buffer.push(part);
+      return $e8379818650e2442$var$concatArrayBuffers(buffer).buffer;
+    }
+  };
+  function $e8379818650e2442$var$concatArrayBuffers(bufs) {
+    let size = 0;
+    for (const buf of bufs) size += buf.byteLength;
+    const result = new Uint8Array(size);
+    let offset = 0;
+    for (const buf of bufs) {
+      const view = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      result.set(view, offset);
+      offset += buf.byteLength;
+    }
+    return result;
+  }
+  function $0cfd7828ad59115f$export$417857010dc9287f(data) {
+    const unpacker = new $0cfd7828ad59115f$var$Unpacker(data);
+    return unpacker.unpack();
+  }
+  function $0cfd7828ad59115f$export$2a703dbb0cb35339(data) {
+    const packer = new $0cfd7828ad59115f$export$b9ec4b114aa40074();
+    const res = packer.pack(data);
+    if (res instanceof Promise) return res.then(() => packer.getBuffer());
+    return packer.getBuffer();
+  }
+  var $0cfd7828ad59115f$var$Unpacker = class {
+    constructor(data) {
+      this.index = 0;
+      this.dataBuffer = data;
+      this.dataView = new Uint8Array(this.dataBuffer);
+      this.length = this.dataBuffer.byteLength;
+    }
+    unpack() {
+      const type = this.unpack_uint8();
+      if (type < 128) return type;
+      else if ((type ^ 224) < 32) return (type ^ 224) - 32;
+      let size;
+      if ((size = type ^ 160) <= 15) return this.unpack_raw(size);
+      else if ((size = type ^ 176) <= 15) return this.unpack_string(size);
+      else if ((size = type ^ 144) <= 15) return this.unpack_array(size);
+      else if ((size = type ^ 128) <= 15) return this.unpack_map(size);
+      switch (type) {
+        case 192:
+          return null;
+        case 193:
+          return void 0;
+        case 194:
+          return false;
+        case 195:
+          return true;
+        case 202:
+          return this.unpack_float();
+        case 203:
+          return this.unpack_double();
+        case 204:
+          return this.unpack_uint8();
+        case 205:
+          return this.unpack_uint16();
+        case 206:
+          return this.unpack_uint32();
+        case 207:
+          return this.unpack_uint64();
+        case 208:
+          return this.unpack_int8();
+        case 209:
+          return this.unpack_int16();
+        case 210:
+          return this.unpack_int32();
+        case 211:
+          return this.unpack_int64();
+        case 212:
+          return void 0;
+        case 213:
+          return void 0;
+        case 214:
+          return void 0;
+        case 215:
+          return void 0;
+        case 216:
+          size = this.unpack_uint16();
+          return this.unpack_string(size);
+        case 217:
+          size = this.unpack_uint32();
+          return this.unpack_string(size);
+        case 218:
+          size = this.unpack_uint16();
+          return this.unpack_raw(size);
+        case 219:
+          size = this.unpack_uint32();
+          return this.unpack_raw(size);
+        case 220:
+          size = this.unpack_uint16();
+          return this.unpack_array(size);
+        case 221:
+          size = this.unpack_uint32();
+          return this.unpack_array(size);
+        case 222:
+          size = this.unpack_uint16();
+          return this.unpack_map(size);
+        case 223:
+          size = this.unpack_uint32();
+          return this.unpack_map(size);
+      }
+    }
+    unpack_uint8() {
+      const byte = this.dataView[this.index] & 255;
+      this.index++;
+      return byte;
+    }
+    unpack_uint16() {
+      const bytes = this.read(2);
+      const uint16 = (bytes[0] & 255) * 256 + (bytes[1] & 255);
+      this.index += 2;
+      return uint16;
+    }
+    unpack_uint32() {
+      const bytes = this.read(4);
+      const uint32 = ((bytes[0] * 256 + bytes[1]) * 256 + bytes[2]) * 256 + bytes[3];
+      this.index += 4;
+      return uint32;
+    }
+    unpack_uint64() {
+      const bytes = this.read(8);
+      const uint64 = ((((((bytes[0] * 256 + bytes[1]) * 256 + bytes[2]) * 256 + bytes[3]) * 256 + bytes[4]) * 256 + bytes[5]) * 256 + bytes[6]) * 256 + bytes[7];
+      this.index += 8;
+      return uint64;
+    }
+    unpack_int8() {
+      const uint8 = this.unpack_uint8();
+      return uint8 < 128 ? uint8 : uint8 - 256;
+    }
+    unpack_int16() {
+      const uint16 = this.unpack_uint16();
+      return uint16 < 32768 ? uint16 : uint16 - 65536;
+    }
+    unpack_int32() {
+      const uint32 = this.unpack_uint32();
+      return uint32 < 2 ** 31 ? uint32 : uint32 - 2 ** 32;
+    }
+    unpack_int64() {
+      const uint64 = this.unpack_uint64();
+      return uint64 < 2 ** 63 ? uint64 : uint64 - 2 ** 64;
+    }
+    unpack_raw(size) {
+      if (this.length < this.index + size) throw new Error(`BinaryPackFailure: index is out of range ${this.index} ${size} ${this.length}`);
+      const buf = this.dataBuffer.slice(this.index, this.index + size);
+      this.index += size;
+      return buf;
+    }
+    unpack_string(size) {
+      const bytes = this.read(size);
+      let i = 0;
+      let str = "";
+      let c;
+      let code;
+      while (i < size) {
+        c = bytes[i];
+        if (c < 160) {
+          code = c;
+          i++;
+        } else if ((c ^ 192) < 32) {
+          code = (c & 31) << 6 | bytes[i + 1] & 63;
+          i += 2;
+        } else if ((c ^ 224) < 16) {
+          code = (c & 15) << 12 | (bytes[i + 1] & 63) << 6 | bytes[i + 2] & 63;
+          i += 3;
+        } else {
+          code = (c & 7) << 18 | (bytes[i + 1] & 63) << 12 | (bytes[i + 2] & 63) << 6 | bytes[i + 3] & 63;
+          i += 4;
+        }
+        str += String.fromCodePoint(code);
+      }
+      this.index += size;
+      return str;
+    }
+    unpack_array(size) {
+      const objects = new Array(size);
+      for (let i = 0; i < size; i++) objects[i] = this.unpack();
+      return objects;
+    }
+    unpack_map(size) {
+      const map = {};
+      for (let i = 0; i < size; i++) {
+        const key = this.unpack();
+        map[key] = this.unpack();
+      }
+      return map;
+    }
+    unpack_float() {
+      const uint32 = this.unpack_uint32();
+      const sign = uint32 >> 31;
+      const exp = (uint32 >> 23 & 255) - 127;
+      const fraction = uint32 & 8388607 | 8388608;
+      return (sign === 0 ? 1 : -1) * fraction * 2 ** (exp - 23);
+    }
+    unpack_double() {
+      const h32 = this.unpack_uint32();
+      const l32 = this.unpack_uint32();
+      const sign = h32 >> 31;
+      const exp = (h32 >> 20 & 2047) - 1023;
+      const hfrac = h32 & 1048575 | 1048576;
+      const frac = hfrac * 2 ** (exp - 20) + l32 * 2 ** (exp - 52);
+      return (sign === 0 ? 1 : -1) * frac;
+    }
+    read(length) {
+      const j = this.index;
+      if (j + length <= this.length) return this.dataView.subarray(j, j + length);
+      else throw new Error("BinaryPackFailure: read index out of range");
+    }
+  };
+  var $0cfd7828ad59115f$export$b9ec4b114aa40074 = class {
+    getBuffer() {
+      return this._bufferBuilder.toArrayBuffer();
+    }
+    pack(value) {
+      if (typeof value === "string") this.pack_string(value);
+      else if (typeof value === "number") {
+        if (Math.floor(value) === value) this.pack_integer(value);
+        else this.pack_double(value);
+      } else if (typeof value === "boolean") {
+        if (value === true) this._bufferBuilder.append(195);
+        else if (value === false) this._bufferBuilder.append(194);
+      } else if (value === void 0) this._bufferBuilder.append(192);
+      else if (typeof value === "object") {
+        if (value === null) this._bufferBuilder.append(192);
+        else {
+          const constructor = value.constructor;
+          if (value instanceof Array) {
+            const res = this.pack_array(value);
+            if (res instanceof Promise) return res.then(() => this._bufferBuilder.flush());
+          } else if (value instanceof ArrayBuffer) this.pack_bin(new Uint8Array(value));
+          else if ("BYTES_PER_ELEMENT" in value) {
+            const v = value;
+            this.pack_bin(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+          } else if (value instanceof Date) this.pack_string(value.toString());
+          else if (value instanceof Blob) return value.arrayBuffer().then((buffer) => {
+            this.pack_bin(new Uint8Array(buffer));
+            this._bufferBuilder.flush();
+          });
+          else if (constructor == Object || constructor.toString().startsWith("class")) {
+            const res = this.pack_object(value);
+            if (res instanceof Promise) return res.then(() => this._bufferBuilder.flush());
+          } else throw new Error(`Type "${constructor.toString()}" not yet supported`);
+        }
+      } else throw new Error(`Type "${typeof value}" not yet supported`);
+      this._bufferBuilder.flush();
+    }
+    pack_bin(blob) {
+      const length = blob.length;
+      if (length <= 15) this.pack_uint8(160 + length);
+      else if (length <= 65535) {
+        this._bufferBuilder.append(218);
+        this.pack_uint16(length);
+      } else if (length <= 4294967295) {
+        this._bufferBuilder.append(219);
+        this.pack_uint32(length);
+      } else throw new Error("Invalid length");
+      this._bufferBuilder.append_buffer(blob);
+    }
+    pack_string(str) {
+      const encoded = this._textEncoder.encode(str);
+      const length = encoded.length;
+      if (length <= 15) this.pack_uint8(176 + length);
+      else if (length <= 65535) {
+        this._bufferBuilder.append(216);
+        this.pack_uint16(length);
+      } else if (length <= 4294967295) {
+        this._bufferBuilder.append(217);
+        this.pack_uint32(length);
+      } else throw new Error("Invalid length");
+      this._bufferBuilder.append_buffer(encoded);
+    }
+    pack_array(ary) {
+      const length = ary.length;
+      if (length <= 15) this.pack_uint8(144 + length);
+      else if (length <= 65535) {
+        this._bufferBuilder.append(220);
+        this.pack_uint16(length);
+      } else if (length <= 4294967295) {
+        this._bufferBuilder.append(221);
+        this.pack_uint32(length);
+      } else throw new Error("Invalid length");
+      const packNext = (index) => {
+        if (index < length) {
+          const res = this.pack(ary[index]);
+          if (res instanceof Promise) return res.then(() => packNext(index + 1));
+          return packNext(index + 1);
+        }
+      };
+      return packNext(0);
+    }
+    pack_integer(num) {
+      if (num >= -32 && num <= 127) this._bufferBuilder.append(num & 255);
+      else if (num >= 0 && num <= 255) {
+        this._bufferBuilder.append(204);
+        this.pack_uint8(num);
+      } else if (num >= -128 && num <= 127) {
+        this._bufferBuilder.append(208);
+        this.pack_int8(num);
+      } else if (num >= 0 && num <= 65535) {
+        this._bufferBuilder.append(205);
+        this.pack_uint16(num);
+      } else if (num >= -32768 && num <= 32767) {
+        this._bufferBuilder.append(209);
+        this.pack_int16(num);
+      } else if (num >= 0 && num <= 4294967295) {
+        this._bufferBuilder.append(206);
+        this.pack_uint32(num);
+      } else if (num >= -2147483648 && num <= 2147483647) {
+        this._bufferBuilder.append(210);
+        this.pack_int32(num);
+      } else if (num >= -9223372036854776e3 && num <= 9223372036854776e3) {
+        this._bufferBuilder.append(211);
+        this.pack_int64(num);
+      } else if (num >= 0 && num <= 18446744073709552e3) {
+        this._bufferBuilder.append(207);
+        this.pack_uint64(num);
+      } else throw new Error("Invalid integer");
+    }
+    pack_double(num) {
+      let sign = 0;
+      if (num < 0) {
+        sign = 1;
+        num = -num;
+      }
+      const exp = Math.floor(Math.log(num) / Math.LN2);
+      const frac0 = num / 2 ** exp - 1;
+      const frac1 = Math.floor(frac0 * 2 ** 52);
+      const b32 = 2 ** 32;
+      const h32 = sign << 31 | exp + 1023 << 20 | frac1 / b32 & 1048575;
+      const l32 = frac1 % b32;
+      this._bufferBuilder.append(203);
+      this.pack_int32(h32);
+      this.pack_int32(l32);
+    }
+    pack_object(obj) {
+      const keys = Object.keys(obj);
+      const length = keys.length;
+      if (length <= 15) this.pack_uint8(128 + length);
+      else if (length <= 65535) {
+        this._bufferBuilder.append(222);
+        this.pack_uint16(length);
+      } else if (length <= 4294967295) {
+        this._bufferBuilder.append(223);
+        this.pack_uint32(length);
+      } else throw new Error("Invalid length");
+      const packNext = (index) => {
+        if (index < keys.length) {
+          const prop = keys[index];
+          if (obj.hasOwnProperty(prop)) {
+            this.pack(prop);
+            const res = this.pack(obj[prop]);
+            if (res instanceof Promise) return res.then(() => packNext(index + 1));
+          }
+          return packNext(index + 1);
+        }
+      };
+      return packNext(0);
+    }
+    pack_uint8(num) {
+      this._bufferBuilder.append(num);
+    }
+    pack_uint16(num) {
+      this._bufferBuilder.append(num >> 8);
+      this._bufferBuilder.append(num & 255);
+    }
+    pack_uint32(num) {
+      const n = num & 4294967295;
+      this._bufferBuilder.append((n & 4278190080) >>> 24);
+      this._bufferBuilder.append((n & 16711680) >>> 16);
+      this._bufferBuilder.append((n & 65280) >>> 8);
+      this._bufferBuilder.append(n & 255);
+    }
+    pack_uint64(num) {
+      const high = num / 2 ** 32;
+      const low = num % 2 ** 32;
+      this._bufferBuilder.append((high & 4278190080) >>> 24);
+      this._bufferBuilder.append((high & 16711680) >>> 16);
+      this._bufferBuilder.append((high & 65280) >>> 8);
+      this._bufferBuilder.append(high & 255);
+      this._bufferBuilder.append((low & 4278190080) >>> 24);
+      this._bufferBuilder.append((low & 16711680) >>> 16);
+      this._bufferBuilder.append((low & 65280) >>> 8);
+      this._bufferBuilder.append(low & 255);
+    }
+    pack_int8(num) {
+      this._bufferBuilder.append(num & 255);
+    }
+    pack_int16(num) {
+      this._bufferBuilder.append((num & 65280) >> 8);
+      this._bufferBuilder.append(num & 255);
+    }
+    pack_int32(num) {
+      this._bufferBuilder.append(num >>> 24 & 255);
+      this._bufferBuilder.append((num & 16711680) >>> 16);
+      this._bufferBuilder.append((num & 65280) >>> 8);
+      this._bufferBuilder.append(num & 255);
+    }
+    pack_int64(num) {
+      const high = Math.floor(num / 2 ** 32);
+      const low = num % 2 ** 32;
+      this._bufferBuilder.append((high & 4278190080) >>> 24);
+      this._bufferBuilder.append((high & 16711680) >>> 16);
+      this._bufferBuilder.append((high & 65280) >>> 8);
+      this._bufferBuilder.append(high & 255);
+      this._bufferBuilder.append((low & 4278190080) >>> 24);
+      this._bufferBuilder.append((low & 16711680) >>> 16);
+      this._bufferBuilder.append((low & 65280) >>> 8);
+      this._bufferBuilder.append(low & 255);
+    }
+    constructor() {
+      this._bufferBuilder = new (0, $e8379818650e2442$export$93654d4f2d6cd524)();
+      this._textEncoder = new TextEncoder();
+    }
+  };
+
+  // node_modules/webrtc-adapter/src/js/utils.js
+  var logDisabled_ = true;
+  var deprecationWarnings_ = true;
+  function extractVersion(uastring, expr, pos) {
+    const match = uastring.match(expr);
+    return match && match.length >= pos && parseFloat(match[pos], 10);
+  }
+  function wrapPeerConnectionEvent(window2, eventNameToWrap, wrapper) {
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    const addEventListener = Object.getOwnPropertyDescriptor(
+      EventTarget.prototype,
+      "addEventListener"
+    );
+    if (!addEventListener.writable) {
+      log("Unable to polyfill events");
+      return;
+    }
+    const proto = window2.RTCPeerConnection.prototype;
+    const nativeAddEventListener = proto.addEventListener;
+    proto.addEventListener = function(nativeEventName, cb) {
+      if (nativeEventName !== eventNameToWrap) {
+        return nativeAddEventListener.apply(this, arguments);
+      }
+      const wrappedCallback = (e) => {
+        const modifiedEvent = wrapper(e);
+        if (modifiedEvent) {
+          if (cb.handleEvent) {
+            cb.handleEvent(modifiedEvent);
+          } else {
+            cb(modifiedEvent);
+          }
+        }
+      };
+      this._eventMap = this._eventMap || {};
+      if (!this._eventMap[eventNameToWrap]) {
+        this._eventMap[eventNameToWrap] = /* @__PURE__ */ new Map();
+      }
+      this._eventMap[eventNameToWrap].set(cb, wrappedCallback);
+      return nativeAddEventListener.apply(this, [
+        nativeEventName,
+        wrappedCallback
+      ]);
+    };
+    const nativeRemoveEventListener = proto.removeEventListener;
+    proto.removeEventListener = function(nativeEventName, cb) {
+      if (nativeEventName !== eventNameToWrap || !this._eventMap || !this._eventMap[eventNameToWrap]) {
+        return nativeRemoveEventListener.apply(this, arguments);
+      }
+      if (!this._eventMap[eventNameToWrap].has(cb)) {
+        return nativeRemoveEventListener.apply(this, arguments);
+      }
+      const unwrappedCb = this._eventMap[eventNameToWrap].get(cb);
+      this._eventMap[eventNameToWrap].delete(cb);
+      if (this._eventMap[eventNameToWrap].size === 0) {
+        delete this._eventMap[eventNameToWrap];
+      }
+      if (Object.keys(this._eventMap).length === 0) {
+        delete this._eventMap;
+      }
+      return nativeRemoveEventListener.apply(this, [
+        nativeEventName,
+        unwrappedCb
+      ]);
+    };
+    Object.defineProperty(proto, "on" + eventNameToWrap, {
+      get() {
+        return this["_on" + eventNameToWrap];
+      },
+      set(cb) {
+        if (this["_on" + eventNameToWrap]) {
+          this.removeEventListener(
+            eventNameToWrap,
+            this["_on" + eventNameToWrap]
+          );
+          delete this["_on" + eventNameToWrap];
+        }
+        if (cb) {
+          this.addEventListener(
+            eventNameToWrap,
+            this["_on" + eventNameToWrap] = cb
+          );
+        }
+      },
+      enumerable: true,
+      configurable: true
+    });
+  }
+  function disableLog(bool) {
+    if (typeof bool !== "boolean") {
+      return new Error("Argument type: " + typeof bool + ". Please use a boolean.");
+    }
+    logDisabled_ = bool;
+    return bool ? "adapter.js logging disabled" : "adapter.js logging enabled";
+  }
+  function disableWarnings(bool) {
+    if (typeof bool !== "boolean") {
+      return new Error("Argument type: " + typeof bool + ". Please use a boolean.");
+    }
+    deprecationWarnings_ = !bool;
+    return "adapter.js deprecation warnings " + (bool ? "disabled" : "enabled");
+  }
+  function log() {
+    if (typeof window === "object") {
+      if (logDisabled_) {
+        return;
+      }
+      if (typeof console !== "undefined" && typeof console.log === "function") {
+        console.log.apply(console, arguments);
+      }
+    }
+  }
+  function deprecated(oldMethod, newMethod) {
+    if (!deprecationWarnings_) {
+      return;
+    }
+    console.warn(oldMethod + " is deprecated, please use " + newMethod + " instead.");
+  }
+  function detectBrowser(window2) {
+    const result = { browser: null, version: null };
+    if (typeof window2 === "undefined" || !window2.navigator || !window2.navigator.userAgent) {
+      result.browser = "Not a browser.";
+      return result;
+    }
+    const { navigator: navigator2 } = window2;
+    if (navigator2.userAgentData && navigator2.userAgentData.brands) {
+      const chromium = navigator2.userAgentData.brands.find((brand) => {
+        return brand.brand === "Chromium";
+      });
+      if (chromium) {
+        const version = parseInt(chromium.version, 10);
+        if (version >= 90) {
+          return { browser: "chrome", version };
+        }
+      }
+    }
+    if (navigator2.mozGetUserMedia) {
+      result.browser = "firefox";
+      result.version = parseInt(extractVersion(
+        navigator2.userAgent,
+        /Firefox\/(\d+)\./,
+        1
+      ));
+    } else if (navigator2.webkitGetUserMedia || window2.isSecureContext === false && window2.webkitRTCPeerConnection) {
+      result.browser = "chrome";
+      result.version = parseInt(extractVersion(
+        navigator2.userAgent,
+        /Chrom(e|ium)\/(\d+)\./,
+        2
+      )) || null;
+    } else if (window2.RTCPeerConnection && navigator2.userAgent.match(/AppleWebKit\/(\d+)\./)) {
+      result.browser = "safari";
+      result.version = parseInt(extractVersion(
+        navigator2.userAgent,
+        /AppleWebKit\/(\d+)\./,
+        1
+      ));
+      result.supportsUnifiedPlan = window2.RTCRtpTransceiver && "currentDirection" in window2.RTCRtpTransceiver.prototype;
+      result._safariVersion = extractVersion(
+        navigator2.userAgent,
+        /Version\/(\d+(\.?\d+))/,
+        1
+      );
+    } else {
+      result.browser = "Not a supported browser.";
+      return result;
+    }
+    return result;
+  }
+  function isObject(val) {
+    return Object.prototype.toString.call(val) === "[object Object]";
+  }
+  function compactObject(data) {
+    if (!isObject(data)) {
+      return data;
+    }
+    return Object.keys(data).reduce(function(accumulator, key) {
+      const isObj = isObject(data[key]);
+      const value = isObj ? compactObject(data[key]) : data[key];
+      const isEmptyObject = isObj && !Object.keys(value).length;
+      if (value === void 0 || isEmptyObject) {
+        return accumulator;
+      }
+      return Object.assign(accumulator, { [key]: value });
+    }, {});
+  }
+  function walkStats(stats, base, resultSet) {
+    if (!base || resultSet.has(base.id)) {
+      return;
+    }
+    resultSet.set(base.id, base);
+    Object.keys(base).forEach((name) => {
+      if (name.endsWith("Id")) {
+        walkStats(stats, stats.get(base[name]), resultSet);
+      } else if (name.endsWith("Ids")) {
+        base[name].forEach((id) => {
+          walkStats(stats, stats.get(id), resultSet);
+        });
+      }
+    });
+  }
+  function filterStats(result, track, outbound) {
+    const streamStatsType = outbound ? "outbound-rtp" : "inbound-rtp";
+    const filteredResult = /* @__PURE__ */ new Map();
+    if (track === null) {
+      return filteredResult;
+    }
+    const trackStats = [];
+    result.forEach((value) => {
+      if (value.type === "track" && value.trackIdentifier === track.id) {
+        trackStats.push(value);
+      }
+    });
+    trackStats.forEach((trackStat) => {
+      result.forEach((stats) => {
+        if (stats.type === streamStatsType && stats.trackId === trackStat.id) {
+          walkStats(result, stats, filteredResult);
+        }
+      });
+    });
+    return filteredResult;
+  }
+
+  // node_modules/webrtc-adapter/src/js/chrome/chrome_shim.js
+  var chrome_shim_exports = {};
+  __export(chrome_shim_exports, {
+    fixNegotiationNeeded: () => fixNegotiationNeeded,
+    shimAddTrackRemoveTrack: () => shimAddTrackRemoveTrack,
+    shimAddTrackRemoveTrackWithNative: () => shimAddTrackRemoveTrackWithNative,
+    shimGetSendersWithDtmf: () => shimGetSendersWithDtmf,
+    shimGetUserMedia: () => shimGetUserMedia,
+    shimMediaStream: () => shimMediaStream,
+    shimOnTrack: () => shimOnTrack,
+    shimPeerConnection: () => shimPeerConnection,
+    shimSenderReceiverGetStats: () => shimSenderReceiverGetStats
+  });
+
+  // node_modules/webrtc-adapter/src/js/chrome/getusermedia.js
+  var logging = log;
+  function shimGetUserMedia(window2, browserDetails) {
+    if (browserDetails.version >= 64) {
+      return;
+    }
+    const navigator2 = window2 && window2.navigator;
+    if (!navigator2.mediaDevices) {
+      return;
+    }
+    const constraintsToChrome_ = function(c) {
+      if (typeof c !== "object" || c.mandatory || c.optional) {
+        return c;
+      }
+      const cc = {};
+      Object.keys(c).forEach((key) => {
+        if (key === "require" || key === "advanced" || key === "mediaSource") {
+          return;
+        }
+        const r = typeof c[key] === "object" ? c[key] : { ideal: c[key] };
+        if (r.exact !== void 0 && typeof r.exact === "number") {
+          r.min = r.max = r.exact;
+        }
+        const oldname_ = function(prefix, name) {
+          if (prefix) {
+            return prefix + name.charAt(0).toUpperCase() + name.slice(1);
+          }
+          return name === "deviceId" ? "sourceId" : name;
+        };
+        if (r.ideal !== void 0) {
+          cc.optional = cc.optional || [];
+          let oc = {};
+          if (typeof r.ideal === "number") {
+            oc[oldname_("min", key)] = r.ideal;
+            cc.optional.push(oc);
+            oc = {};
+            oc[oldname_("max", key)] = r.ideal;
+            cc.optional.push(oc);
+          } else {
+            oc[oldname_("", key)] = r.ideal;
+            cc.optional.push(oc);
+          }
+        }
+        if (r.exact !== void 0 && typeof r.exact !== "number") {
+          cc.mandatory = cc.mandatory || {};
+          cc.mandatory[oldname_("", key)] = r.exact;
+        } else {
+          ["min", "max"].forEach((mix) => {
+            if (r[mix] !== void 0) {
+              cc.mandatory = cc.mandatory || {};
+              cc.mandatory[oldname_(mix, key)] = r[mix];
+            }
+          });
+        }
+      });
+      if (c.advanced) {
+        cc.optional = (cc.optional || []).concat(c.advanced);
+      }
+      return cc;
+    };
+    const shimConstraints_ = function(constraints, func) {
+      if (browserDetails.version >= 61) {
+        return func(constraints);
+      }
+      constraints = JSON.parse(JSON.stringify(constraints));
+      if (constraints && typeof constraints.audio === "object") {
+        const remap = function(obj, a, b) {
+          if (a in obj && !(b in obj)) {
+            obj[b] = obj[a];
+            delete obj[a];
+          }
+        };
+        constraints = JSON.parse(JSON.stringify(constraints));
+        remap(constraints.audio, "autoGainControl", "googAutoGainControl");
+        remap(constraints.audio, "noiseSuppression", "googNoiseSuppression");
+        constraints.audio = constraintsToChrome_(constraints.audio);
+      }
+      if (constraints && typeof constraints.video === "object") {
+        let face = constraints.video.facingMode;
+        face = face && (typeof face === "object" ? face : { ideal: face });
+        const getSupportedFacingModeLies = browserDetails.version < 66;
+        if (face && (face.exact === "user" || face.exact === "environment" || face.ideal === "user" || face.ideal === "environment") && !(navigator2.mediaDevices.getSupportedConstraints && navigator2.mediaDevices.getSupportedConstraints().facingMode && !getSupportedFacingModeLies)) {
+          delete constraints.video.facingMode;
+          let matches;
+          if (face.exact === "environment" || face.ideal === "environment") {
+            matches = ["back", "rear"];
+          } else if (face.exact === "user" || face.ideal === "user") {
+            matches = ["front"];
+          }
+          if (matches) {
+            return navigator2.mediaDevices.enumerateDevices().then((devices) => {
+              devices = devices.filter((d) => d.kind === "videoinput");
+              let dev = devices.find((d) => matches.some((match) => d.label.toLowerCase().includes(match)));
+              if (!dev && devices.length && matches.includes("back")) {
+                dev = devices[devices.length - 1];
+              }
+              if (dev) {
+                constraints.video.deviceId = face.exact ? { exact: dev.deviceId } : { ideal: dev.deviceId };
+              }
+              constraints.video = constraintsToChrome_(constraints.video);
+              logging("chrome: " + JSON.stringify(constraints));
+              return func(constraints);
+            });
+          }
+        }
+        constraints.video = constraintsToChrome_(constraints.video);
+      }
+      logging("chrome: " + JSON.stringify(constraints));
+      return func(constraints);
+    };
+    const shimError_ = function(e) {
+      if (browserDetails.version >= 64) {
+        return e;
+      }
+      return {
+        name: {
+          PermissionDeniedError: "NotAllowedError",
+          PermissionDismissedError: "NotAllowedError",
+          InvalidStateError: "NotAllowedError",
+          DevicesNotFoundError: "NotFoundError",
+          ConstraintNotSatisfiedError: "OverconstrainedError",
+          TrackStartError: "NotReadableError",
+          MediaDeviceFailedDueToShutdown: "NotAllowedError",
+          MediaDeviceKillSwitchOn: "NotAllowedError",
+          TabCaptureError: "AbortError",
+          ScreenCaptureError: "AbortError",
+          DeviceCaptureError: "AbortError"
+        }[e.name] || e.name,
+        message: e.message,
+        constraint: e.constraint || e.constraintName,
+        toString() {
+          return this.name + (this.message && ": ") + this.message;
+        }
+      };
+    };
+    const getUserMedia_ = function(constraints, onSuccess, onError) {
+      shimConstraints_(constraints, (c) => {
+        navigator2.webkitGetUserMedia(c, onSuccess, (e) => {
+          if (onError) {
+            onError(shimError_(e));
+          }
+        });
+      });
+    };
+    navigator2.getUserMedia = getUserMedia_.bind(navigator2);
+    if (navigator2.mediaDevices.getUserMedia) {
+      const origGetUserMedia = navigator2.mediaDevices.getUserMedia.bind(navigator2.mediaDevices);
+      navigator2.mediaDevices.getUserMedia = function(cs) {
+        return shimConstraints_(cs, (c) => origGetUserMedia(c).then((stream) => {
+          if (c.audio && !stream.getAudioTracks().length || c.video && !stream.getVideoTracks().length) {
+            stream.getTracks().forEach((track) => {
+              track.stop();
+            });
+            throw new DOMException("", "NotFoundError");
+          }
+          return stream;
+        }, (e) => Promise.reject(shimError_(e))));
+      };
+    }
+  }
+
+  // node_modules/webrtc-adapter/src/js/chrome/chrome_shim.js
+  function shimMediaStream(window2) {
+    window2.MediaStream = window2.MediaStream || window2.webkitMediaStream;
+  }
+  function shimOnTrack(window2, browserDetails) {
+    if (browserDetails.version > 102) {
+      return;
+    }
+    if (typeof window2 === "object" && window2.RTCPeerConnection && !("ontrack" in window2.RTCPeerConnection.prototype)) {
+      Object.defineProperty(window2.RTCPeerConnection.prototype, "ontrack", {
+        get() {
+          return this._ontrack;
+        },
+        set(f) {
+          if (this._ontrack) {
+            this.removeEventListener("track", this._ontrack);
+          }
+          this.addEventListener("track", this._ontrack = f);
+        },
+        enumerable: true,
+        configurable: true
+      });
+      const origSetRemoteDescription = window2.RTCPeerConnection.prototype.setRemoteDescription;
+      window2.RTCPeerConnection.prototype.setRemoteDescription = function setRemoteDescription() {
+        if (!this._ontrackpoly) {
+          this._ontrackpoly = (e) => {
+            e.stream.addEventListener("addtrack", (te) => {
+              let receiver;
+              if (window2.RTCPeerConnection.prototype.getReceivers) {
+                receiver = this.getReceivers().find((r) => r.track && r.track.id === te.track.id);
+              } else {
+                receiver = { track: te.track };
+              }
+              const event = new Event("track");
+              event.track = te.track;
+              event.receiver = receiver;
+              event.transceiver = { receiver };
+              event.streams = [e.stream];
+              this.dispatchEvent(event);
+            });
+            e.stream.getTracks().forEach((track) => {
+              let receiver;
+              if (window2.RTCPeerConnection.prototype.getReceivers) {
+                receiver = this.getReceivers().find((r) => r.track && r.track.id === track.id);
+              } else {
+                receiver = { track };
+              }
+              const event = new Event("track");
+              event.track = track;
+              event.receiver = receiver;
+              event.transceiver = { receiver };
+              event.streams = [e.stream];
+              this.dispatchEvent(event);
+            });
+          };
+          this.addEventListener("addstream", this._ontrackpoly);
+        }
+        return origSetRemoteDescription.apply(this, arguments);
+      };
+    } else {
+      wrapPeerConnectionEvent(window2, "track", (e) => {
+        if (!e.transceiver) {
+          Object.defineProperty(
+            e,
+            "transceiver",
+            { value: { receiver: e.receiver } }
+          );
+        }
+        return e;
+      });
+    }
+  }
+  function shimGetSendersWithDtmf(window2) {
+    if (typeof window2 === "object" && window2.RTCPeerConnection && !("getSenders" in window2.RTCPeerConnection.prototype) && "createDTMFSender" in window2.RTCPeerConnection.prototype) {
+      const shimSenderWithDtmf = function(pc, track) {
+        return {
+          track,
+          get dtmf() {
+            if (this._dtmf === void 0) {
+              if (track.kind === "audio") {
+                this._dtmf = pc.createDTMFSender(track);
+              } else {
+                this._dtmf = null;
+              }
+            }
+            return this._dtmf;
+          },
+          _pc: pc
+        };
+      };
+      if (!window2.RTCPeerConnection.prototype.getSenders) {
+        window2.RTCPeerConnection.prototype.getSenders = function getSenders() {
+          this._senders = this._senders || [];
+          return this._senders.slice();
+        };
+        const origAddTrack = window2.RTCPeerConnection.prototype.addTrack;
+        window2.RTCPeerConnection.prototype.addTrack = function addTrack(track, stream) {
+          let sender = origAddTrack.apply(this, arguments);
+          if (!sender) {
+            sender = shimSenderWithDtmf(this, track);
+            this._senders.push(sender);
+          }
+          return sender;
+        };
+        const origRemoveTrack = window2.RTCPeerConnection.prototype.removeTrack;
+        window2.RTCPeerConnection.prototype.removeTrack = function removeTrack(sender) {
+          origRemoveTrack.apply(this, arguments);
+          const idx2 = this._senders.indexOf(sender);
+          if (idx2 !== -1) {
+            this._senders.splice(idx2, 1);
+          }
+        };
+      }
+      const origAddStream = window2.RTCPeerConnection.prototype.addStream;
+      window2.RTCPeerConnection.prototype.addStream = function addStream(stream) {
+        this._senders = this._senders || [];
+        origAddStream.apply(this, [stream]);
+        stream.getTracks().forEach((track) => {
+          this._senders.push(shimSenderWithDtmf(this, track));
+        });
+      };
+      const origRemoveStream = window2.RTCPeerConnection.prototype.removeStream;
+      window2.RTCPeerConnection.prototype.removeStream = function removeStream(stream) {
+        this._senders = this._senders || [];
+        origRemoveStream.apply(this, [stream]);
+        stream.getTracks().forEach((track) => {
+          const sender = this._senders.find((s) => s.track === track);
+          if (sender) {
+            this._senders.splice(this._senders.indexOf(sender), 1);
+          }
+        });
+      };
+    } else if (typeof window2 === "object" && window2.RTCPeerConnection && "getSenders" in window2.RTCPeerConnection.prototype && "createDTMFSender" in window2.RTCPeerConnection.prototype && window2.RTCRtpSender && !("dtmf" in window2.RTCRtpSender.prototype)) {
+      const origGetSenders = window2.RTCPeerConnection.prototype.getSenders;
+      window2.RTCPeerConnection.prototype.getSenders = function getSenders() {
+        const senders = origGetSenders.apply(this, []);
+        senders.forEach((sender) => sender._pc = this);
+        return senders;
+      };
+      Object.defineProperty(window2.RTCRtpSender.prototype, "dtmf", {
+        get() {
+          if (this._dtmf === void 0) {
+            if (this.track.kind === "audio") {
+              this._dtmf = this._pc.createDTMFSender(this.track);
+            } else {
+              this._dtmf = null;
+            }
+          }
+          return this._dtmf;
+        }
+      });
+    }
+  }
+  function shimSenderReceiverGetStats(window2, browserDetails) {
+    if (browserDetails.version >= 67) {
+      return;
+    }
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection && window2.RTCRtpSender && window2.RTCRtpReceiver)) {
+      return;
+    }
+    if (!("getStats" in window2.RTCRtpSender.prototype)) {
+      const origGetSenders = window2.RTCPeerConnection.prototype.getSenders;
+      if (origGetSenders) {
+        window2.RTCPeerConnection.prototype.getSenders = function getSenders() {
+          const senders = origGetSenders.apply(this, []);
+          senders.forEach((sender) => sender._pc = this);
+          return senders;
+        };
+      }
+      const origAddTrack = window2.RTCPeerConnection.prototype.addTrack;
+      if (origAddTrack) {
+        window2.RTCPeerConnection.prototype.addTrack = function addTrack() {
+          const sender = origAddTrack.apply(this, arguments);
+          sender._pc = this;
+          return sender;
+        };
+      }
+      window2.RTCRtpSender.prototype.getStats = function getStats() {
+        const sender = this;
+        return this._pc.getStats().then((result) => (
+          /* Note: this will include stats of all senders that
+           *   send a track with the same id as sender.track as
+           *   it is not possible to identify the RTCRtpSender.
+           */
+          filterStats(result, sender.track, true)
+        ));
+      };
+    }
+    if (!("getStats" in window2.RTCRtpReceiver.prototype)) {
+      const origGetReceivers = window2.RTCPeerConnection.prototype.getReceivers;
+      if (origGetReceivers) {
+        window2.RTCPeerConnection.prototype.getReceivers = function getReceivers() {
+          const receivers = origGetReceivers.apply(this, []);
+          receivers.forEach((receiver) => receiver._pc = this);
+          return receivers;
+        };
+      }
+      wrapPeerConnectionEvent(window2, "track", (e) => {
+        e.receiver._pc = e.srcElement;
+        return e;
+      });
+      window2.RTCRtpReceiver.prototype.getStats = function getStats() {
+        const receiver = this;
+        return this._pc.getStats().then((result) => filterStats(result, receiver.track, false));
+      };
+    }
+    if (!("getStats" in window2.RTCRtpSender.prototype && "getStats" in window2.RTCRtpReceiver.prototype)) {
+      return;
+    }
+    const origGetStats = window2.RTCPeerConnection.prototype.getStats;
+    window2.RTCPeerConnection.prototype.getStats = function getStats() {
+      if (arguments.length > 0 && arguments[0] instanceof window2.MediaStreamTrack) {
+        const track = arguments[0];
+        let sender;
+        let receiver;
+        let err;
+        this.getSenders().forEach((s) => {
+          if (s.track === track) {
+            if (sender) {
+              err = true;
+            } else {
+              sender = s;
+            }
+          }
+        });
+        this.getReceivers().forEach((r) => {
+          if (r.track === track) {
+            if (receiver) {
+              err = true;
+            } else {
+              receiver = r;
+            }
+          }
+          return r.track === track;
+        });
+        if (err || sender && receiver) {
+          return Promise.reject(new DOMException(
+            "There are more than one sender or receiver for the track.",
+            "InvalidAccessError"
+          ));
+        } else if (sender) {
+          return sender.getStats();
+        } else if (receiver) {
+          return receiver.getStats();
+        }
+        return Promise.reject(new DOMException(
+          "There is no sender or receiver for the track.",
+          "InvalidAccessError"
+        ));
+      }
+      return origGetStats.apply(this, arguments);
+    };
+  }
+  function shimAddTrackRemoveTrackWithNative(window2) {
+    window2.RTCPeerConnection.prototype.getLocalStreams = function getLocalStreams() {
+      this._shimmedLocalStreams = this._shimmedLocalStreams || {};
+      return Object.keys(this._shimmedLocalStreams).map((streamId) => this._shimmedLocalStreams[streamId][0]);
+    };
+    const origAddTrack = window2.RTCPeerConnection.prototype.addTrack;
+    window2.RTCPeerConnection.prototype.addTrack = function addTrack(track, stream) {
+      if (!stream) {
+        return origAddTrack.apply(this, arguments);
+      }
+      this._shimmedLocalStreams = this._shimmedLocalStreams || {};
+      const sender = origAddTrack.apply(this, arguments);
+      if (!this._shimmedLocalStreams[stream.id]) {
+        this._shimmedLocalStreams[stream.id] = [stream, sender];
+      } else if (this._shimmedLocalStreams[stream.id].indexOf(sender) === -1) {
+        this._shimmedLocalStreams[stream.id].push(sender);
+      }
+      return sender;
+    };
+    const origAddStream = window2.RTCPeerConnection.prototype.addStream;
+    window2.RTCPeerConnection.prototype.addStream = function addStream(stream) {
+      this._shimmedLocalStreams = this._shimmedLocalStreams || {};
+      stream.getTracks().forEach((track) => {
+        const alreadyExists = this.getSenders().find((s) => s.track === track);
+        if (alreadyExists) {
+          throw new DOMException(
+            "Track already exists.",
+            "InvalidAccessError"
+          );
+        }
+      });
+      const existingSenders = this.getSenders();
+      origAddStream.apply(this, arguments);
+      const newSenders = this.getSenders().filter((newSender) => existingSenders.indexOf(newSender) === -1);
+      this._shimmedLocalStreams[stream.id] = [stream].concat(newSenders);
+    };
+    const origRemoveStream = window2.RTCPeerConnection.prototype.removeStream;
+    window2.RTCPeerConnection.prototype.removeStream = function removeStream(stream) {
+      this._shimmedLocalStreams = this._shimmedLocalStreams || {};
+      delete this._shimmedLocalStreams[stream.id];
+      return origRemoveStream.apply(this, arguments);
+    };
+    const origRemoveTrack = window2.RTCPeerConnection.prototype.removeTrack;
+    window2.RTCPeerConnection.prototype.removeTrack = function removeTrack(sender) {
+      this._shimmedLocalStreams = this._shimmedLocalStreams || {};
+      if (sender) {
+        Object.keys(this._shimmedLocalStreams).forEach((streamId) => {
+          const idx2 = this._shimmedLocalStreams[streamId].indexOf(sender);
+          if (idx2 !== -1) {
+            this._shimmedLocalStreams[streamId].splice(idx2, 1);
+          }
+          if (this._shimmedLocalStreams[streamId].length === 1) {
+            delete this._shimmedLocalStreams[streamId];
+          }
+        });
+      }
+      return origRemoveTrack.apply(this, arguments);
+    };
+  }
+  function shimAddTrackRemoveTrack(window2, browserDetails) {
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    if (window2.RTCPeerConnection.prototype.addTrack && browserDetails.version >= 65) {
+      return shimAddTrackRemoveTrackWithNative(window2);
+    }
+    const origGetLocalStreams = window2.RTCPeerConnection.prototype.getLocalStreams;
+    window2.RTCPeerConnection.prototype.getLocalStreams = function getLocalStreams() {
+      const nativeStreams = origGetLocalStreams.apply(this);
+      this._reverseStreams = this._reverseStreams || {};
+      return nativeStreams.map((stream) => this._reverseStreams[stream.id]);
+    };
+    const origAddStream = window2.RTCPeerConnection.prototype.addStream;
+    window2.RTCPeerConnection.prototype.addStream = function addStream(stream) {
+      this._streams = this._streams || {};
+      this._reverseStreams = this._reverseStreams || {};
+      stream.getTracks().forEach((track) => {
+        const alreadyExists = this.getSenders().find((s) => s.track === track);
+        if (alreadyExists) {
+          throw new DOMException(
+            "Track already exists.",
+            "InvalidAccessError"
+          );
+        }
+      });
+      if (!this._reverseStreams[stream.id]) {
+        const newStream = new window2.MediaStream(stream.getTracks());
+        this._streams[stream.id] = newStream;
+        this._reverseStreams[newStream.id] = stream;
+        stream = newStream;
+      }
+      origAddStream.apply(this, [stream]);
+    };
+    const origRemoveStream = window2.RTCPeerConnection.prototype.removeStream;
+    window2.RTCPeerConnection.prototype.removeStream = function removeStream(stream) {
+      this._streams = this._streams || {};
+      this._reverseStreams = this._reverseStreams || {};
+      origRemoveStream.apply(this, [this._streams[stream.id] || stream]);
+      delete this._reverseStreams[this._streams[stream.id] ? this._streams[stream.id].id : stream.id];
+      delete this._streams[stream.id];
+    };
+    window2.RTCPeerConnection.prototype.addTrack = function addTrack(track, stream) {
+      if (this.signalingState === "closed") {
+        throw new DOMException(
+          "The RTCPeerConnection's signalingState is 'closed'.",
+          "InvalidStateError"
+        );
+      }
+      const streams = [].slice.call(arguments, 1);
+      if (streams.length !== 1 || !streams[0].getTracks().find((t) => t === track)) {
+        throw new DOMException(
+          "The adapter.js addTrack polyfill only supports a single  stream which is associated with the specified track.",
+          "NotSupportedError"
+        );
+      }
+      const alreadyExists = this.getSenders().find((s) => s.track === track);
+      if (alreadyExists) {
+        throw new DOMException(
+          "Track already exists.",
+          "InvalidAccessError"
+        );
+      }
+      this._streams = this._streams || {};
+      this._reverseStreams = this._reverseStreams || {};
+      const oldStream = this._streams[stream.id];
+      if (oldStream) {
+        oldStream.addTrack(track);
+        Promise.resolve().then(() => {
+          this.dispatchEvent(new Event("negotiationneeded"));
+        });
+      } else {
+        const newStream = new window2.MediaStream([track]);
+        this._streams[stream.id] = newStream;
+        this._reverseStreams[newStream.id] = stream;
+        this.addStream(newStream);
+      }
+      return this.getSenders().find((s) => s.track === track);
+    };
+    function replaceInternalStreamId(pc, description) {
+      let sdp2 = description.sdp;
+      Object.keys(pc._reverseStreams || []).forEach((internalId) => {
+        const externalStream = pc._reverseStreams[internalId];
+        const internalStream = pc._streams[externalStream.id];
+        sdp2 = sdp2.replace(
+          new RegExp(internalStream.id, "g"),
+          externalStream.id
+        );
+      });
+      return new RTCSessionDescription({
+        type: description.type,
+        sdp: sdp2
+      });
+    }
+    function replaceExternalStreamId(pc, description) {
+      let sdp2 = description.sdp;
+      Object.keys(pc._reverseStreams || []).forEach((internalId) => {
+        const externalStream = pc._reverseStreams[internalId];
+        const internalStream = pc._streams[externalStream.id];
+        sdp2 = sdp2.replace(
+          new RegExp(externalStream.id, "g"),
+          internalStream.id
+        );
+      });
+      return new RTCSessionDescription({
+        type: description.type,
+        sdp: sdp2
+      });
+    }
+    ["createOffer", "createAnswer"].forEach(function(method) {
+      const nativeMethod = window2.RTCPeerConnection.prototype[method];
+      const methodObj = { [method]() {
+        const args = arguments;
+        const isLegacyCall = arguments.length && typeof arguments[0] === "function";
+        if (isLegacyCall) {
+          return nativeMethod.apply(this, [
+            (description) => {
+              const desc = replaceInternalStreamId(this, description);
+              args[0].apply(null, [desc]);
+            },
+            (err) => {
+              if (args[1]) {
+                args[1].apply(null, err);
+              }
+            },
+            arguments[2]
+          ]);
+        }
+        return nativeMethod.apply(this, arguments).then((description) => replaceInternalStreamId(this, description));
+      } };
+      window2.RTCPeerConnection.prototype[method] = methodObj[method];
+    });
+    const origSetLocalDescription = window2.RTCPeerConnection.prototype.setLocalDescription;
+    window2.RTCPeerConnection.prototype.setLocalDescription = function setLocalDescription() {
+      if (!arguments.length || !arguments[0].type) {
+        return origSetLocalDescription.apply(this, arguments);
+      }
+      arguments[0] = replaceExternalStreamId(this, arguments[0]);
+      return origSetLocalDescription.apply(this, arguments);
+    };
+    const origLocalDescription = Object.getOwnPropertyDescriptor(
+      window2.RTCPeerConnection.prototype,
+      "localDescription"
+    );
+    Object.defineProperty(
+      window2.RTCPeerConnection.prototype,
+      "localDescription",
+      {
+        get() {
+          const description = origLocalDescription.get.apply(this);
+          if (description.type === "") {
+            return description;
+          }
+          return replaceInternalStreamId(this, description);
+        }
+      }
+    );
+    window2.RTCPeerConnection.prototype.removeTrack = function removeTrack(sender) {
+      if (this.signalingState === "closed") {
+        throw new DOMException(
+          "The RTCPeerConnection's signalingState is 'closed'.",
+          "InvalidStateError"
+        );
+      }
+      if (!sender._pc) {
+        throw new DOMException("Argument 1 of RTCPeerConnection.removeTrack does not implement interface RTCRtpSender.", "TypeError");
+      }
+      const isLocal = sender._pc === this;
+      if (!isLocal) {
+        throw new DOMException(
+          "Sender was not created by this connection.",
+          "InvalidAccessError"
+        );
+      }
+      this._streams = this._streams || {};
+      let stream;
+      Object.keys(this._streams).forEach((streamid) => {
+        const hasTrack = this._streams[streamid].getTracks().find((track) => sender.track === track);
+        if (hasTrack) {
+          stream = this._streams[streamid];
+        }
+      });
+      if (stream) {
+        if (stream.getTracks().length === 1) {
+          this.removeStream(this._reverseStreams[stream.id]);
+        } else {
+          stream.removeTrack(sender.track);
+        }
+        this.dispatchEvent(new Event("negotiationneeded"));
+      }
+    };
+  }
+  function shimPeerConnection(window2, browserDetails) {
+    if (!window2.RTCPeerConnection && window2.webkitRTCPeerConnection) {
+      window2.RTCPeerConnection = window2.webkitRTCPeerConnection;
+    }
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    if (browserDetails.version < 53) {
+      ["setLocalDescription", "setRemoteDescription", "addIceCandidate"].forEach(function(method) {
+        const nativeMethod = window2.RTCPeerConnection.prototype[method];
+        const methodObj = { [method]() {
+          arguments[0] = new (method === "addIceCandidate" ? window2.RTCIceCandidate : window2.RTCSessionDescription)(arguments[0]);
+          return nativeMethod.apply(this, arguments);
+        } };
+        window2.RTCPeerConnection.prototype[method] = methodObj[method];
+      });
+    }
+  }
+  function fixNegotiationNeeded(window2, browserDetails) {
+    if (browserDetails.version > 102) {
+      return;
+    }
+    wrapPeerConnectionEvent(window2, "negotiationneeded", (e) => {
+      const pc = e.target;
+      if (browserDetails.version < 72 || pc.getConfiguration && pc.getConfiguration().sdpSemantics === "plan-b") {
+        if (pc.signalingState !== "stable") {
+          return;
+        }
+      }
+      return e;
+    });
+  }
+
+  // node_modules/webrtc-adapter/src/js/firefox/firefox_shim.js
+  var firefox_shim_exports = {};
+  __export(firefox_shim_exports, {
+    shimAddTransceiver: () => shimAddTransceiver,
+    shimCreateAnswer: () => shimCreateAnswer,
+    shimCreateOffer: () => shimCreateOffer,
+    shimGetDisplayMedia: () => shimGetDisplayMedia,
+    shimGetParameters: () => shimGetParameters,
+    shimGetStats: () => shimGetStats,
+    shimGetUserMedia: () => shimGetUserMedia2,
+    shimOnTrack: () => shimOnTrack2,
+    shimPeerConnection: () => shimPeerConnection2,
+    shimRTCDataChannel: () => shimRTCDataChannel,
+    shimReceiverGetStats: () => shimReceiverGetStats,
+    shimRemoveStream: () => shimRemoveStream,
+    shimSenderGetStats: () => shimSenderGetStats
+  });
+
+  // node_modules/webrtc-adapter/src/js/firefox/getusermedia.js
+  function shimGetUserMedia2(window2, browserDetails) {
+    const navigator2 = window2 && window2.navigator;
+    if (!navigator2.mediaDevices) {
+      return;
+    }
+    const MediaStreamTrack = window2 && window2.MediaStreamTrack;
+    navigator2.getUserMedia = function(constraints, onSuccess, onError) {
+      deprecated(
+        "navigator.getUserMedia",
+        "navigator.mediaDevices.getUserMedia"
+      );
+      navigator2.mediaDevices.getUserMedia(constraints).then(onSuccess, onError);
+    };
+    if (!(browserDetails.version > 55 && "autoGainControl" in navigator2.mediaDevices.getSupportedConstraints())) {
+      const remap = function(obj, a, b) {
+        if (a in obj && !(b in obj)) {
+          obj[b] = obj[a];
+          delete obj[a];
+        }
+      };
+      const nativeGetUserMedia = navigator2.mediaDevices.getUserMedia.bind(navigator2.mediaDevices);
+      navigator2.mediaDevices.getUserMedia = function(c) {
+        if (typeof c === "object" && typeof c.audio === "object") {
+          c = JSON.parse(JSON.stringify(c));
+          remap(c.audio, "autoGainControl", "mozAutoGainControl");
+          remap(c.audio, "noiseSuppression", "mozNoiseSuppression");
+        }
+        return nativeGetUserMedia(c);
+      };
+      if (MediaStreamTrack && MediaStreamTrack.prototype.getSettings) {
+        const nativeGetSettings = MediaStreamTrack.prototype.getSettings;
+        MediaStreamTrack.prototype.getSettings = function() {
+          const obj = nativeGetSettings.apply(this, arguments);
+          remap(obj, "mozAutoGainControl", "autoGainControl");
+          remap(obj, "mozNoiseSuppression", "noiseSuppression");
+          return obj;
+        };
+      }
+      if (MediaStreamTrack && MediaStreamTrack.prototype.applyConstraints) {
+        const nativeApplyConstraints = MediaStreamTrack.prototype.applyConstraints;
+        MediaStreamTrack.prototype.applyConstraints = function(c) {
+          if (this.kind === "audio" && typeof c === "object") {
+            c = JSON.parse(JSON.stringify(c));
+            remap(c, "autoGainControl", "mozAutoGainControl");
+            remap(c, "noiseSuppression", "mozNoiseSuppression");
+          }
+          return nativeApplyConstraints.apply(this, [c]);
+        };
+      }
+    }
+  }
+
+  // node_modules/webrtc-adapter/src/js/firefox/getdisplaymedia.js
+  function shimGetDisplayMedia(window2, preferredMediaSource) {
+    if (!window2.navigator.mediaDevices) {
+      return;
+    }
+    if (window2.navigator.mediaDevices && "getDisplayMedia" in window2.navigator.mediaDevices) {
+      return;
+    }
+    window2.navigator.mediaDevices.getDisplayMedia = function getDisplayMedia(constraints) {
+      if (!(constraints && constraints.video)) {
+        const err = new DOMException("getDisplayMedia without video constraints is undefined");
+        err.name = "NotFoundError";
+        err.code = 8;
+        return Promise.reject(err);
+      }
+      if (constraints.video === true) {
+        constraints.video = { mediaSource: preferredMediaSource };
+      } else {
+        constraints.video.mediaSource = preferredMediaSource;
+      }
+      return window2.navigator.mediaDevices.getUserMedia(constraints);
+    };
+  }
+
+  // node_modules/webrtc-adapter/src/js/firefox/firefox_shim.js
+  function shimOnTrack2(window2) {
+    if (typeof window2 === "object" && window2.RTCTrackEvent && "receiver" in window2.RTCTrackEvent.prototype && !("transceiver" in window2.RTCTrackEvent.prototype)) {
+      Object.defineProperty(window2.RTCTrackEvent.prototype, "transceiver", {
+        get() {
+          return { receiver: this.receiver };
+        }
+      });
+    }
+  }
+  function shimPeerConnection2(window2, browserDetails) {
+    if (typeof window2 !== "object" || !(window2.RTCPeerConnection || window2.mozRTCPeerConnection)) {
+      return;
+    }
+    if (!window2.RTCPeerConnection && window2.mozRTCPeerConnection) {
+      window2.RTCPeerConnection = window2.mozRTCPeerConnection;
+    }
+    if (browserDetails.version < 53) {
+      ["setLocalDescription", "setRemoteDescription", "addIceCandidate"].forEach(function(method) {
+        const nativeMethod = window2.RTCPeerConnection.prototype[method];
+        const methodObj = { [method]() {
+          arguments[0] = new (method === "addIceCandidate" ? window2.RTCIceCandidate : window2.RTCSessionDescription)(arguments[0]);
+          return nativeMethod.apply(this, arguments);
+        } };
+        window2.RTCPeerConnection.prototype[method] = methodObj[method];
+      });
+    }
+  }
+  function shimGetStats(window2, browserDetails) {
+    if (typeof window2 !== "object" || !(window2.RTCPeerConnection || window2.mozRTCPeerConnection)) {
+      return;
+    }
+    if (browserDetails.version >= 151) {
+      return;
+    }
+    const modernStatsTypes = {
+      inboundrtp: "inbound-rtp",
+      outboundrtp: "outbound-rtp",
+      candidatepair: "candidate-pair",
+      localcandidate: "local-candidate",
+      remotecandidate: "remote-candidate"
+    };
+    const nativeGetStats = window2.RTCPeerConnection.prototype.getStats;
+    window2.RTCPeerConnection.prototype.getStats = function getStats() {
+      const [selector, onSucc, onErr] = arguments;
+      if (this.signalingState === "closed") {
+        return Promise.resolve(/* @__PURE__ */ new Map());
+      }
+      return nativeGetStats.apply(this, [selector || null]).then((stats) => {
+        if (browserDetails.version < 53 && !onSucc) {
+          try {
+            stats.forEach((stat) => {
+              stat.type = modernStatsTypes[stat.type] || stat.type;
+            });
+          } catch (e) {
+            if (e.name !== "TypeError") {
+              throw e;
+            }
+            stats.forEach((stat, i) => {
+              stats.set(i, Object.assign({}, stat, {
+                type: modernStatsTypes[stat.type] || stat.type
+              }));
+            });
+          }
+        }
+        return stats;
+      }).then(onSucc, onErr);
+    };
+  }
+  function shimSenderGetStats(window2) {
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection && window2.RTCRtpSender)) {
+      return;
+    }
+    if (window2.RTCRtpSender && "getStats" in window2.RTCRtpSender.prototype) {
+      return;
+    }
+    const origGetSenders = window2.RTCPeerConnection.prototype.getSenders;
+    if (origGetSenders) {
+      window2.RTCPeerConnection.prototype.getSenders = function getSenders() {
+        const senders = origGetSenders.apply(this, []);
+        senders.forEach((sender) => sender._pc = this);
+        return senders;
+      };
+    }
+    const origAddTrack = window2.RTCPeerConnection.prototype.addTrack;
+    if (origAddTrack) {
+      window2.RTCPeerConnection.prototype.addTrack = function addTrack() {
+        const sender = origAddTrack.apply(this, arguments);
+        sender._pc = this;
+        return sender;
+      };
+    }
+    window2.RTCRtpSender.prototype.getStats = function getStats() {
+      return this.track ? this._pc.getStats(this.track) : Promise.resolve(/* @__PURE__ */ new Map());
+    };
+  }
+  function shimReceiverGetStats(window2) {
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection && window2.RTCRtpSender)) {
+      return;
+    }
+    if (window2.RTCRtpSender && "getStats" in window2.RTCRtpReceiver.prototype) {
+      return;
+    }
+    const origGetReceivers = window2.RTCPeerConnection.prototype.getReceivers;
+    if (origGetReceivers) {
+      window2.RTCPeerConnection.prototype.getReceivers = function getReceivers() {
+        const receivers = origGetReceivers.apply(this, []);
+        receivers.forEach((receiver) => receiver._pc = this);
+        return receivers;
+      };
+    }
+    wrapPeerConnectionEvent(window2, "track", (e) => {
+      e.receiver._pc = e.srcElement;
+      return e;
+    });
+    window2.RTCRtpReceiver.prototype.getStats = function getStats() {
+      return this._pc.getStats(this.track);
+    };
+  }
+  function shimRemoveStream(window2) {
+    if (!window2.RTCPeerConnection || "removeStream" in window2.RTCPeerConnection.prototype) {
+      return;
+    }
+    window2.RTCPeerConnection.prototype.removeStream = function removeStream(stream) {
+      deprecated("removeStream", "removeTrack");
+      this.getSenders().forEach((sender) => {
+        if (sender.track && stream.getTracks().includes(sender.track)) {
+          this.removeTrack(sender);
+        }
+      });
+    };
+  }
+  function shimRTCDataChannel(window2) {
+    if (window2.DataChannel && !window2.RTCDataChannel) {
+      window2.RTCDataChannel = window2.DataChannel;
+    }
+  }
+  function shimAddTransceiver(window2, browserDetails) {
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection)) {
+      return;
+    }
+    if (browserDetails.version >= 110) {
+      return;
+    }
+    const origAddTransceiver = window2.RTCPeerConnection.prototype.addTransceiver;
+    if (origAddTransceiver) {
+      window2.RTCPeerConnection.prototype.addTransceiver = function addTransceiver() {
+        this.setParametersPromises = [];
+        let sendEncodings = arguments[1] && arguments[1].sendEncodings;
+        if (sendEncodings === void 0) {
+          sendEncodings = [];
+        }
+        sendEncodings = [...sendEncodings];
+        const shouldPerformCheck = sendEncodings.length > 0;
+        if (shouldPerformCheck) {
+          sendEncodings.forEach((encodingParam) => {
+            if ("rid" in encodingParam) {
+              const ridRegex = /^[a-z0-9]{0,16}$/i;
+              if (!ridRegex.test(encodingParam.rid)) {
+                throw new TypeError("Invalid RID value provided.");
+              }
+            }
+            if ("scaleResolutionDownBy" in encodingParam) {
+              if (!(parseFloat(encodingParam.scaleResolutionDownBy) >= 1)) {
+                throw new RangeError("scale_resolution_down_by must be >= 1.0");
+              }
+            }
+            if ("maxFramerate" in encodingParam) {
+              if (!(parseFloat(encodingParam.maxFramerate) >= 0)) {
+                throw new RangeError("max_framerate must be >= 0.0");
+              }
+            }
+          });
+        }
+        const transceiver = origAddTransceiver.apply(this, arguments);
+        if (shouldPerformCheck) {
+          const { sender } = transceiver;
+          const params = sender.getParameters();
+          if (!("encodings" in params) || // Avoid being fooled by patched getParameters() below.
+          params.encodings.length === 1 && Object.keys(params.encodings[0]).length === 0) {
+            params.encodings = sendEncodings;
+            sender.sendEncodings = sendEncodings;
+            this.setParametersPromises.push(
+              sender.setParameters(params).then(() => {
+                delete sender.sendEncodings;
+              }).catch(() => {
+                delete sender.sendEncodings;
+              })
+            );
+          }
+        }
+        return transceiver;
+      };
+    }
+  }
+  function shimGetParameters(window2, browserDetails) {
+    if (!(typeof window2 === "object" && window2.RTCRtpSender)) {
+      return;
+    }
+    if (browserDetails.version >= 110) {
+      return;
+    }
+    const origGetParameters = window2.RTCRtpSender.prototype.getParameters;
+    if (origGetParameters) {
+      window2.RTCRtpSender.prototype.getParameters = function getParameters() {
+        const params = origGetParameters.apply(this, arguments);
+        if (!("encodings" in params)) {
+          params.encodings = [].concat(this.sendEncodings || [{}]);
+        }
+        return params;
+      };
+    }
+  }
+  function shimCreateOffer(window2, browserDetails) {
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection)) {
+      return;
+    }
+    if (browserDetails.version >= 110) {
+      return;
+    }
+    const origCreateOffer = window2.RTCPeerConnection.prototype.createOffer;
+    window2.RTCPeerConnection.prototype.createOffer = function createOffer() {
+      if (this.setParametersPromises && this.setParametersPromises.length) {
+        return Promise.all(this.setParametersPromises).then(() => {
+          return origCreateOffer.apply(this, arguments);
+        }).finally(() => {
+          this.setParametersPromises = [];
+        });
+      }
+      return origCreateOffer.apply(this, arguments);
+    };
+  }
+  function shimCreateAnswer(window2, browserDetails) {
+    if (!(typeof window2 === "object" && window2.RTCPeerConnection)) {
+      return;
+    }
+    if (browserDetails.version >= 110) {
+      return;
+    }
+    const origCreateAnswer = window2.RTCPeerConnection.prototype.createAnswer;
+    window2.RTCPeerConnection.prototype.createAnswer = function createAnswer() {
+      if (this.setParametersPromises && this.setParametersPromises.length) {
+        return Promise.all(this.setParametersPromises).then(() => {
+          return origCreateAnswer.apply(this, arguments);
+        }).finally(() => {
+          this.setParametersPromises = [];
+        });
+      }
+      return origCreateAnswer.apply(this, arguments);
+    };
+  }
+
+  // node_modules/webrtc-adapter/src/js/safari/safari_shim.js
+  var safari_shim_exports = {};
+  __export(safari_shim_exports, {
+    shimAudioContext: () => shimAudioContext,
+    shimCallbacksAPI: () => shimCallbacksAPI,
+    shimConstraints: () => shimConstraints,
+    shimCreateOfferLegacy: () => shimCreateOfferLegacy,
+    shimGetUserMedia: () => shimGetUserMedia3,
+    shimLocalStreamsAPI: () => shimLocalStreamsAPI,
+    shimRTCIceServerUrls: () => shimRTCIceServerUrls,
+    shimRemoteStreamsAPI: () => shimRemoteStreamsAPI,
+    shimTrackEventTransceiver: () => shimTrackEventTransceiver
+  });
+  function shimLocalStreamsAPI(window2) {
+    if (typeof window2 !== "object" || !window2.RTCPeerConnection) {
+      return;
+    }
+    if (!("getLocalStreams" in window2.RTCPeerConnection.prototype)) {
+      window2.RTCPeerConnection.prototype.getLocalStreams = function getLocalStreams() {
+        if (!this._localStreams) {
+          this._localStreams = [];
+        }
+        return this._localStreams;
+      };
+    }
+    if (!("addStream" in window2.RTCPeerConnection.prototype)) {
+      const _addTrack = window2.RTCPeerConnection.prototype.addTrack;
+      window2.RTCPeerConnection.prototype.addStream = function addStream(stream) {
+        if (!this._localStreams) {
+          this._localStreams = [];
+        }
+        if (!this._localStreams.includes(stream)) {
+          this._localStreams.push(stream);
+        }
+        stream.getAudioTracks().forEach((track) => _addTrack.call(
+          this,
+          track,
+          stream
+        ));
+        stream.getVideoTracks().forEach((track) => _addTrack.call(
+          this,
+          track,
+          stream
+        ));
+      };
+      window2.RTCPeerConnection.prototype.addTrack = function addTrack(track, ...streams) {
+        if (streams) {
+          streams.forEach((stream) => {
+            if (!this._localStreams) {
+              this._localStreams = [stream];
+            } else if (!this._localStreams.includes(stream)) {
+              this._localStreams.push(stream);
+            }
+          });
+        }
+        return _addTrack.apply(this, arguments);
+      };
+    }
+    if (!("removeStream" in window2.RTCPeerConnection.prototype)) {
+      window2.RTCPeerConnection.prototype.removeStream = function removeStream(stream) {
+        if (!this._localStreams) {
+          this._localStreams = [];
+        }
+        const index = this._localStreams.indexOf(stream);
+        if (index === -1) {
+          return;
+        }
+        this._localStreams.splice(index, 1);
+        const tracks = stream.getTracks();
+        this.getSenders().forEach((sender) => {
+          if (tracks.includes(sender.track)) {
+            this.removeTrack(sender);
+          }
+        });
+      };
+    }
+  }
+  function shimRemoteStreamsAPI(window2) {
+    if (typeof window2 !== "object" || !window2.RTCPeerConnection) {
+      return;
+    }
+    if (!("getRemoteStreams" in window2.RTCPeerConnection.prototype)) {
+      window2.RTCPeerConnection.prototype.getRemoteStreams = function getRemoteStreams() {
+        return this._remoteStreams ? this._remoteStreams : [];
+      };
+    }
+    if (!("onaddstream" in window2.RTCPeerConnection.prototype)) {
+      Object.defineProperty(window2.RTCPeerConnection.prototype, "onaddstream", {
+        get() {
+          return this._onaddstream;
+        },
+        set(f) {
+          if (this._onaddstream) {
+            this.removeEventListener("addstream", this._onaddstream);
+            this.removeEventListener("track", this._onaddstreampoly);
+          }
+          this.addEventListener("addstream", this._onaddstream = f);
+          this.addEventListener("track", this._onaddstreampoly = (e) => {
+            e.streams.forEach((stream) => {
+              if (!this._remoteStreams) {
+                this._remoteStreams = [];
+              }
+              if (this._remoteStreams.includes(stream)) {
+                return;
+              }
+              this._remoteStreams.push(stream);
+              const event = new Event("addstream");
+              event.stream = stream;
+              this.dispatchEvent(event);
+            });
+          });
+        }
+      });
+      const origSetRemoteDescription = window2.RTCPeerConnection.prototype.setRemoteDescription;
+      window2.RTCPeerConnection.prototype.setRemoteDescription = function setRemoteDescription() {
+        const pc = this;
+        if (!this._onaddstreampoly) {
+          this.addEventListener("track", this._onaddstreampoly = function(e) {
+            e.streams.forEach((stream) => {
+              if (!pc._remoteStreams) {
+                pc._remoteStreams = [];
+              }
+              if (pc._remoteStreams.indexOf(stream) >= 0) {
+                return;
+              }
+              pc._remoteStreams.push(stream);
+              const event = new Event("addstream");
+              event.stream = stream;
+              pc.dispatchEvent(event);
+            });
+          });
+        }
+        return origSetRemoteDescription.apply(pc, arguments);
+      };
+    }
+  }
+  function shimCallbacksAPI(window2) {
+    if (typeof window2 !== "object" || !window2.RTCPeerConnection) {
+      return;
+    }
+    const prototype = window2.RTCPeerConnection.prototype;
+    const origCreateOffer = prototype.createOffer;
+    const origCreateAnswer = prototype.createAnswer;
+    const setLocalDescription = prototype.setLocalDescription;
+    const setRemoteDescription = prototype.setRemoteDescription;
+    const addIceCandidate = prototype.addIceCandidate;
+    prototype.createOffer = function createOffer(successCallback, failureCallback) {
+      const options = arguments.length >= 2 ? arguments[2] : arguments[0];
+      const promise = origCreateOffer.apply(this, [options]);
+      if (!failureCallback) {
+        return promise;
+      }
+      promise.then(successCallback, failureCallback);
+      return Promise.resolve();
+    };
+    prototype.createAnswer = function createAnswer(successCallback, failureCallback) {
+      const options = arguments.length >= 2 ? arguments[2] : arguments[0];
+      const promise = origCreateAnswer.apply(this, [options]);
+      if (!failureCallback) {
+        return promise;
+      }
+      promise.then(successCallback, failureCallback);
+      return Promise.resolve();
+    };
+    let withCallback = function(description, successCallback, failureCallback) {
+      const promise = setLocalDescription.apply(this, [description]);
+      if (!failureCallback) {
+        return promise;
+      }
+      promise.then(successCallback, failureCallback);
+      return Promise.resolve();
+    };
+    prototype.setLocalDescription = withCallback;
+    withCallback = function(description, successCallback, failureCallback) {
+      const promise = setRemoteDescription.apply(this, [description]);
+      if (!failureCallback) {
+        return promise;
+      }
+      promise.then(successCallback, failureCallback);
+      return Promise.resolve();
+    };
+    prototype.setRemoteDescription = withCallback;
+    withCallback = function(candidate, successCallback, failureCallback) {
+      const promise = addIceCandidate.apply(this, [candidate]);
+      if (!failureCallback) {
+        return promise;
+      }
+      promise.then(successCallback, failureCallback);
+      return Promise.resolve();
+    };
+    prototype.addIceCandidate = withCallback;
+  }
+  function shimGetUserMedia3(window2) {
+    const navigator2 = window2 && window2.navigator;
+    if (navigator2.mediaDevices && navigator2.mediaDevices.getUserMedia) {
+      const mediaDevices = navigator2.mediaDevices;
+      const _getUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+      navigator2.mediaDevices.getUserMedia = (constraints) => {
+        return _getUserMedia(shimConstraints(constraints));
+      };
+    }
+    if (!navigator2.getUserMedia && navigator2.mediaDevices && navigator2.mediaDevices.getUserMedia) {
+      navigator2.getUserMedia = function getUserMedia(constraints, cb, errcb) {
+        navigator2.mediaDevices.getUserMedia(constraints).then(cb, errcb);
+      }.bind(navigator2);
+    }
+  }
+  function shimConstraints(constraints) {
+    if (constraints && constraints.video !== void 0) {
+      return Object.assign(
+        {},
+        constraints,
+        { video: compactObject(constraints.video) }
+      );
+    }
+    return constraints;
+  }
+  function shimRTCIceServerUrls(window2) {
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    const OrigPeerConnection = window2.RTCPeerConnection;
+    window2.RTCPeerConnection = function RTCPeerConnection2(pcConfig, pcConstraints) {
+      if (pcConfig && pcConfig.iceServers) {
+        const newIceServers = [];
+        for (let i = 0; i < pcConfig.iceServers.length; i++) {
+          let server = pcConfig.iceServers[i];
+          if (server.urls === void 0 && server.url) {
+            deprecated("RTCIceServer.url", "RTCIceServer.urls");
+            server = JSON.parse(JSON.stringify(server));
+            server.urls = server.url;
+            delete server.url;
+            newIceServers.push(server);
+          } else {
+            newIceServers.push(pcConfig.iceServers[i]);
+          }
+        }
+        pcConfig.iceServers = newIceServers;
+      }
+      return new OrigPeerConnection(pcConfig, pcConstraints);
+    };
+    window2.RTCPeerConnection.prototype = OrigPeerConnection.prototype;
+    if ("generateCertificate" in OrigPeerConnection) {
+      Object.defineProperty(window2.RTCPeerConnection, "generateCertificate", {
+        get() {
+          return OrigPeerConnection.generateCertificate;
+        }
+      });
+    }
+  }
+  function shimTrackEventTransceiver(window2) {
+    if (typeof window2 === "object" && window2.RTCTrackEvent && "receiver" in window2.RTCTrackEvent.prototype && !("transceiver" in window2.RTCTrackEvent.prototype)) {
+      Object.defineProperty(window2.RTCTrackEvent.prototype, "transceiver", {
+        get() {
+          return { receiver: this.receiver };
+        }
+      });
+    }
+  }
+  function shimCreateOfferLegacy(window2) {
+    const origCreateOffer = window2.RTCPeerConnection.prototype.createOffer;
+    window2.RTCPeerConnection.prototype.createOffer = function createOffer(offerOptions) {
+      if (offerOptions) {
+        if (typeof offerOptions.offerToReceiveAudio !== "undefined") {
+          offerOptions.offerToReceiveAudio = !!offerOptions.offerToReceiveAudio;
+        }
+        const audioTransceiver = this.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === "audio");
+        if (offerOptions.offerToReceiveAudio === false && audioTransceiver) {
+          if (audioTransceiver.direction === "sendrecv") {
+            if (audioTransceiver.setDirection) {
+              audioTransceiver.setDirection("sendonly");
+            } else {
+              audioTransceiver.direction = "sendonly";
+            }
+          } else if (audioTransceiver.direction === "recvonly") {
+            if (audioTransceiver.setDirection) {
+              audioTransceiver.setDirection("inactive");
+            } else {
+              audioTransceiver.direction = "inactive";
+            }
+          }
+        } else if (offerOptions.offerToReceiveAudio === true && !audioTransceiver) {
+          this.addTransceiver("audio", { direction: "recvonly" });
+        }
+        if (typeof offerOptions.offerToReceiveVideo !== "undefined") {
+          offerOptions.offerToReceiveVideo = !!offerOptions.offerToReceiveVideo;
+        }
+        const videoTransceiver = this.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === "video");
+        if (offerOptions.offerToReceiveVideo === false && videoTransceiver) {
+          if (videoTransceiver.direction === "sendrecv") {
+            if (videoTransceiver.setDirection) {
+              videoTransceiver.setDirection("sendonly");
+            } else {
+              videoTransceiver.direction = "sendonly";
+            }
+          } else if (videoTransceiver.direction === "recvonly") {
+            if (videoTransceiver.setDirection) {
+              videoTransceiver.setDirection("inactive");
+            } else {
+              videoTransceiver.direction = "inactive";
+            }
+          }
+        } else if (offerOptions.offerToReceiveVideo === true && !videoTransceiver) {
+          this.addTransceiver("video", { direction: "recvonly" });
+        }
+      }
+      return origCreateOffer.apply(this, arguments);
+    };
+  }
+  function shimAudioContext(window2) {
+    if (typeof window2 !== "object" || window2.AudioContext) {
+      return;
+    }
+    window2.AudioContext = window2.webkitAudioContext;
+  }
+
+  // node_modules/webrtc-adapter/src/js/common_shim.js
+  var common_shim_exports = {};
+  __export(common_shim_exports, {
+    removeExtmapAllowMixed: () => removeExtmapAllowMixed,
+    shimAddIceCandidateNullOrEmpty: () => shimAddIceCandidateNullOrEmpty,
+    shimConnectionState: () => shimConnectionState,
+    shimMaxMessageSize: () => shimMaxMessageSize,
+    shimParameterlessSetLocalDescription: () => shimParameterlessSetLocalDescription,
+    shimRTCIceCandidate: () => shimRTCIceCandidate,
+    shimRTCIceCandidateRelayProtocol: () => shimRTCIceCandidateRelayProtocol,
+    shimSendThrowTypeError: () => shimSendThrowTypeError
+  });
+  var import_sdp = __toESM(require_sdp());
+  function shimRTCIceCandidate(window2) {
+    if (!window2.RTCIceCandidate || window2.RTCIceCandidate && "foundation" in window2.RTCIceCandidate.prototype) {
+      return;
+    }
+    const NativeRTCIceCandidate = window2.RTCIceCandidate;
+    window2.RTCIceCandidate = function RTCIceCandidate(args) {
+      if (typeof args === "object" && args.candidate && args.candidate.indexOf("a=") === 0) {
+        args = JSON.parse(JSON.stringify(args));
+        args.candidate = args.candidate.substring(2);
+      }
+      if (args.candidate && args.candidate.length) {
+        const nativeCandidate = new NativeRTCIceCandidate(args);
+        const parsedCandidate = import_sdp.default.parseCandidate(args.candidate);
+        for (const key in parsedCandidate) {
+          if (!(key in nativeCandidate)) {
+            Object.defineProperty(
+              nativeCandidate,
+              key,
+              { value: parsedCandidate[key] }
+            );
+          }
+        }
+        nativeCandidate.toJSON = function toJSON() {
+          return {
+            candidate: nativeCandidate.candidate,
+            sdpMid: nativeCandidate.sdpMid,
+            sdpMLineIndex: nativeCandidate.sdpMLineIndex,
+            usernameFragment: nativeCandidate.usernameFragment
+          };
+        };
+        return nativeCandidate;
+      }
+      return new NativeRTCIceCandidate(args);
+    };
+    window2.RTCIceCandidate.prototype = NativeRTCIceCandidate.prototype;
+    wrapPeerConnectionEvent(window2, "icecandidate", (e) => {
+      if (e.candidate) {
+        Object.defineProperty(e, "candidate", {
+          value: new window2.RTCIceCandidate(e.candidate),
+          writable: "false"
+        });
+      }
+      return e;
+    });
+  }
+  function shimRTCIceCandidateRelayProtocol(window2) {
+    if (!window2.RTCIceCandidate || window2.RTCIceCandidate && "relayProtocol" in window2.RTCIceCandidate.prototype) {
+      return;
+    }
+    wrapPeerConnectionEvent(window2, "icecandidate", (e) => {
+      if (e.candidate) {
+        const parsedCandidate = import_sdp.default.parseCandidate(e.candidate.candidate);
+        if (parsedCandidate.type === "relay") {
+          e.candidate.relayProtocol = {
+            0: "tls",
+            1: "tcp",
+            2: "udp"
+          }[parsedCandidate.priority >> 24];
+        }
+      }
+      return e;
+    });
+  }
+  function shimMaxMessageSize(window2, browserDetails) {
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    if (browserDetails.browser === "chrome" && browserDetails.version > 102) {
+      return;
+    }
+    if (browserDetails.browser === "firefox" && browserDetails.version >= 113) {
+      return;
+    }
+    if (!("sctp" in window2.RTCPeerConnection.prototype)) {
+      Object.defineProperty(window2.RTCPeerConnection.prototype, "sctp", {
+        get() {
+          return typeof this._sctp === "undefined" ? null : this._sctp;
+        }
+      });
+    }
+    const sctpInDescription = function(description) {
+      if (!description || !description.sdp) {
+        return false;
+      }
+      const sections = import_sdp.default.splitSections(description.sdp);
+      sections.shift();
+      return sections.some((mediaSection) => {
+        const mLine = import_sdp.default.parseMLine(mediaSection);
+        return mLine && mLine.kind === "application" && mLine.protocol.indexOf("SCTP") !== -1;
+      });
+    };
+    const getRemoteFirefoxVersion = function(description) {
+      const match = description.sdp.match(/mozilla...THIS_IS_SDPARTA-(\d+)/);
+      if (match === null || match.length < 2) {
+        return -1;
+      }
+      const version = parseInt(match[1], 10);
+      return version !== version ? -1 : version;
+    };
+    const getCanSendMaxMessageSize = function(remoteIsFirefox) {
+      let canSendMaxMessageSize = 65536;
+      if (browserDetails.browser === "firefox") {
+        if (browserDetails.version < 57) {
+          if (remoteIsFirefox === -1) {
+            canSendMaxMessageSize = 16384;
+          } else {
+            canSendMaxMessageSize = 2147483637;
+          }
+        } else if (browserDetails.version < 60) {
+          canSendMaxMessageSize = browserDetails.version === 57 ? 65535 : 65536;
+        } else {
+          canSendMaxMessageSize = 2147483637;
+        }
+      }
+      return canSendMaxMessageSize;
+    };
+    const getMaxMessageSize = function(description, remoteIsFirefox) {
+      let maxMessageSize = 65536;
+      if (browserDetails.browser === "firefox" && browserDetails.version === 57) {
+        maxMessageSize = 65535;
+      }
+      const match = import_sdp.default.matchPrefix(
+        description.sdp,
+        "a=max-message-size:"
+      );
+      if (match.length > 0) {
+        maxMessageSize = parseInt(match[0].substring(19), 10);
+      } else if (browserDetails.browser === "firefox" && remoteIsFirefox !== -1) {
+        maxMessageSize = 2147483637;
+      }
+      return maxMessageSize;
+    };
+    const origSetRemoteDescription = window2.RTCPeerConnection.prototype.setRemoteDescription;
+    window2.RTCPeerConnection.prototype.setRemoteDescription = function setRemoteDescription() {
+      this._sctp = null;
+      if (browserDetails.browser === "chrome" && browserDetails.version >= 76) {
+        const { sdpSemantics } = this.getConfiguration();
+        if (sdpSemantics === "plan-b") {
+          Object.defineProperty(this, "sctp", {
+            get() {
+              return typeof this._sctp === "undefined" ? null : this._sctp;
+            },
+            enumerable: true,
+            configurable: true
+          });
+        }
+      }
+      if (sctpInDescription(arguments[0])) {
+        const isFirefox = getRemoteFirefoxVersion(arguments[0]);
+        const canSendMMS = getCanSendMaxMessageSize(isFirefox);
+        const remoteMMS = getMaxMessageSize(arguments[0], isFirefox);
+        let maxMessageSize;
+        if (canSendMMS === 0 && remoteMMS === 0) {
+          maxMessageSize = Number.POSITIVE_INFINITY;
+        } else if (canSendMMS === 0 || remoteMMS === 0) {
+          maxMessageSize = Math.max(canSendMMS, remoteMMS);
+        } else {
+          maxMessageSize = Math.min(canSendMMS, remoteMMS);
+        }
+        const sctp = {};
+        Object.defineProperty(sctp, "maxMessageSize", {
+          get() {
+            return maxMessageSize;
+          }
+        });
+        this._sctp = sctp;
+      }
+      return origSetRemoteDescription.apply(this, arguments);
+    };
+  }
+  function shimSendThrowTypeError(window2, browserDetails) {
+    if (!(window2.RTCPeerConnection && "createDataChannel" in window2.RTCPeerConnection.prototype)) {
+      return;
+    }
+    if (browserDetails.browser === "chrome" && browserDetails.version >= 149) {
+      return;
+    }
+    if (browserDetails.browser === "firefox" && browserDetails.version > 60) {
+      return;
+    }
+    function wrapDcSend(dc, pc) {
+      const origDataChannelSend = dc.send;
+      dc.send = function send() {
+        const data = arguments[0];
+        const length = data.length || data.size || data.byteLength;
+        if (dc.readyState === "open" && pc.sctp && length > pc.sctp.maxMessageSize) {
+          throw new TypeError("Message too large (can send a maximum of " + pc.sctp.maxMessageSize + " bytes)");
+        }
+        return origDataChannelSend.apply(dc, arguments);
+      };
+    }
+    const origCreateDataChannel = window2.RTCPeerConnection.prototype.createDataChannel;
+    window2.RTCPeerConnection.prototype.createDataChannel = function createDataChannel() {
+      const dataChannel = origCreateDataChannel.apply(this, arguments);
+      wrapDcSend(dataChannel, this);
+      return dataChannel;
+    };
+    wrapPeerConnectionEvent(window2, "datachannel", (e) => {
+      wrapDcSend(e.channel, e.target);
+      return e;
+    });
+  }
+  function shimConnectionState(window2) {
+    if (!window2.RTCPeerConnection || "connectionState" in window2.RTCPeerConnection.prototype) {
+      return;
+    }
+    const proto = window2.RTCPeerConnection.prototype;
+    Object.defineProperty(proto, "connectionState", {
+      get() {
+        return {
+          completed: "connected",
+          checking: "connecting"
+        }[this.iceConnectionState] || this.iceConnectionState;
+      },
+      enumerable: true,
+      configurable: true
+    });
+    Object.defineProperty(proto, "onconnectionstatechange", {
+      get() {
+        return this._onconnectionstatechange || null;
+      },
+      set(cb) {
+        if (this._onconnectionstatechange) {
+          this.removeEventListener(
+            "connectionstatechange",
+            this._onconnectionstatechange
+          );
+          delete this._onconnectionstatechange;
+        }
+        if (cb) {
+          this.addEventListener(
+            "connectionstatechange",
+            this._onconnectionstatechange = cb
+          );
+        }
+      },
+      enumerable: true,
+      configurable: true
+    });
+    ["setLocalDescription", "setRemoteDescription"].forEach((method) => {
+      const origMethod = proto[method];
+      proto[method] = function() {
+        if (!this._connectionstatechangepoly) {
+          this._connectionstatechangepoly = (e) => {
+            const pc = e.target;
+            if (pc._lastConnectionState !== pc.connectionState) {
+              pc._lastConnectionState = pc.connectionState;
+              const newEvent = new Event("connectionstatechange", e);
+              pc.dispatchEvent(newEvent);
+            }
+            return e;
+          };
+          this.addEventListener(
+            "iceconnectionstatechange",
+            this._connectionstatechangepoly
+          );
+        }
+        return origMethod.apply(this, arguments);
+      };
+    });
+  }
+  function removeExtmapAllowMixed(window2, browserDetails) {
+    if (!window2.RTCPeerConnection) {
+      return;
+    }
+    if (browserDetails.browser === "chrome" && browserDetails.version >= 71) {
+      return;
+    }
+    if (browserDetails.browser === "safari" && browserDetails._safariVersion >= 13.1) {
+      return;
+    }
+    const nativeSRD = window2.RTCPeerConnection.prototype.setRemoteDescription;
+    window2.RTCPeerConnection.prototype.setRemoteDescription = function setRemoteDescription(desc) {
+      if (desc && desc.sdp && desc.sdp.indexOf("\na=extmap-allow-mixed") !== -1) {
+        const sdp2 = desc.sdp.split("\n").filter((line) => {
+          return line.trim() !== "a=extmap-allow-mixed";
+        }).join("\n");
+        if (window2.RTCSessionDescription && desc instanceof window2.RTCSessionDescription) {
+          arguments[0] = new window2.RTCSessionDescription({
+            type: desc.type,
+            sdp: sdp2
+          });
+        } else {
+          desc.sdp = sdp2;
+        }
+      }
+      return nativeSRD.apply(this, arguments);
+    };
+  }
+  function shimAddIceCandidateNullOrEmpty(window2, browserDetails) {
+    if (!(window2.RTCPeerConnection && window2.RTCPeerConnection.prototype)) {
+      return;
+    }
+    const nativeAddIceCandidate = window2.RTCPeerConnection.prototype.addIceCandidate;
+    if (!nativeAddIceCandidate || nativeAddIceCandidate.length === 0) {
+      return;
+    }
+    window2.RTCPeerConnection.prototype.addIceCandidate = function addIceCandidate() {
+      if (!arguments[0]) {
+        if (arguments[1]) {
+          arguments[1].apply(null);
+        }
+        return Promise.resolve();
+      }
+      if ((browserDetails.browser === "chrome" && browserDetails.version < 78 || browserDetails.browser === "firefox" && browserDetails.version < 68 || browserDetails.browser === "safari") && arguments[0] && arguments[0].candidate === "") {
+        return Promise.resolve();
+      }
+      return nativeAddIceCandidate.apply(this, arguments);
+    };
+  }
+  function shimParameterlessSetLocalDescription(window2, browserDetails) {
+    if (!(window2.RTCPeerConnection && window2.RTCPeerConnection.prototype)) {
+      return;
+    }
+    const nativeSetLocalDescription = window2.RTCPeerConnection.prototype.setLocalDescription;
+    if (!nativeSetLocalDescription || nativeSetLocalDescription.length === 0) {
+      return;
+    }
+    window2.RTCPeerConnection.prototype.setLocalDescription = function setLocalDescription() {
+      let desc = arguments[0] || {};
+      if (typeof desc !== "object" || desc.type && desc.sdp) {
+        return nativeSetLocalDescription.apply(this, arguments);
+      }
+      desc = { type: desc.type, sdp: desc.sdp };
+      if (!desc.type) {
+        switch (this.signalingState) {
+          case "stable":
+          case "have-local-offer":
+          case "have-remote-pranswer":
+            desc.type = "offer";
+            break;
+          default:
+            desc.type = "answer";
+            break;
+        }
+      }
+      if (desc.sdp || desc.type !== "offer" && desc.type !== "answer") {
+        return nativeSetLocalDescription.apply(this, [desc]);
+      }
+      const func = desc.type === "offer" ? this.createOffer : this.createAnswer;
+      return func.apply(this).then((d) => nativeSetLocalDescription.apply(this, [d]));
+    };
+  }
+
+  // node_modules/webrtc-adapter/src/js/adapter_factory.js
+  var sdp = __toESM(require_sdp());
+  function adapterFactory({ window: window2 } = {}, options = {
+    shimChrome: true,
+    shimFirefox: true,
+    shimSafari: true
+  }) {
+    const logging2 = log;
+    const browserDetails = detectBrowser(window2);
+    const adapter2 = {
+      browserDetails,
+      commonShim: common_shim_exports,
+      extractVersion,
+      disableLog,
+      disableWarnings,
+      // Expose sdp as a convenience. For production apps include directly.
+      sdp
+    };
+    switch (browserDetails.browser) {
+      case "chrome":
+        if (!chrome_shim_exports || !shimPeerConnection || !options.shimChrome) {
+          logging2("Chrome shim is not included in this adapter release.");
+          return adapter2;
+        }
+        if (browserDetails.version === null) {
+          logging2("Chrome shim can not determine version, not shimming.");
+          return adapter2;
+        }
+        logging2("adapter.js shimming chrome.");
+        adapter2.browserShim = chrome_shim_exports;
+        shimAddIceCandidateNullOrEmpty(window2, browserDetails);
+        shimParameterlessSetLocalDescription(window2, browserDetails);
+        shimGetUserMedia(window2, browserDetails);
+        shimMediaStream(window2, browserDetails);
+        shimPeerConnection(window2, browserDetails);
+        shimOnTrack(window2, browserDetails);
+        shimAddTrackRemoveTrack(window2, browserDetails);
+        shimGetSendersWithDtmf(window2, browserDetails);
+        shimSenderReceiverGetStats(window2, browserDetails);
+        fixNegotiationNeeded(window2, browserDetails);
+        shimRTCIceCandidate(window2, browserDetails);
+        shimRTCIceCandidateRelayProtocol(window2, browserDetails);
+        shimConnectionState(window2, browserDetails);
+        shimMaxMessageSize(window2, browserDetails);
+        shimSendThrowTypeError(window2, browserDetails);
+        removeExtmapAllowMixed(window2, browserDetails);
+        break;
+      case "firefox":
+        if (!firefox_shim_exports || !shimPeerConnection2 || !options.shimFirefox) {
+          logging2("Firefox shim is not included in this adapter release.");
+          return adapter2;
+        }
+        logging2("adapter.js shimming firefox.");
+        adapter2.browserShim = firefox_shim_exports;
+        shimAddIceCandidateNullOrEmpty(window2, browserDetails);
+        shimParameterlessSetLocalDescription(window2, browserDetails);
+        shimGetUserMedia2(window2, browserDetails);
+        shimPeerConnection2(window2, browserDetails);
+        shimGetStats(window2, browserDetails);
+        shimOnTrack2(window2, browserDetails);
+        shimRemoveStream(window2, browserDetails);
+        shimSenderGetStats(window2, browserDetails);
+        shimReceiverGetStats(window2, browserDetails);
+        shimRTCDataChannel(window2, browserDetails);
+        shimAddTransceiver(window2, browserDetails);
+        shimGetParameters(window2, browserDetails);
+        shimCreateOffer(window2, browserDetails);
+        shimCreateAnswer(window2, browserDetails);
+        shimRTCIceCandidate(window2, browserDetails);
+        shimConnectionState(window2, browserDetails);
+        shimMaxMessageSize(window2, browserDetails);
+        shimSendThrowTypeError(window2, browserDetails);
+        break;
+      case "safari":
+        if (!safari_shim_exports || !options.shimSafari) {
+          logging2("Safari shim is not included in this adapter release.");
+          return adapter2;
+        }
+        logging2("adapter.js shimming safari.");
+        adapter2.browserShim = safari_shim_exports;
+        shimAddIceCandidateNullOrEmpty(window2, browserDetails);
+        shimParameterlessSetLocalDescription(window2, browserDetails);
+        shimRTCIceServerUrls(window2, browserDetails);
+        shimCreateOfferLegacy(window2, browserDetails);
+        shimCallbacksAPI(window2, browserDetails);
+        shimLocalStreamsAPI(window2, browserDetails);
+        shimRemoteStreamsAPI(window2, browserDetails);
+        shimTrackEventTransceiver(window2, browserDetails);
+        shimGetUserMedia3(window2, browserDetails);
+        shimAudioContext(window2, browserDetails);
+        shimRTCIceCandidate(window2, browserDetails);
+        shimRTCIceCandidateRelayProtocol(window2, browserDetails);
+        shimMaxMessageSize(window2, browserDetails);
+        shimSendThrowTypeError(window2, browserDetails);
+        removeExtmapAllowMixed(window2, browserDetails);
+        break;
+      default:
+        logging2("Unsupported browser!");
+        break;
+    }
+    return adapter2;
+  }
+
+  // node_modules/webrtc-adapter/src/js/adapter_core.js
+  var adapter = adapterFactory({ window: typeof window === "undefined" ? void 0 : window });
+  var adapter_core_default = adapter;
+
+  // node_modules/peerjs/dist/bundler.mjs
+  function $parcel$export(e, n, v, s) {
+    Object.defineProperty(e, n, { get: v, set: s, enumerable: true, configurable: true });
+  }
+  var $fcbcc7538a6776d5$export$f1c5f4c9cb95390b = class {
+    constructor() {
+      this.chunkedMTU = 16300;
+      this._dataCount = 1;
+      this.chunk = (blob) => {
+        const chunks = [];
+        const size = blob.byteLength;
+        const total = Math.ceil(size / this.chunkedMTU);
+        let index = 0;
+        let start2 = 0;
+        while (start2 < size) {
+          const end = Math.min(size, start2 + this.chunkedMTU);
+          const b = blob.slice(start2, end);
+          const chunk = {
+            __peerData: this._dataCount,
+            n: index,
+            data: b,
+            total
+          };
+          chunks.push(chunk);
+          start2 = end;
+          index++;
+        }
+        this._dataCount++;
+        return chunks;
+      };
+    }
+  };
+  function $fcbcc7538a6776d5$export$52c89ebcdc4f53f2(bufs) {
+    let size = 0;
+    for (const buf of bufs) size += buf.byteLength;
+    const result = new Uint8Array(size);
+    let offset = 0;
+    for (const buf of bufs) {
+      result.set(buf, offset);
+      offset += buf.byteLength;
+    }
+    return result;
+  }
+  var $fb63e766cfafaab9$var$webRTCAdapter = (
+    //@ts-ignore
+    (0, adapter_core_default).default || (0, adapter_core_default)
+  );
+  var $fb63e766cfafaab9$export$25be9502477c137d = new class {
+    isWebRTCSupported() {
+      return typeof RTCPeerConnection !== "undefined";
+    }
+    isBrowserSupported() {
+      const browser = this.getBrowser();
+      const version = this.getVersion();
+      const validBrowser = this.supportedBrowsers.includes(browser);
+      if (!validBrowser) return false;
+      if (browser === "chrome") return version >= this.minChromeVersion;
+      if (browser === "firefox") return version >= this.minFirefoxVersion;
+      if (browser === "safari") return !this.isIOS && version >= this.minSafariVersion;
+      return false;
+    }
+    getBrowser() {
+      return $fb63e766cfafaab9$var$webRTCAdapter.browserDetails.browser;
+    }
+    getVersion() {
+      return $fb63e766cfafaab9$var$webRTCAdapter.browserDetails.version || 0;
+    }
+    isUnifiedPlanSupported() {
+      const browser = this.getBrowser();
+      const version = $fb63e766cfafaab9$var$webRTCAdapter.browserDetails.version || 0;
+      if (browser === "chrome" && version < this.minChromeVersion) return false;
+      if (browser === "firefox" && version >= this.minFirefoxVersion) return true;
+      if (!window.RTCRtpTransceiver || !("currentDirection" in RTCRtpTransceiver.prototype)) return false;
+      let tempPc;
+      let supported = false;
+      try {
+        tempPc = new RTCPeerConnection();
+        tempPc.addTransceiver("audio");
+        supported = true;
+      } catch (e) {
+      } finally {
+        if (tempPc) tempPc.close();
+      }
+      return supported;
+    }
+    toString() {
+      return `Supports:
+    browser:${this.getBrowser()}
+    version:${this.getVersion()}
+    isIOS:${this.isIOS}
+    isWebRTCSupported:${this.isWebRTCSupported()}
+    isBrowserSupported:${this.isBrowserSupported()}
+    isUnifiedPlanSupported:${this.isUnifiedPlanSupported()}`;
+    }
+    constructor() {
+      this.isIOS = typeof navigator !== "undefined" ? [
+        "iPad",
+        "iPhone",
+        "iPod"
+      ].includes(navigator.platform) : false;
+      this.supportedBrowsers = [
+        "firefox",
+        "chrome",
+        "safari"
+      ];
+      this.minFirefoxVersion = 59;
+      this.minChromeVersion = 72;
+      this.minSafariVersion = 605;
+    }
+  }();
+  var $9a84a32bf0bf36bb$export$f35f128fd59ea256 = (id) => {
+    return !id || /^[A-Za-z0-9]+(?:[ _-][A-Za-z0-9]+)*$/.test(id);
+  };
+  var $0e5fd1585784c252$export$4e61f672936bec77 = () => Math.random().toString(36).slice(2);
+  var $4f4134156c446392$var$DEFAULT_CONFIG = {
+    iceServers: [
+      {
+        urls: "stun:stun.l.google.com:19302"
+      },
+      {
+        urls: [
+          "turn:eu-0.turn.peerjs.com:3478",
+          "turn:us-0.turn.peerjs.com:3478"
+        ],
+        username: "peerjs",
+        credential: "peerjsp"
+      }
+    ],
+    sdpSemantics: "unified-plan"
+  };
+  var $4f4134156c446392$export$f8f26dd395d7e1bd = class extends (0, $fcbcc7538a6776d5$export$f1c5f4c9cb95390b) {
+    noop() {
+    }
+    blobToArrayBuffer(blob, cb) {
+      const fr = new FileReader();
+      fr.onload = function(evt) {
+        if (evt.target) cb(evt.target.result);
+      };
+      fr.readAsArrayBuffer(blob);
+      return fr;
+    }
+    binaryStringToArrayBuffer(binary) {
+      const byteArray = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) byteArray[i] = binary.charCodeAt(i) & 255;
+      return byteArray.buffer;
+    }
+    isSecure() {
+      return location.protocol === "https:";
+    }
+    constructor(...args) {
+      super(...args);
+      this.CLOUD_HOST = "0.peerjs.com";
+      this.CLOUD_PORT = 443;
+      this.chunkedBrowsers = {
+        Chrome: 1,
+        chrome: 1
+      };
+      this.defaultConfig = $4f4134156c446392$var$DEFAULT_CONFIG;
+      this.browser = (0, $fb63e766cfafaab9$export$25be9502477c137d).getBrowser();
+      this.browserVersion = (0, $fb63e766cfafaab9$export$25be9502477c137d).getVersion();
+      this.pack = $0cfd7828ad59115f$export$2a703dbb0cb35339;
+      this.unpack = $0cfd7828ad59115f$export$417857010dc9287f;
+      this.supports = (function() {
+        const supported = {
+          browser: (0, $fb63e766cfafaab9$export$25be9502477c137d).isBrowserSupported(),
+          webRTC: (0, $fb63e766cfafaab9$export$25be9502477c137d).isWebRTCSupported(),
+          audioVideo: false,
+          data: false,
+          binaryBlob: false,
+          reliable: false
+        };
+        if (!supported.webRTC) return supported;
+        let pc;
+        try {
+          pc = new RTCPeerConnection($4f4134156c446392$var$DEFAULT_CONFIG);
+          supported.audioVideo = true;
+          let dc;
+          try {
+            dc = pc.createDataChannel("_PEERJSTEST", {
+              ordered: true
+            });
+            supported.data = true;
+            supported.reliable = !!dc.ordered;
+            try {
+              dc.binaryType = "blob";
+              supported.binaryBlob = !(0, $fb63e766cfafaab9$export$25be9502477c137d).isIOS;
+            } catch (e) {
+            }
+          } catch (e) {
+          } finally {
+            if (dc) dc.close();
+          }
+        } catch (e) {
+        } finally {
+          if (pc) pc.close();
+        }
+        return supported;
+      })();
+      this.validateId = (0, $9a84a32bf0bf36bb$export$f35f128fd59ea256);
+      this.randomToken = (0, $0e5fd1585784c252$export$4e61f672936bec77);
+    }
+  };
+  var $4f4134156c446392$export$7debb50ef11d5e0b = new $4f4134156c446392$export$f8f26dd395d7e1bd();
+  var $257947e92926277a$var$LOG_PREFIX = "PeerJS: ";
+  var $257947e92926277a$export$243e62d78d3b544d;
+  (function(LogLevel) {
+    LogLevel[LogLevel["Disabled"] = 0] = "Disabled";
+    LogLevel[LogLevel["Errors"] = 1] = "Errors";
+    LogLevel[LogLevel["Warnings"] = 2] = "Warnings";
+    LogLevel[LogLevel["All"] = 3] = "All";
+  })($257947e92926277a$export$243e62d78d3b544d || ($257947e92926277a$export$243e62d78d3b544d = {}));
+  var $257947e92926277a$var$Logger = class {
+    get logLevel() {
+      return this._logLevel;
+    }
+    set logLevel(logLevel) {
+      this._logLevel = logLevel;
+    }
+    log(...args) {
+      if (this._logLevel >= 3) this._print(3, ...args);
+    }
+    warn(...args) {
+      if (this._logLevel >= 2) this._print(2, ...args);
+    }
+    error(...args) {
+      if (this._logLevel >= 1) this._print(1, ...args);
+    }
+    setLogFunction(fn) {
+      this._print = fn;
+    }
+    _print(logLevel, ...rest) {
+      const copy = [
+        $257947e92926277a$var$LOG_PREFIX,
+        ...rest
+      ];
+      for (const i in copy) if (copy[i] instanceof Error) copy[i] = "(" + copy[i].name + ") " + copy[i].message;
+      if (logLevel >= 3) console.log(...copy);
+      else if (logLevel >= 2) console.warn("WARNING", ...copy);
+      else if (logLevel >= 1) console.error("ERROR", ...copy);
+    }
+    constructor() {
+      this._logLevel = 0;
+    }
+  };
+  var $257947e92926277a$export$2e2bcd8739ae039 = new $257947e92926277a$var$Logger();
+  var $c4dcfd1d1ea86647$exports = {};
+  var $c4dcfd1d1ea86647$var$has = Object.prototype.hasOwnProperty;
+  var $c4dcfd1d1ea86647$var$prefix = "~";
+  function $c4dcfd1d1ea86647$var$Events() {
+  }
+  if (Object.create) {
+    $c4dcfd1d1ea86647$var$Events.prototype = /* @__PURE__ */ Object.create(null);
+    if (!new $c4dcfd1d1ea86647$var$Events().__proto__) $c4dcfd1d1ea86647$var$prefix = false;
+  }
+  function $c4dcfd1d1ea86647$var$EE(fn, context, once2) {
+    this.fn = fn;
+    this.context = context;
+    this.once = once2 || false;
+  }
+  function $c4dcfd1d1ea86647$var$addListener(emitter, event, fn, context, once2) {
+    if (typeof fn !== "function") throw new TypeError("The listener must be a function");
+    var listener = new $c4dcfd1d1ea86647$var$EE(fn, context || emitter, once2), evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event;
+    if (!emitter._events[evt]) emitter._events[evt] = listener, emitter._eventsCount++;
+    else if (!emitter._events[evt].fn) emitter._events[evt].push(listener);
+    else emitter._events[evt] = [
+      emitter._events[evt],
+      listener
+    ];
+    return emitter;
+  }
+  function $c4dcfd1d1ea86647$var$clearEvent(emitter, evt) {
+    if (--emitter._eventsCount === 0) emitter._events = new $c4dcfd1d1ea86647$var$Events();
+    else delete emitter._events[evt];
+  }
+  function $c4dcfd1d1ea86647$var$EventEmitter() {
+    this._events = new $c4dcfd1d1ea86647$var$Events();
+    this._eventsCount = 0;
+  }
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.eventNames = function eventNames() {
+    var names = [], events, name;
+    if (this._eventsCount === 0) return names;
+    for (name in events = this._events) if ($c4dcfd1d1ea86647$var$has.call(events, name)) names.push($c4dcfd1d1ea86647$var$prefix ? name.slice(1) : name);
+    if (Object.getOwnPropertySymbols) return names.concat(Object.getOwnPropertySymbols(events));
+    return names;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.listeners = function listeners(event) {
+    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event, handlers = this._events[evt];
+    if (!handlers) return [];
+    if (handlers.fn) return [
+      handlers.fn
+    ];
+    for (var i = 0, l = handlers.length, ee = new Array(l); i < l; i++) ee[i] = handlers[i].fn;
+    return ee;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.listenerCount = function listenerCount(event) {
+    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event, listeners2 = this._events[evt];
+    if (!listeners2) return 0;
+    if (listeners2.fn) return 1;
+    return listeners2.length;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.emit = function emit2(event, a1, a2, a3, a4, a5) {
+    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event;
+    if (!this._events[evt]) return false;
+    var listeners2 = this._events[evt], len = arguments.length, args, i;
+    if (listeners2.fn) {
+      if (listeners2.once) this.removeListener(event, listeners2.fn, void 0, true);
+      switch (len) {
+        case 1:
+          return listeners2.fn.call(listeners2.context), true;
+        case 2:
+          return listeners2.fn.call(listeners2.context, a1), true;
+        case 3:
+          return listeners2.fn.call(listeners2.context, a1, a2), true;
+        case 4:
+          return listeners2.fn.call(listeners2.context, a1, a2, a3), true;
+        case 5:
+          return listeners2.fn.call(listeners2.context, a1, a2, a3, a4), true;
+        case 6:
+          return listeners2.fn.call(listeners2.context, a1, a2, a3, a4, a5), true;
+      }
+      for (i = 1, args = new Array(len - 1); i < len; i++) args[i - 1] = arguments[i];
+      listeners2.fn.apply(listeners2.context, args);
+    } else {
+      var length = listeners2.length, j;
+      for (i = 0; i < length; i++) {
+        if (listeners2[i].once) this.removeListener(event, listeners2[i].fn, void 0, true);
+        switch (len) {
+          case 1:
+            listeners2[i].fn.call(listeners2[i].context);
+            break;
+          case 2:
+            listeners2[i].fn.call(listeners2[i].context, a1);
+            break;
+          case 3:
+            listeners2[i].fn.call(listeners2[i].context, a1, a2);
+            break;
+          case 4:
+            listeners2[i].fn.call(listeners2[i].context, a1, a2, a3);
+            break;
+          default:
+            if (!args) for (j = 1, args = new Array(len - 1); j < len; j++) args[j - 1] = arguments[j];
+            listeners2[i].fn.apply(listeners2[i].context, args);
+        }
+      }
+    }
+    return true;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.on = function on(event, fn, context) {
+    return $c4dcfd1d1ea86647$var$addListener(this, event, fn, context, false);
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.once = function once(event, fn, context) {
+    return $c4dcfd1d1ea86647$var$addListener(this, event, fn, context, true);
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.removeListener = function removeListener(event, fn, context, once2) {
+    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event;
+    if (!this._events[evt]) return this;
+    if (!fn) {
+      $c4dcfd1d1ea86647$var$clearEvent(this, evt);
+      return this;
+    }
+    var listeners2 = this._events[evt];
+    if (listeners2.fn) {
+      if (listeners2.fn === fn && (!once2 || listeners2.once) && (!context || listeners2.context === context)) $c4dcfd1d1ea86647$var$clearEvent(this, evt);
+    } else {
+      for (var i = 0, events = [], length = listeners2.length; i < length; i++) if (listeners2[i].fn !== fn || once2 && !listeners2[i].once || context && listeners2[i].context !== context) events.push(listeners2[i]);
+      if (events.length) this._events[evt] = events.length === 1 ? events[0] : events;
+      else $c4dcfd1d1ea86647$var$clearEvent(this, evt);
+    }
+    return this;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.removeAllListeners = function removeAllListeners(event) {
+    var evt;
+    if (event) {
+      evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event;
+      if (this._events[evt]) $c4dcfd1d1ea86647$var$clearEvent(this, evt);
+    } else {
+      this._events = new $c4dcfd1d1ea86647$var$Events();
+      this._eventsCount = 0;
+    }
+    return this;
+  };
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.off = $c4dcfd1d1ea86647$var$EventEmitter.prototype.removeListener;
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.addListener = $c4dcfd1d1ea86647$var$EventEmitter.prototype.on;
+  $c4dcfd1d1ea86647$var$EventEmitter.prefixed = $c4dcfd1d1ea86647$var$prefix;
+  $c4dcfd1d1ea86647$var$EventEmitter.EventEmitter = $c4dcfd1d1ea86647$var$EventEmitter;
+  $c4dcfd1d1ea86647$exports = $c4dcfd1d1ea86647$var$EventEmitter;
+  var $78455e22dea96b8c$exports = {};
+  $parcel$export($78455e22dea96b8c$exports, "ConnectionType", () => $78455e22dea96b8c$export$3157d57b4135e3bc);
+  $parcel$export($78455e22dea96b8c$exports, "PeerErrorType", () => $78455e22dea96b8c$export$9547aaa2e39030ff);
+  $parcel$export($78455e22dea96b8c$exports, "BaseConnectionErrorType", () => $78455e22dea96b8c$export$7974935686149686);
+  $parcel$export($78455e22dea96b8c$exports, "DataConnectionErrorType", () => $78455e22dea96b8c$export$49ae800c114df41d);
+  $parcel$export($78455e22dea96b8c$exports, "SerializationType", () => $78455e22dea96b8c$export$89f507cf986a947);
+  $parcel$export($78455e22dea96b8c$exports, "SocketEventType", () => $78455e22dea96b8c$export$3b5c4a4b6354f023);
+  $parcel$export($78455e22dea96b8c$exports, "ServerMessageType", () => $78455e22dea96b8c$export$adb4a1754da6f10d);
+  var $78455e22dea96b8c$export$3157d57b4135e3bc;
+  (function(ConnectionType) {
+    ConnectionType["Data"] = "data";
+    ConnectionType["Media"] = "media";
+  })($78455e22dea96b8c$export$3157d57b4135e3bc || ($78455e22dea96b8c$export$3157d57b4135e3bc = {}));
+  var $78455e22dea96b8c$export$9547aaa2e39030ff;
+  (function(PeerErrorType) {
+    PeerErrorType["BrowserIncompatible"] = "browser-incompatible";
+    PeerErrorType["Disconnected"] = "disconnected";
+    PeerErrorType["InvalidID"] = "invalid-id";
+    PeerErrorType["InvalidKey"] = "invalid-key";
+    PeerErrorType["Network"] = "network";
+    PeerErrorType["PeerUnavailable"] = "peer-unavailable";
+    PeerErrorType["SslUnavailable"] = "ssl-unavailable";
+    PeerErrorType["ServerError"] = "server-error";
+    PeerErrorType["SocketError"] = "socket-error";
+    PeerErrorType["SocketClosed"] = "socket-closed";
+    PeerErrorType["UnavailableID"] = "unavailable-id";
+    PeerErrorType["WebRTC"] = "webrtc";
+  })($78455e22dea96b8c$export$9547aaa2e39030ff || ($78455e22dea96b8c$export$9547aaa2e39030ff = {}));
+  var $78455e22dea96b8c$export$7974935686149686;
+  (function(BaseConnectionErrorType) {
+    BaseConnectionErrorType["NegotiationFailed"] = "negotiation-failed";
+    BaseConnectionErrorType["ConnectionClosed"] = "connection-closed";
+  })($78455e22dea96b8c$export$7974935686149686 || ($78455e22dea96b8c$export$7974935686149686 = {}));
+  var $78455e22dea96b8c$export$49ae800c114df41d;
+  (function(DataConnectionErrorType) {
+    DataConnectionErrorType["NotOpenYet"] = "not-open-yet";
+    DataConnectionErrorType["MessageToBig"] = "message-too-big";
+  })($78455e22dea96b8c$export$49ae800c114df41d || ($78455e22dea96b8c$export$49ae800c114df41d = {}));
+  var $78455e22dea96b8c$export$89f507cf986a947;
+  (function(SerializationType) {
+    SerializationType["Binary"] = "binary";
+    SerializationType["BinaryUTF8"] = "binary-utf8";
+    SerializationType["JSON"] = "json";
+    SerializationType["None"] = "raw";
+  })($78455e22dea96b8c$export$89f507cf986a947 || ($78455e22dea96b8c$export$89f507cf986a947 = {}));
+  var $78455e22dea96b8c$export$3b5c4a4b6354f023;
+  (function(SocketEventType) {
+    SocketEventType["Message"] = "message";
+    SocketEventType["Disconnected"] = "disconnected";
+    SocketEventType["Error"] = "error";
+    SocketEventType["Close"] = "close";
+  })($78455e22dea96b8c$export$3b5c4a4b6354f023 || ($78455e22dea96b8c$export$3b5c4a4b6354f023 = {}));
+  var $78455e22dea96b8c$export$adb4a1754da6f10d;
+  (function(ServerMessageType) {
+    ServerMessageType["Heartbeat"] = "HEARTBEAT";
+    ServerMessageType["Candidate"] = "CANDIDATE";
+    ServerMessageType["Offer"] = "OFFER";
+    ServerMessageType["Answer"] = "ANSWER";
+    ServerMessageType["Open"] = "OPEN";
+    ServerMessageType["Error"] = "ERROR";
+    ServerMessageType["IdTaken"] = "ID-TAKEN";
+    ServerMessageType["InvalidKey"] = "INVALID-KEY";
+    ServerMessageType["Leave"] = "LEAVE";
+    ServerMessageType["Expire"] = "EXPIRE";
+  })($78455e22dea96b8c$export$adb4a1754da6f10d || ($78455e22dea96b8c$export$adb4a1754da6f10d = {}));
+  var $f5f881ec4575f1fc$exports = {};
+  $f5f881ec4575f1fc$exports = JSON.parse('{"name":"peerjs","version":"1.5.4","keywords":["peerjs","webrtc","p2p","rtc"],"description":"PeerJS client","homepage":"https://peerjs.com","bugs":{"url":"https://github.com/peers/peerjs/issues"},"repository":{"type":"git","url":"https://github.com/peers/peerjs"},"license":"MIT","contributors":["Michelle Bu <michelle@michellebu.com>","afrokick <devbyru@gmail.com>","ericz <really.ez@gmail.com>","Jairo <kidandcat@gmail.com>","Jonas Gloning <34194370+jonasgloning@users.noreply.github.com>","Jairo Caro-Accino Viciana <jairo@galax.be>","Carlos Caballero <carlos.caballero.gonzalez@gmail.com>","hc <hheennrryy@gmail.com>","Muhammad Asif <capripio@gmail.com>","PrashoonB <prashoonbhattacharjee@gmail.com>","Harsh Bardhan Mishra <47351025+HarshCasper@users.noreply.github.com>","akotynski <aleksanderkotbury@gmail.com>","lmb <i@lmb.io>","Jairooo <jairocaro@msn.com>","Moritz St\xFCckler <moritz.stueckler@gmail.com>","Simon <crydotsnakegithub@gmail.com>","Denis Lukov <denismassters@gmail.com>","Philipp Hancke <fippo@andyet.net>","Hans Oksendahl <hansoksendahl@gmail.com>","Jess <jessachandler@gmail.com>","khankuan <khankuan@gmail.com>","DUODVK <kurmanov.work@gmail.com>","XiZhao <kwang1imsa@gmail.com>","Matthias Lohr <matthias@lohr.me>","=frank tree <=frnktrb@googlemail.com>","Andre Eckardt <aeckardt@outlook.com>","Chris Cowan <agentme49@gmail.com>","Alex Chuev <alex@chuev.com>","alxnull <alxnull@e.mail.de>","Yemel Jardi <angel.jardi@gmail.com>","Ben Parnell <benjaminparnell.94@gmail.com>","Benny Lichtner <bennlich@gmail.com>","fresheneesz <bitetrudpublic@gmail.com>","bob.barstead@exaptive.com <bob.barstead@exaptive.com>","chandika <chandika@gmail.com>","emersion <contact@emersion.fr>","Christopher Van <cvan@users.noreply.github.com>","eddieherm <edhermoso@gmail.com>","Eduardo Pinho <enet4mikeenet@gmail.com>","Evandro Zanatta <ezanatta@tray.net.br>","Gardner Bickford <gardner@users.noreply.github.com>","Gian Luca <gianluca.cecchi@cynny.com>","PatrickJS <github@gdi2290.com>","jonnyf <github@jonathanfoss.co.uk>","Hizkia Felix <hizkifw@gmail.com>","Hristo Oskov <hristo.oskov@gmail.com>","Isaac Madwed <i.madwed@gmail.com>","Ilya Konanykhin <ilya.konanykhin@gmail.com>","jasonbarry <jasbarry@me.com>","Jonathan Burke <jonathan.burke.1311@googlemail.com>","Josh Hamit <josh.hamit@gmail.com>","Jordan Austin <jrax86@gmail.com>","Joel Wetzell <jwetzell@yahoo.com>","xizhao <kevin.wang@cloudera.com>","Alberto Torres <kungfoobar@gmail.com>","Jonathan Mayol <mayoljonathan@gmail.com>","Jefferson Felix <me@jsfelix.dev>","Rolf Erik Lekang <me@rolflekang.com>","Kevin Mai-Husan Chia <mhchia@users.noreply.github.com>","Pepijn de Vos <pepijndevos@gmail.com>","JooYoung <qkdlql@naver.com>","Tobias Speicher <rootcommander@gmail.com>","Steve Blaurock <sblaurock@gmail.com>","Kyrylo Shegeda <shegeda@ualberta.ca>","Diwank Singh Tomer <singh@diwank.name>","So\u0308ren Balko <Soeren.Balko@gmail.com>","Arpit Solanki <solankiarpit1997@gmail.com>","Yuki Ito <yuki@gnnk.net>","Artur Zayats <zag2art@gmail.com>"],"funding":{"type":"opencollective","url":"https://opencollective.com/peer"},"collective":{"type":"opencollective","url":"https://opencollective.com/peer"},"files":["dist/*"],"sideEffects":["lib/global.ts","lib/supports.ts"],"main":"dist/bundler.cjs","module":"dist/bundler.mjs","browser-minified":"dist/peerjs.min.js","browser-unminified":"dist/peerjs.js","browser-minified-msgpack":"dist/serializer.msgpack.mjs","types":"dist/types.d.ts","engines":{"node":">= 14"},"targets":{"types":{"source":"lib/exports.ts"},"main":{"source":"lib/exports.ts","sourceMap":{"inlineSources":true}},"module":{"source":"lib/exports.ts","includeNodeModules":["eventemitter3"],"sourceMap":{"inlineSources":true}},"browser-minified":{"context":"browser","outputFormat":"global","optimize":true,"engines":{"browsers":"chrome >= 83, edge >= 83, firefox >= 80, safari >= 15"},"source":"lib/global.ts"},"browser-unminified":{"context":"browser","outputFormat":"global","optimize":false,"engines":{"browsers":"chrome >= 83, edge >= 83, firefox >= 80, safari >= 15"},"source":"lib/global.ts"},"browser-minified-msgpack":{"context":"browser","outputFormat":"esmodule","isLibrary":true,"optimize":true,"engines":{"browsers":"chrome >= 83, edge >= 83, firefox >= 102, safari >= 15"},"source":"lib/dataconnection/StreamConnection/MsgPack.ts"}},"scripts":{"contributors":"git-authors-cli --print=false && prettier --write package.json && git add package.json package-lock.json && git commit -m \\"chore(contributors): update and sort contributors list\\"","check":"tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit","watch":"parcel watch","build":"rm -rf dist && parcel build","prepublishOnly":"npm run build","test":"jest","test:watch":"jest --watch","coverage":"jest --coverage --collectCoverageFrom=\\"./lib/**\\"","format":"prettier --write .","format:check":"prettier --check .","semantic-release":"semantic-release","e2e":"wdio run e2e/wdio.local.conf.ts","e2e:bstack":"wdio run e2e/wdio.bstack.conf.ts"},"devDependencies":{"@parcel/config-default":"^2.9.3","@parcel/packager-ts":"^2.9.3","@parcel/transformer-typescript-tsc":"^2.9.3","@parcel/transformer-typescript-types":"^2.9.3","@semantic-release/changelog":"^6.0.1","@semantic-release/git":"^10.0.1","@swc/core":"^1.3.27","@swc/jest":"^0.2.24","@types/jasmine":"^4.3.4","@wdio/browserstack-service":"^8.11.2","@wdio/cli":"^8.11.2","@wdio/globals":"^8.11.2","@wdio/jasmine-framework":"^8.11.2","@wdio/local-runner":"^8.11.2","@wdio/spec-reporter":"^8.11.2","@wdio/types":"^8.10.4","http-server":"^14.1.1","jest":"^29.3.1","jest-environment-jsdom":"^29.3.1","mock-socket":"^9.0.0","parcel":"^2.9.3","prettier":"^3.0.0","semantic-release":"^21.0.0","ts-node":"^10.9.1","typescript":"^5.0.0","wdio-geckodriver-service":"^5.0.1"},"dependencies":{"@msgpack/msgpack":"^2.8.0","eventemitter3":"^4.0.7","peerjs-js-binarypack":"^2.1.0","webrtc-adapter":"^9.0.0"},"alias":{"process":false,"buffer":false}}');
+  var $8f5bfa60836d261d$export$4798917dbf149b79 = class extends (0, $c4dcfd1d1ea86647$exports.EventEmitter) {
+    constructor(secure, host, port, path, key, pingInterval = 5e3) {
+      super();
+      this.pingInterval = pingInterval;
+      this._disconnected = true;
+      this._messagesQueue = [];
+      const wsProtocol = secure ? "wss://" : "ws://";
+      this._baseUrl = wsProtocol + host + ":" + port + path + "peerjs?key=" + key;
+    }
+    start(id, token) {
+      this._id = id;
+      const wsUrl = `${this._baseUrl}&id=${id}&token=${token}`;
+      if (!!this._socket || !this._disconnected) return;
+      this._socket = new WebSocket(wsUrl + "&version=" + (0, $f5f881ec4575f1fc$exports.version));
+      this._disconnected = false;
+      this._socket.onmessage = (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log("Server message received:", data);
+        } catch (e) {
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log("Invalid server message", event.data);
+          return;
+        }
+        this.emit((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Message, data);
+      };
+      this._socket.onclose = (event) => {
+        if (this._disconnected) return;
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Socket closed.", event);
+        this._cleanup();
+        this._disconnected = true;
+        this.emit((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Disconnected);
+      };
+      this._socket.onopen = () => {
+        if (this._disconnected) return;
+        this._sendQueuedMessages();
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Socket open");
+        this._scheduleHeartbeat();
+      };
+    }
+    _scheduleHeartbeat() {
+      this._wsPingTimer = setTimeout(() => {
+        this._sendHeartbeat();
+      }, this.pingInterval);
+    }
+    _sendHeartbeat() {
+      if (!this._wsOpen()) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Cannot send heartbeat, because socket closed`);
+        return;
+      }
+      const message = JSON.stringify({
+        type: (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Heartbeat
+      });
+      this._socket.send(message);
+      this._scheduleHeartbeat();
+    }
+    /** Is the websocket currently open? */
+    _wsOpen() {
+      return !!this._socket && this._socket.readyState === 1;
+    }
+    /** Send queued messages. */
+    _sendQueuedMessages() {
+      const copiedQueue = [
+        ...this._messagesQueue
+      ];
+      this._messagesQueue = [];
+      for (const message of copiedQueue) this.send(message);
+    }
+    /** Exposed send for DC & Peer. */
+    send(data) {
+      if (this._disconnected) return;
+      if (!this._id) {
+        this._messagesQueue.push(data);
+        return;
+      }
+      if (!data.type) {
+        this.emit((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Error, "Invalid message");
+        return;
+      }
+      if (!this._wsOpen()) return;
+      const message = JSON.stringify(data);
+      this._socket.send(message);
+    }
+    close() {
+      if (this._disconnected) return;
+      this._cleanup();
+      this._disconnected = true;
+    }
+    _cleanup() {
+      if (this._socket) {
+        this._socket.onopen = this._socket.onmessage = this._socket.onclose = null;
+        this._socket.close();
+        this._socket = void 0;
+      }
+      clearTimeout(this._wsPingTimer);
+    }
+  };
+  var $b82fb8fc0514bfc1$export$89e6bb5ad64bf4a = class {
+    constructor(connection) {
+      this.connection = connection;
+    }
+    /** Returns a PeerConnection object set up correctly (for data, media). */
+    startConnection(options) {
+      const peerConnection = this._startPeerConnection();
+      this.connection.peerConnection = peerConnection;
+      if (this.connection.type === (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Media && options._stream) this._addTracksToConnection(options._stream, peerConnection);
+      if (options.originator) {
+        const dataConnection = this.connection;
+        const config = {
+          ordered: !!options.reliable
+        };
+        const dataChannel = peerConnection.createDataChannel(dataConnection.label, config);
+        dataConnection._initializeDataChannel(dataChannel);
+        this._makeOffer();
+      } else this.handleSDP("OFFER", options.sdp);
+    }
+    /** Start a PC. */
+    _startPeerConnection() {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Creating RTCPeerConnection.");
+      const peerConnection = new RTCPeerConnection(this.connection.provider.options.config);
+      this._setupListeners(peerConnection);
+      return peerConnection;
+    }
+    /** Set up various WebRTC listeners. */
+    _setupListeners(peerConnection) {
+      const peerId = this.connection.peer;
+      const connectionId = this.connection.connectionId;
+      const connectionType = this.connection.type;
+      const provider = this.connection.provider;
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Listening for ICE candidates.");
+      peerConnection.onicecandidate = (evt) => {
+        if (!evt.candidate || !evt.candidate.candidate) return;
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Received ICE candidates for ${peerId}:`, evt.candidate);
+        provider.socket.send({
+          type: (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Candidate,
+          payload: {
+            candidate: evt.candidate,
+            type: connectionType,
+            connectionId
+          },
+          dst: peerId
+        });
+      };
+      peerConnection.oniceconnectionstatechange = () => {
+        switch (peerConnection.iceConnectionState) {
+          case "failed":
+            (0, $257947e92926277a$export$2e2bcd8739ae039).log("iceConnectionState is failed, closing connections to " + peerId);
+            this.connection.emitError((0, $78455e22dea96b8c$export$7974935686149686).NegotiationFailed, "Negotiation of connection to " + peerId + " failed.");
+            this.connection.close();
+            break;
+          case "closed":
+            (0, $257947e92926277a$export$2e2bcd8739ae039).log("iceConnectionState is closed, closing connections to " + peerId);
+            this.connection.emitError((0, $78455e22dea96b8c$export$7974935686149686).ConnectionClosed, "Connection to " + peerId + " closed.");
+            this.connection.close();
+            break;
+          case "disconnected":
+            (0, $257947e92926277a$export$2e2bcd8739ae039).log("iceConnectionState changed to disconnected on the connection with " + peerId);
+            break;
+          case "completed":
+            peerConnection.onicecandidate = () => {
+            };
+            break;
+        }
+        this.connection.emit("iceStateChanged", peerConnection.iceConnectionState);
+      };
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Listening for data channel");
+      peerConnection.ondatachannel = (evt) => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Received data channel");
+        const dataChannel = evt.channel;
+        const connection = provider.getConnection(peerId, connectionId);
+        connection._initializeDataChannel(dataChannel);
+      };
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Listening for remote stream");
+      peerConnection.ontrack = (evt) => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Received remote stream");
+        const stream = evt.streams[0];
+        const connection = provider.getConnection(peerId, connectionId);
+        if (connection.type === (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Media) {
+          const mediaConnection = connection;
+          this._addStreamToMediaConnection(stream, mediaConnection);
+        }
+      };
+    }
+    cleanup() {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Cleaning up PeerConnection to " + this.connection.peer);
+      const peerConnection = this.connection.peerConnection;
+      if (!peerConnection) return;
+      this.connection.peerConnection = null;
+      peerConnection.onicecandidate = peerConnection.oniceconnectionstatechange = peerConnection.ondatachannel = peerConnection.ontrack = () => {
+      };
+      const peerConnectionNotClosed = peerConnection.signalingState !== "closed";
+      let dataChannelNotClosed = false;
+      const dataChannel = this.connection.dataChannel;
+      if (dataChannel) dataChannelNotClosed = !!dataChannel.readyState && dataChannel.readyState !== "closed";
+      if (peerConnectionNotClosed || dataChannelNotClosed) peerConnection.close();
+    }
+    async _makeOffer() {
+      const peerConnection = this.connection.peerConnection;
+      const provider = this.connection.provider;
+      try {
+        const offer = await peerConnection.createOffer(this.connection.options.constraints);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Created offer.");
+        if (this.connection.options.sdpTransform && typeof this.connection.options.sdpTransform === "function") offer.sdp = this.connection.options.sdpTransform(offer.sdp) || offer.sdp;
+        try {
+          await peerConnection.setLocalDescription(offer);
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log("Set localDescription:", offer, `for:${this.connection.peer}`);
+          let payload = {
+            sdp: offer,
+            type: this.connection.type,
+            connectionId: this.connection.connectionId,
+            metadata: this.connection.metadata
+          };
+          if (this.connection.type === (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Data) {
+            const dataConnection = this.connection;
+            payload = {
+              ...payload,
+              label: dataConnection.label,
+              reliable: dataConnection.reliable,
+              serialization: dataConnection.serialization
+            };
+          }
+          provider.socket.send({
+            type: (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Offer,
+            payload,
+            dst: this.connection.peer
+          });
+        } catch (err) {
+          if (err != "OperationError: Failed to set local offer sdp: Called in wrong state: kHaveRemoteOffer") {
+            provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err);
+            (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to setLocalDescription, ", err);
+          }
+        }
+      } catch (err_1) {
+        provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err_1);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to createOffer, ", err_1);
+      }
+    }
+    async _makeAnswer() {
+      const peerConnection = this.connection.peerConnection;
+      const provider = this.connection.provider;
+      try {
+        const answer = await peerConnection.createAnswer();
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Created answer.");
+        if (this.connection.options.sdpTransform && typeof this.connection.options.sdpTransform === "function") answer.sdp = this.connection.options.sdpTransform(answer.sdp) || answer.sdp;
+        try {
+          await peerConnection.setLocalDescription(answer);
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Set localDescription:`, answer, `for:${this.connection.peer}`);
+          provider.socket.send({
+            type: (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Answer,
+            payload: {
+              sdp: answer,
+              type: this.connection.type,
+              connectionId: this.connection.connectionId
+            },
+            dst: this.connection.peer
+          });
+        } catch (err) {
+          provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err);
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to setLocalDescription, ", err);
+        }
+      } catch (err_1) {
+        provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err_1);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to create answer, ", err_1);
+      }
+    }
+    /** Handle an SDP. */
+    async handleSDP(type, sdp2) {
+      sdp2 = new RTCSessionDescription(sdp2);
+      const peerConnection = this.connection.peerConnection;
+      const provider = this.connection.provider;
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Setting remote description", sdp2);
+      const self = this;
+      try {
+        await peerConnection.setRemoteDescription(sdp2);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Set remoteDescription:${type} for:${this.connection.peer}`);
+        if (type === "OFFER") await self._makeAnswer();
+      } catch (err) {
+        provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to setRemoteDescription, ", err);
+      }
+    }
+    /** Handle a candidate. */
+    async handleCandidate(ice) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`handleCandidate:`, ice);
+      try {
+        await this.connection.peerConnection.addIceCandidate(ice);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Added ICE candidate for:${this.connection.peer}`);
+      } catch (err) {
+        this.connection.provider.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).WebRTC, err);
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log("Failed to handleCandidate, ", err);
+      }
+    }
+    _addTracksToConnection(stream, peerConnection) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`add tracks from stream ${stream.id} to peer connection`);
+      if (!peerConnection.addTrack) return (0, $257947e92926277a$export$2e2bcd8739ae039).error(`Your browser does't support RTCPeerConnection#addTrack. Ignored.`);
+      stream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, stream);
+      });
+    }
+    _addStreamToMediaConnection(stream, mediaConnection) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`add stream ${stream.id} to media connection ${mediaConnection.connectionId}`);
+      mediaConnection.addStream(stream);
+    }
+  };
+  var $23779d1881157a18$export$6a678e589c8a4542 = class extends (0, $c4dcfd1d1ea86647$exports.EventEmitter) {
+    /**
+    * Emits a typed error message.
+    *
+    * @internal
+    */
+    emitError(type, err) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).error("Error:", err);
+      this.emit("error", new $23779d1881157a18$export$98871882f492de82(`${type}`, err));
+    }
+  };
+  var $23779d1881157a18$export$98871882f492de82 = class extends Error {
+    /**
+    * @internal
+    */
+    constructor(type, err) {
+      if (typeof err === "string") super(err);
+      else {
+        super();
+        Object.assign(this, err);
+      }
+      this.type = type;
+    }
+  };
+  var $5045192fc6d387ba$export$23a2a68283c24d80 = class extends (0, $23779d1881157a18$export$6a678e589c8a4542) {
+    /**
+    * Whether the media connection is active (e.g. your call has been answered).
+    * You can check this if you want to set a maximum wait time for a one-sided call.
+    */
+    get open() {
+      return this._open;
+    }
+    constructor(peer, provider, options) {
+      super();
+      this.peer = peer;
+      this.provider = provider;
+      this.options = options;
+      this._open = false;
+      this.metadata = options.metadata;
+    }
+  };
+  var $5c1d08c7c57da9a3$export$4a84e95a2324ac29 = class _$5c1d08c7c57da9a3$export$4a84e95a2324ac29 extends (0, $5045192fc6d387ba$export$23a2a68283c24d80) {
+    static #_ = this.ID_PREFIX = "mc_";
+    /**
+    * For media connections, this is always 'media'.
+    */
+    get type() {
+      return (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Media;
+    }
+    get localStream() {
+      return this._localStream;
+    }
+    get remoteStream() {
+      return this._remoteStream;
+    }
+    constructor(peerId, provider, options) {
+      super(peerId, provider, options);
+      this._localStream = this.options._stream;
+      this.connectionId = this.options.connectionId || _$5c1d08c7c57da9a3$export$4a84e95a2324ac29.ID_PREFIX + (0, $4f4134156c446392$export$7debb50ef11d5e0b).randomToken();
+      this._negotiator = new (0, $b82fb8fc0514bfc1$export$89e6bb5ad64bf4a)(this);
+      if (this._localStream) this._negotiator.startConnection({
+        _stream: this._localStream,
+        originator: true
+      });
+    }
+    /** Called by the Negotiator when the DataChannel is ready. */
+    _initializeDataChannel(dc) {
+      this.dataChannel = dc;
+      this.dataChannel.onopen = () => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} dc connection success`);
+        this.emit("willCloseOnRemote");
+      };
+      this.dataChannel.onclose = () => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} dc closed for:`, this.peer);
+        this.close();
+      };
+    }
+    addStream(remoteStream) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log("Receiving stream", remoteStream);
+      this._remoteStream = remoteStream;
+      super.emit("stream", remoteStream);
+    }
+    /**
+    * @internal
+    */
+    handleMessage(message) {
+      const type = message.type;
+      const payload = message.payload;
+      switch (message.type) {
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Answer:
+          this._negotiator.handleSDP(type, payload.sdp);
+          this._open = true;
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Candidate:
+          this._negotiator.handleCandidate(payload.candidate);
+          break;
+        default:
+          (0, $257947e92926277a$export$2e2bcd8739ae039).warn(`Unrecognized message type:${type} from peer:${this.peer}`);
+          break;
+      }
+    }
+    /**
+         * When receiving a {@apilink PeerEvents | `call`} event on a peer, you can call
+         * `answer` on the media connection provided by the callback to accept the call
+         * and optionally send your own media stream.
+    
+         *
+         * @param stream A WebRTC media stream.
+         * @param options
+         * @returns
+         */
+    answer(stream, options = {}) {
+      if (this._localStream) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).warn("Local stream already exists on this MediaConnection. Are you answering a call twice?");
+        return;
+      }
+      this._localStream = stream;
+      if (options && options.sdpTransform) this.options.sdpTransform = options.sdpTransform;
+      this._negotiator.startConnection({
+        ...this.options._payload,
+        _stream: stream
+      });
+      const messages = this.provider._getMessages(this.connectionId);
+      for (const message of messages) this.handleMessage(message);
+      this._open = true;
+    }
+    /**
+    * Exposed functionality for users.
+    */
+    /**
+    * Closes the media connection.
+    */
+    close() {
+      if (this._negotiator) {
+        this._negotiator.cleanup();
+        this._negotiator = null;
+      }
+      this._localStream = null;
+      this._remoteStream = null;
+      if (this.provider) {
+        this.provider._removeConnection(this);
+        this.provider = null;
+      }
+      if (this.options && this.options._stream) this.options._stream = null;
+      if (!this.open) return;
+      this._open = false;
+      super.emit("close");
+    }
+  };
+  var $abf266641927cd89$export$2c4e825dc9120f87 = class {
+    constructor(_options) {
+      this._options = _options;
+    }
+    _buildRequest(method) {
+      const protocol = this._options.secure ? "https" : "http";
+      const { host, port, path, key } = this._options;
+      const url = new URL(`${protocol}://${host}:${port}${path}${key}/${method}`);
+      url.searchParams.set("ts", `${Date.now()}${Math.random()}`);
+      url.searchParams.set("version", (0, $f5f881ec4575f1fc$exports.version));
+      return fetch(url.href, {
+        referrerPolicy: this._options.referrerPolicy
+      });
+    }
+    /** Get a unique ID from the server via XHR and initialize with it. */
+    async retrieveId() {
+      try {
+        const response = await this._buildRequest("id");
+        if (response.status !== 200) throw new Error(`Error. Status:${response.status}`);
+        return response.text();
+      } catch (error) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).error("Error retrieving ID", error);
+        let pathError = "";
+        if (this._options.path === "/" && this._options.host !== (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_HOST) pathError = " If you passed in a `path` to your self-hosted PeerServer, you'll also need to pass in that same path when creating a new Peer.";
+        throw new Error("Could not get an ID from the server." + pathError);
+      }
+    }
+    /** @deprecated */
+    async listAllPeers() {
+      try {
+        const response = await this._buildRequest("peers");
+        if (response.status !== 200) {
+          if (response.status === 401) {
+            let helpfulError = "";
+            if (this._options.host === (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_HOST) helpfulError = "It looks like you're using the cloud server. You can email team@peerjs.com to enable peer listing for your API key.";
+            else helpfulError = "You need to enable `allow_discovery` on your self-hosted PeerServer to use this feature.";
+            throw new Error("It doesn't look like you have permission to list peers IDs. " + helpfulError);
+          }
+          throw new Error(`Error. Status:${response.status}`);
+        }
+        return response.json();
+      } catch (error) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).error("Error retrieving list peers", error);
+        throw new Error("Could not get list peers from the server." + error);
+      }
+    }
+  };
+  var $6366c4ca161bc297$export$d365f7ad9d7df9c9 = class _$6366c4ca161bc297$export$d365f7ad9d7df9c9 extends (0, $5045192fc6d387ba$export$23a2a68283c24d80) {
+    static #_ = this.ID_PREFIX = "dc_";
+    static #_2 = this.MAX_BUFFERED_AMOUNT = 8388608;
+    get type() {
+      return (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Data;
+    }
+    constructor(peerId, provider, options) {
+      super(peerId, provider, options);
+      this.connectionId = this.options.connectionId || _$6366c4ca161bc297$export$d365f7ad9d7df9c9.ID_PREFIX + (0, $0e5fd1585784c252$export$4e61f672936bec77)();
+      this.label = this.options.label || this.connectionId;
+      this.reliable = !!this.options.reliable;
+      this._negotiator = new (0, $b82fb8fc0514bfc1$export$89e6bb5ad64bf4a)(this);
+      this._negotiator.startConnection(this.options._payload || {
+        originator: true,
+        reliable: this.reliable
+      });
+    }
+    /** Called by the Negotiator when the DataChannel is ready. */
+    _initializeDataChannel(dc) {
+      this.dataChannel = dc;
+      this.dataChannel.onopen = () => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} dc connection success`);
+        this._open = true;
+        this.emit("open");
+      };
+      this.dataChannel.onmessage = (e) => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} dc onmessage:`, e.data);
+      };
+      this.dataChannel.onclose = () => {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} dc closed for:`, this.peer);
+        this.close();
+      };
+    }
+    /**
+    * Exposed functionality for users.
+    */
+    /** Allows user to close connection. */
+    close(options) {
+      if (options?.flush) {
+        this.send({
+          __peerData: {
+            type: "close"
+          }
+        });
+        return;
+      }
+      if (this._negotiator) {
+        this._negotiator.cleanup();
+        this._negotiator = null;
+      }
+      if (this.provider) {
+        this.provider._removeConnection(this);
+        this.provider = null;
+      }
+      if (this.dataChannel) {
+        this.dataChannel.onopen = null;
+        this.dataChannel.onmessage = null;
+        this.dataChannel.onclose = null;
+        this.dataChannel = null;
+      }
+      if (!this.open) return;
+      this._open = false;
+      super.emit("close");
+    }
+    /** Allows user to send data. */
+    send(data, chunked = false) {
+      if (!this.open) {
+        this.emitError((0, $78455e22dea96b8c$export$49ae800c114df41d).NotOpenYet, "Connection is not open. You should listen for the `open` event before sending messages.");
+        return;
+      }
+      return this._send(data, chunked);
+    }
+    async handleMessage(message) {
+      const payload = message.payload;
+      switch (message.type) {
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Answer:
+          await this._negotiator.handleSDP(message.type, payload.sdp);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Candidate:
+          await this._negotiator.handleCandidate(payload.candidate);
+          break;
+        default:
+          (0, $257947e92926277a$export$2e2bcd8739ae039).warn("Unrecognized message type:", message.type, "from peer:", this.peer);
+          break;
+      }
+    }
+  };
+  var $a229bedbcaa6ca23$export$ff7c9d4c11d94e8b = class extends (0, $6366c4ca161bc297$export$d365f7ad9d7df9c9) {
+    get bufferSize() {
+      return this._bufferSize;
+    }
+    _initializeDataChannel(dc) {
+      super._initializeDataChannel(dc);
+      this.dataChannel.binaryType = "arraybuffer";
+      this.dataChannel.addEventListener("message", (e) => this._handleDataMessage(e));
+    }
+    _bufferedSend(msg) {
+      if (this._buffering || !this._trySend(msg)) {
+        this._buffer.push(msg);
+        this._bufferSize = this._buffer.length;
+      }
+    }
+    // Returns true if the send succeeds.
+    _trySend(msg) {
+      if (!this.open) return false;
+      if (this.dataChannel.bufferedAmount > (0, $6366c4ca161bc297$export$d365f7ad9d7df9c9).MAX_BUFFERED_AMOUNT) {
+        this._buffering = true;
+        setTimeout(() => {
+          this._buffering = false;
+          this._tryBuffer();
+        }, 50);
+        return false;
+      }
+      try {
+        this.dataChannel.send(msg);
+      } catch (e) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).error(`DC#:${this.connectionId} Error when sending:`, e);
+        this._buffering = true;
+        this.close();
+        return false;
+      }
+      return true;
+    }
+    // Try to send the first message in the buffer.
+    _tryBuffer() {
+      if (!this.open) return;
+      if (this._buffer.length === 0) return;
+      const msg = this._buffer[0];
+      if (this._trySend(msg)) {
+        this._buffer.shift();
+        this._bufferSize = this._buffer.length;
+        this._tryBuffer();
+      }
+    }
+    close(options) {
+      if (options?.flush) {
+        this.send({
+          __peerData: {
+            type: "close"
+          }
+        });
+        return;
+      }
+      this._buffer = [];
+      this._bufferSize = 0;
+      super.close();
+    }
+    constructor(...args) {
+      super(...args);
+      this._buffer = [];
+      this._bufferSize = 0;
+      this._buffering = false;
+    }
+  };
+  var $9fcfddb3ae148f88$export$f0a5a64d5bb37108 = class extends (0, $a229bedbcaa6ca23$export$ff7c9d4c11d94e8b) {
+    close(options) {
+      super.close(options);
+      this._chunkedData = {};
+    }
+    constructor(peerId, provider, options) {
+      super(peerId, provider, options);
+      this.chunker = new (0, $fcbcc7538a6776d5$export$f1c5f4c9cb95390b)();
+      this.serialization = (0, $78455e22dea96b8c$export$89f507cf986a947).Binary;
+      this._chunkedData = {};
+    }
+    // Handles a DataChannel message.
+    _handleDataMessage({ data }) {
+      const deserializedData = (0, $0cfd7828ad59115f$export$417857010dc9287f)(data);
+      const peerData = deserializedData["__peerData"];
+      if (peerData) {
+        if (peerData.type === "close") {
+          this.close();
+          return;
+        }
+        this._handleChunk(deserializedData);
+        return;
+      }
+      this.emit("data", deserializedData);
+    }
+    _handleChunk(data) {
+      const id = data.__peerData;
+      const chunkInfo = this._chunkedData[id] || {
+        data: [],
+        count: 0,
+        total: data.total
+      };
+      chunkInfo.data[data.n] = new Uint8Array(data.data);
+      chunkInfo.count++;
+      this._chunkedData[id] = chunkInfo;
+      if (chunkInfo.total === chunkInfo.count) {
+        delete this._chunkedData[id];
+        const data2 = (0, $fcbcc7538a6776d5$export$52c89ebcdc4f53f2)(chunkInfo.data);
+        this._handleDataMessage({
+          data: data2
+        });
+      }
+    }
+    _send(data, chunked) {
+      const blob = (0, $0cfd7828ad59115f$export$2a703dbb0cb35339)(data);
+      if (blob instanceof Promise) return this._send_blob(blob);
+      if (!chunked && blob.byteLength > this.chunker.chunkedMTU) {
+        this._sendChunks(blob);
+        return;
+      }
+      this._bufferedSend(blob);
+    }
+    async _send_blob(blobPromise) {
+      const blob = await blobPromise;
+      if (blob.byteLength > this.chunker.chunkedMTU) {
+        this._sendChunks(blob);
+        return;
+      }
+      this._bufferedSend(blob);
+    }
+    _sendChunks(blob) {
+      const blobs = this.chunker.chunk(blob);
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`DC#${this.connectionId} Try to send ${blobs.length} chunks...`);
+      for (const blob2 of blobs) this.send(blob2, true);
+    }
+  };
+  var $bbaee3f15f714663$export$6f88fe47d32c9c94 = class extends (0, $a229bedbcaa6ca23$export$ff7c9d4c11d94e8b) {
+    _handleDataMessage({ data }) {
+      super.emit("data", data);
+    }
+    _send(data, _chunked) {
+      this._bufferedSend(data);
+    }
+    constructor(...args) {
+      super(...args);
+      this.serialization = (0, $78455e22dea96b8c$export$89f507cf986a947).None;
+    }
+  };
+  var $817f931e3f9096cf$export$48880ac635f47186 = class extends (0, $a229bedbcaa6ca23$export$ff7c9d4c11d94e8b) {
+    // Handles a DataChannel message.
+    _handleDataMessage({ data }) {
+      const deserializedData = this.parse(this.decoder.decode(data));
+      const peerData = deserializedData["__peerData"];
+      if (peerData && peerData.type === "close") {
+        this.close();
+        return;
+      }
+      this.emit("data", deserializedData);
+    }
+    _send(data, _chunked) {
+      const encodedData = this.encoder.encode(this.stringify(data));
+      if (encodedData.byteLength >= (0, $4f4134156c446392$export$7debb50ef11d5e0b).chunkedMTU) {
+        this.emitError((0, $78455e22dea96b8c$export$49ae800c114df41d).MessageToBig, "Message too big for JSON channel");
+        return;
+      }
+      this._bufferedSend(encodedData);
+    }
+    constructor(...args) {
+      super(...args);
+      this.serialization = (0, $78455e22dea96b8c$export$89f507cf986a947).JSON;
+      this.encoder = new TextEncoder();
+      this.decoder = new TextDecoder();
+      this.stringify = JSON.stringify;
+      this.parse = JSON.parse;
+    }
+  };
+  var $416260bce337df90$export$ecd1fc136c422448 = class _$416260bce337df90$export$ecd1fc136c422448 extends (0, $23779d1881157a18$export$6a678e589c8a4542) {
+    static #_ = this.DEFAULT_KEY = "peerjs";
+    /**
+    * The brokering ID of this peer
+    *
+    * If no ID was specified in {@apilink Peer | the constructor},
+    * this will be `undefined` until the {@apilink PeerEvents | `open`} event is emitted.
+    */
+    get id() {
+      return this._id;
+    }
+    get options() {
+      return this._options;
+    }
+    get open() {
+      return this._open;
+    }
+    /**
+    * @internal
+    */
+    get socket() {
+      return this._socket;
+    }
+    /**
+    * A hash of all connections associated with this peer, keyed by the remote peer's ID.
+    * @deprecated
+    * Return type will change from Object to Map<string,[]>
+    */
+    get connections() {
+      const plainConnections = /* @__PURE__ */ Object.create(null);
+      for (const [k, v] of this._connections) plainConnections[k] = v;
+      return plainConnections;
+    }
+    /**
+    * true if this peer and all of its connections can no longer be used.
+    */
+    get destroyed() {
+      return this._destroyed;
+    }
+    /**
+    * false if there is an active connection to the PeerServer.
+    */
+    get disconnected() {
+      return this._disconnected;
+    }
+    constructor(id, options) {
+      super();
+      this._serializers = {
+        raw: (0, $bbaee3f15f714663$export$6f88fe47d32c9c94),
+        json: (0, $817f931e3f9096cf$export$48880ac635f47186),
+        binary: (0, $9fcfddb3ae148f88$export$f0a5a64d5bb37108),
+        "binary-utf8": (0, $9fcfddb3ae148f88$export$f0a5a64d5bb37108),
+        default: (0, $9fcfddb3ae148f88$export$f0a5a64d5bb37108)
+      };
+      this._id = null;
+      this._lastServerId = null;
+      this._destroyed = false;
+      this._disconnected = false;
+      this._open = false;
+      this._connections = /* @__PURE__ */ new Map();
+      this._lostMessages = /* @__PURE__ */ new Map();
+      let userId;
+      if (id && id.constructor == Object) options = id;
+      else if (id) userId = id.toString();
+      options = {
+        debug: 0,
+        host: (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_HOST,
+        port: (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_PORT,
+        path: "/",
+        key: _$416260bce337df90$export$ecd1fc136c422448.DEFAULT_KEY,
+        token: (0, $4f4134156c446392$export$7debb50ef11d5e0b).randomToken(),
+        config: (0, $4f4134156c446392$export$7debb50ef11d5e0b).defaultConfig,
+        referrerPolicy: "strict-origin-when-cross-origin",
+        serializers: {},
+        ...options
+      };
+      this._options = options;
+      this._serializers = {
+        ...this._serializers,
+        ...this.options.serializers
+      };
+      if (this._options.host === "/") this._options.host = window.location.hostname;
+      if (this._options.path) {
+        if (this._options.path[0] !== "/") this._options.path = "/" + this._options.path;
+        if (this._options.path[this._options.path.length - 1] !== "/") this._options.path += "/";
+      }
+      if (this._options.secure === void 0 && this._options.host !== (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_HOST) this._options.secure = (0, $4f4134156c446392$export$7debb50ef11d5e0b).isSecure();
+      else if (this._options.host == (0, $4f4134156c446392$export$7debb50ef11d5e0b).CLOUD_HOST) this._options.secure = true;
+      if (this._options.logFunction) (0, $257947e92926277a$export$2e2bcd8739ae039).setLogFunction(this._options.logFunction);
+      (0, $257947e92926277a$export$2e2bcd8739ae039).logLevel = this._options.debug || 0;
+      this._api = new (0, $abf266641927cd89$export$2c4e825dc9120f87)(options);
+      this._socket = this._createServerConnection();
+      if (!(0, $4f4134156c446392$export$7debb50ef11d5e0b).supports.audioVideo && !(0, $4f4134156c446392$export$7debb50ef11d5e0b).supports.data) {
+        this._delayedAbort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).BrowserIncompatible, "The current browser does not support WebRTC");
+        return;
+      }
+      if (!!userId && !(0, $4f4134156c446392$export$7debb50ef11d5e0b).validateId(userId)) {
+        this._delayedAbort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).InvalidID, `ID "${userId}" is invalid`);
+        return;
+      }
+      if (userId) this._initialize(userId);
+      else this._api.retrieveId().then((id2) => this._initialize(id2)).catch((error) => this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).ServerError, error));
+    }
+    _createServerConnection() {
+      const socket = new (0, $8f5bfa60836d261d$export$4798917dbf149b79)(this._options.secure, this._options.host, this._options.port, this._options.path, this._options.key, this._options.pingInterval);
+      socket.on((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Message, (data) => {
+        this._handleMessage(data);
+      });
+      socket.on((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Error, (error) => {
+        this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).SocketError, error);
+      });
+      socket.on((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Disconnected, () => {
+        if (this.disconnected) return;
+        this.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).Network, "Lost connection to server.");
+        this.disconnect();
+      });
+      socket.on((0, $78455e22dea96b8c$export$3b5c4a4b6354f023).Close, () => {
+        if (this.disconnected) return;
+        this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).SocketClosed, "Underlying socket is already closed.");
+      });
+      return socket;
+    }
+    /** Initialize a connection with the server. */
+    _initialize(id) {
+      this._id = id;
+      this.socket.start(id, this._options.token);
+    }
+    /** Handles messages from the server. */
+    _handleMessage(message) {
+      const type = message.type;
+      const payload = message.payload;
+      const peerId = message.src;
+      switch (type) {
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Open:
+          this._lastServerId = this.id;
+          this._open = true;
+          this.emit("open", this.id);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Error:
+          this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).ServerError, payload.msg);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).IdTaken:
+          this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).UnavailableID, `ID "${this.id}" is taken`);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).InvalidKey:
+          this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).InvalidKey, `API KEY "${this._options.key}" is invalid`);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Leave:
+          (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Received leave message from ${peerId}`);
+          this._cleanupPeer(peerId);
+          this._connections.delete(peerId);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Expire:
+          this.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).PeerUnavailable, `Could not connect to peer ${peerId}`);
+          break;
+        case (0, $78455e22dea96b8c$export$adb4a1754da6f10d).Offer: {
+          const connectionId = payload.connectionId;
+          let connection = this.getConnection(peerId, connectionId);
+          if (connection) {
+            connection.close();
+            (0, $257947e92926277a$export$2e2bcd8739ae039).warn(`Offer received for existing Connection ID:${connectionId}`);
+          }
+          if (payload.type === (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Media) {
+            const mediaConnection = new (0, $5c1d08c7c57da9a3$export$4a84e95a2324ac29)(peerId, this, {
+              connectionId,
+              _payload: payload,
+              metadata: payload.metadata
+            });
+            connection = mediaConnection;
+            this._addConnection(peerId, connection);
+            this.emit("call", mediaConnection);
+          } else if (payload.type === (0, $78455e22dea96b8c$export$3157d57b4135e3bc).Data) {
+            const dataConnection = new this._serializers[payload.serialization](peerId, this, {
+              connectionId,
+              _payload: payload,
+              metadata: payload.metadata,
+              label: payload.label,
+              serialization: payload.serialization,
+              reliable: payload.reliable
+            });
+            connection = dataConnection;
+            this._addConnection(peerId, connection);
+            this.emit("connection", dataConnection);
+          } else {
+            (0, $257947e92926277a$export$2e2bcd8739ae039).warn(`Received malformed connection type:${payload.type}`);
+            return;
+          }
+          const messages = this._getMessages(connectionId);
+          for (const message2 of messages) connection.handleMessage(message2);
+          break;
+        }
+        default: {
+          if (!payload) {
+            (0, $257947e92926277a$export$2e2bcd8739ae039).warn(`You received a malformed message from ${peerId} of type ${type}`);
+            return;
+          }
+          const connectionId = payload.connectionId;
+          const connection = this.getConnection(peerId, connectionId);
+          if (connection && connection.peerConnection)
+            connection.handleMessage(message);
+          else if (connectionId)
+            this._storeMessage(connectionId, message);
+          else (0, $257947e92926277a$export$2e2bcd8739ae039).warn("You received an unrecognized message:", message);
+          break;
+        }
+      }
+    }
+    /** Stores messages without a set up connection, to be claimed later. */
+    _storeMessage(connectionId, message) {
+      if (!this._lostMessages.has(connectionId)) this._lostMessages.set(connectionId, []);
+      this._lostMessages.get(connectionId).push(message);
+    }
+    /**
+    * Retrieve messages from lost message store
+    * @internal
+    */
+    //TODO Change it to private
+    _getMessages(connectionId) {
+      const messages = this._lostMessages.get(connectionId);
+      if (messages) {
+        this._lostMessages.delete(connectionId);
+        return messages;
+      }
+      return [];
+    }
+    /**
+    * Connects to the remote peer specified by id and returns a data connection.
+    * @param peer The brokering ID of the remote peer (their {@apilink Peer.id}).
+    * @param options for specifying details about Peer Connection
+    */
+    connect(peer, options = {}) {
+      options = {
+        serialization: "default",
+        ...options
+      };
+      if (this.disconnected) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).warn("You cannot connect to a new Peer because you called .disconnect() on this Peer and ended your connection with the server. You can create a new Peer to reconnect, or call reconnect on this peer if you believe its ID to still be available.");
+        this.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).Disconnected, "Cannot connect to new Peer after disconnecting from server.");
+        return;
+      }
+      const dataConnection = new this._serializers[options.serialization](peer, this, options);
+      this._addConnection(peer, dataConnection);
+      return dataConnection;
+    }
+    /**
+    * Calls the remote peer specified by id and returns a media connection.
+    * @param peer The brokering ID of the remote peer (their peer.id).
+    * @param stream The caller's media stream
+    * @param options Metadata associated with the connection, passed in by whoever initiated the connection.
+    */
+    call(peer, stream, options = {}) {
+      if (this.disconnected) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).warn("You cannot connect to a new Peer because you called .disconnect() on this Peer and ended your connection with the server. You can create a new Peer to reconnect.");
+        this.emitError((0, $78455e22dea96b8c$export$9547aaa2e39030ff).Disconnected, "Cannot connect to new Peer after disconnecting from server.");
+        return;
+      }
+      if (!stream) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).error("To call a peer, you must provide a stream from your browser's `getUserMedia`.");
+        return;
+      }
+      const mediaConnection = new (0, $5c1d08c7c57da9a3$export$4a84e95a2324ac29)(peer, this, {
+        ...options,
+        _stream: stream
+      });
+      this._addConnection(peer, mediaConnection);
+      return mediaConnection;
+    }
+    /** Add a data/media connection to this peer. */
+    _addConnection(peerId, connection) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`add connection ${connection.type}:${connection.connectionId} to peerId:${peerId}`);
+      if (!this._connections.has(peerId)) this._connections.set(peerId, []);
+      this._connections.get(peerId).push(connection);
+    }
+    //TODO should be private
+    _removeConnection(connection) {
+      const connections = this._connections.get(connection.peer);
+      if (connections) {
+        const index = connections.indexOf(connection);
+        if (index !== -1) connections.splice(index, 1);
+      }
+      this._lostMessages.delete(connection.connectionId);
+    }
+    /** Retrieve a data/media connection for this peer. */
+    getConnection(peerId, connectionId) {
+      const connections = this._connections.get(peerId);
+      if (!connections) return null;
+      for (const connection of connections) {
+        if (connection.connectionId === connectionId) return connection;
+      }
+      return null;
+    }
+    _delayedAbort(type, message) {
+      setTimeout(() => {
+        this._abort(type, message);
+      }, 0);
+    }
+    /**
+    * Emits an error message and destroys the Peer.
+    * The Peer is not destroyed if it's in a disconnected state, in which case
+    * it retains its disconnected state and its existing connections.
+    */
+    _abort(type, message) {
+      (0, $257947e92926277a$export$2e2bcd8739ae039).error("Aborting!");
+      this.emitError(type, message);
+      if (!this._lastServerId) this.destroy();
+      else this.disconnect();
+    }
+    /**
+    * Destroys the Peer: closes all active connections as well as the connection
+    * to the server.
+    *
+    * :::caution
+    * This cannot be undone; the respective peer object will no longer be able
+    * to create or receive any connections, its ID will be forfeited on the server,
+    * and all of its data and media connections will be closed.
+    * :::
+    */
+    destroy() {
+      if (this.destroyed) return;
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Destroy peer with ID:${this.id}`);
+      this.disconnect();
+      this._cleanup();
+      this._destroyed = true;
+      this.emit("close");
+    }
+    /** Disconnects every connection on this peer. */
+    _cleanup() {
+      for (const peerId of this._connections.keys()) {
+        this._cleanupPeer(peerId);
+        this._connections.delete(peerId);
+      }
+      this.socket.removeAllListeners();
+    }
+    /** Closes all connections to this peer. */
+    _cleanupPeer(peerId) {
+      const connections = this._connections.get(peerId);
+      if (!connections) return;
+      for (const connection of connections) connection.close();
+    }
+    /**
+    * Disconnects the Peer's connection to the PeerServer. Does not close any
+    *  active connections.
+    * Warning: The peer can no longer create or accept connections after being
+    *  disconnected. It also cannot reconnect to the server.
+    */
+    disconnect() {
+      if (this.disconnected) return;
+      const currentId = this.id;
+      (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Disconnect peer with ID:${currentId}`);
+      this._disconnected = true;
+      this._open = false;
+      this.socket.close();
+      this._lastServerId = currentId;
+      this._id = null;
+      this.emit("disconnected", currentId);
+    }
+    /** Attempts to reconnect with the same ID.
+    *
+    * Only {@apilink Peer.disconnect | disconnected peers} can be reconnected.
+    * Destroyed peers cannot be reconnected.
+    * If the connection fails (as an example, if the peer's old ID is now taken),
+    * the peer's existing connections will not close, but any associated errors events will fire.
+    */
+    reconnect() {
+      if (this.disconnected && !this.destroyed) {
+        (0, $257947e92926277a$export$2e2bcd8739ae039).log(`Attempting reconnection to server with ID ${this._lastServerId}`);
+        this._disconnected = false;
+        this._initialize(this._lastServerId);
+      } else if (this.destroyed) throw new Error("This peer cannot reconnect to the server. It has already been destroyed.");
+      else if (!this.disconnected && !this.open)
+        (0, $257947e92926277a$export$2e2bcd8739ae039).error("In a hurry? We're still trying to make the initial connection!");
+      else throw new Error(`Peer ${this.id} cannot reconnect because it is not disconnected from the server!`);
+    }
+    /**
+    * Get a list of available peer IDs. If you're running your own server, you'll
+    * want to set allow_discovery: true in the PeerServer options. If you're using
+    * the cloud server, email team@peerjs.com to get the functionality enabled for
+    * your key.
+    */
+    listAllPeers(cb = (_) => {
+    }) {
+      this._api.listAllPeers().then((peers) => cb(peers)).catch((error) => this._abort((0, $78455e22dea96b8c$export$9547aaa2e39030ff).ServerError, error));
+    }
+  };
+  var $dd0187d7f28e386f$export$2e2bcd8739ae039 = (0, $416260bce337df90$export$ecd1fc136c422448);
+
+  // src/net/peer.ts
+  var PREFIX = "vitrea-mp-";
+  var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  function makeCode(rand = Math.random) {
+    let code = "";
+    for (let i = 0; i < 5; i++) code += CODE_CHARS[Math.floor(rand() * CODE_CHARS.length)];
+    return code;
+  }
+  function cleanCode(text) {
+    return text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
+  }
+  function wrap(peer, conn) {
+    let closed = false;
+    const closeHandlers = [];
+    const closeOnce = () => {
+      if (closed) return;
+      closed = true;
+      for (const h of closeHandlers) h();
+    };
+    conn.on("close", closeOnce);
+    conn.on("error", closeOnce);
+    peer.on("disconnected", closeOnce);
+    return {
+      send: (m) => {
+        if (!closed && conn.open) conn.send(m);
+      },
+      onMessage: (h) => conn.on("data", (d) => h(d)),
+      onClose: (h) => closeHandlers.push(h),
+      close: () => {
+        closeOnce();
+        conn.close();
+        peer.destroy();
+      }
+    };
+  }
+  function describe(err) {
+    switch (err.type) {
+      case "peer-unavailable":
+        return "No game with that code. Check it and try again.";
+      case "unavailable-id":
+        return "That code is taken. Try creating the game again.";
+      case "network":
+      case "server-error":
+      case "socket-error":
+      case "socket-closed":
+        return "Couldn't reach the matchmaking server. Check your internet connection.";
+      case "browser-incompatible":
+        return "This browser can't make direct connections. Try Chrome, Edge or Firefox.";
+      default:
+        return err.message ?? "Connection failed.";
+    }
+  }
+  function hostGame(onReady, onJoin, onError) {
+    const code = makeCode();
+    const peer = new $dd0187d7f28e386f$export$2e2bcd8739ae039(PREFIX + code);
+    peer.on("open", () => onReady(code));
+    peer.on("error", (e) => onError(describe(e)));
+    peer.on("connection", (conn) => {
+      conn.on("open", () => onJoin(wrap(peer, conn)));
+    });
+    return { cancel: () => peer.destroy() };
+  }
+  function joinGame(code, onOpen, onError) {
+    const peer = new $dd0187d7f28e386f$export$2e2bcd8739ae039();
+    peer.on("error", (e) => onError(describe(e)));
+    peer.on("open", () => {
+      const conn = peer.connect(PREFIX + cleanCode(code), { reliable: true, serialization: "json" });
+      conn.on("open", () => onOpen(wrap(peer, conn)));
+    });
+    return { cancel: () => peer.destroy() };
+  }
+
+  // src/main.ts
+  var STEP2 = 1 / 60;
+  var HARVEST_LABELS = {
+    idle: "Idle",
+    toField: "Heading to field",
+    harvesting: "Harvesting",
+    toRefinery: "Returning to refinery",
+    waitDock: "Waiting to unload",
+    unloading: "Unloading"
+  };
+  function el(id) {
+    return document.getElementById(id);
+  }
+  function describeSelection(g) {
+    const b = g.buildings.find((x) => x.id === g.selectedBuilding);
+    if (b) {
+      const s = BUILDING_STATS[b.kind];
+      const power2 = s.power > 0 ? `+${s.power} power` : s.power < 0 ? `${s.power} power` : "";
+      const name = b.owner === g.local ? s.label : `Enemy ${s.label}`;
+      return `<b>${name}</b> &middot; ${Math.ceil(b.hp)}/${s.maxHp} HP${power2 && b.owner === g.local ? ` &middot; ${power2}` : ""}`;
+    }
+    const units = [...g.selection].map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
+    if (units.length === 0) return "";
+    if (units.length === 1) {
+      const u = units[0];
+      const stats = UNIT_STATS[u.kind];
+      const rank = u.rank > 0 ? ` &middot; <span class="rank">${RANK_NAMES[u.rank]}</span>` : "";
+      let s = `<b>${stats.label}</b>${rank} &middot; ${Math.ceil(u.hp)}/${stats.maxHp} HP`;
+      if (u.kind === "harvester") {
+        s += `<br>${HARVEST_LABELS[u.harvest]} &middot; ${Math.floor(u.cargo)}/${HARVESTER.capacity} ${RESOURCE_NAME}`;
+      }
+      return s;
+    }
+    const counts = /* @__PURE__ */ new Map();
+    for (const u of units) counts.set(UNIT_STATS[u.kind].label, (counts.get(UNIT_STATS[u.kind].label) ?? 0) + 1);
+    return [...counts].map(([label, n]) => `${n} &times; ${label}`).join(", ");
+  }
+  var LEVEL_LABELS = { easy: "Easy", normal: "Normal", hard: "Hard" };
+  var LAUNCH_KEY = "vitrea.launch";
+  function navigate(query) {
+    if (window.top === window) {
+      location.search = query;
+      return;
+    }
+    try {
+      sessionStorage.setItem(LAUNCH_KEY, query);
+    } catch {
+    }
+    location.reload();
+  }
+  function launchQuery() {
+    if (location.search) return new URLSearchParams(location.search);
+    try {
+      const saved = sessionStorage.getItem(LAUNCH_KEY);
+      sessionStorage.removeItem(LAUNCH_KEY);
+      if (saved) return new URLSearchParams(saved);
+    } catch {
+    }
+    return new URLSearchParams();
+  }
+  function showMenu(settings) {
+    const menu = el("menu");
+    const seed = el("menu-seed");
+    const level = el("menu-ai");
+    const storms = el("menu-storms");
+    const edge = el("menu-edge");
+    edge.checked = settings.edgeScroll;
+    const fog = el("menu-fog");
+    const enemy = el("menu-enemy");
+    const speed = el("menu-speed");
+    speed.value = settings.speed;
+    seed.value = String(settings.seed);
+    level.value = settings.difficulty;
+    storms.checked = settings.hazards;
+    fog.checked = settings.fog;
+    enemy.value = settings.enemyFaction;
+    buildFactionCards(settings.faction);
+    buildCampaign(settings);
+    buildOnline(() => {
+      const faction = document.querySelector('input[name="faction"]:checked')?.value ?? "concord";
+      return { ...settings, seed: Number(seed.value) || settings.seed, hazards: storms.checked, fog: fog.checked, faction, speed: speed.value, edgeScroll: edge.checked };
+    });
+    menu.hidden = false;
+    el("menu-random").addEventListener("click", () => seed.value = String(randomSeed()));
+    el("menu-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const faction = document.querySelector('input[name="faction"]:checked')?.value ?? "concord";
+      const chosen = parseSettings(
+        settingsToQuery(
+          {
+            seed: Number(seed.value),
+            difficulty: level.value,
+            hazards: storms.checked,
+            fog: fog.checked,
+            faction,
+            enemyFaction: enemy.value,
+            speed: speed.value,
+            edgeScroll: edge.checked
+          },
+          false
+        )
+      );
+      save(chosen);
+      const picked = resolveFactions(chosen, Math.random);
+      navigate(settingsToQuery({ ...chosen, faction: picked.player, enemyFaction: picked.enemy }, true).toString());
+    });
+    seed.focus();
+  }
+  function buildFactionCards(selected) {
+    const box = el("menu-factions");
+    const card = (value, title, blurb, perks) => {
+      const label = document.createElement("label");
+      label.className = `faction faction-${value}`;
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "faction";
+      input.value = value;
+      input.checked = value === selected;
+      const h = document.createElement("b");
+      h.textContent = title;
+      const p = document.createElement("span");
+      p.className = "blurb";
+      p.textContent = blurb;
+      const ul = document.createElement("ul");
+      for (const perk of perks) {
+        const li = document.createElement("li");
+        li.textContent = perk;
+        ul.append(li);
+      }
+      label.append(input, h, p, ul);
+      box.append(label);
+    };
+    for (const id of FACTION_IDS) card(id, FACTIONS[id].label, FACTIONS[id].blurb, FACTIONS[id].perks);
+    card("random", "Random", "Let the frontier decide.", []);
+  }
+  function buildOnline(current) {
+    const status = el("online-status");
+    const hostBtn = el("host-btn");
+    const joinBtn = el("join-btn");
+    const codeInput = el("join-code");
+    let pending = null;
+    if (window.top !== window) {
+      hostBtn.disabled = joinBtn.disabled = codeInput.disabled = true;
+      status.textContent = "Online play needs the full game site; it doesn't work inside this embedded preview.";
+      return;
+    }
+    const say = (html) => status.innerHTML = html;
+    const fail = (text) => {
+      pending?.cancel();
+      pending = null;
+      hostBtn.disabled = joinBtn.disabled = false;
+      const span = document.createElement("span");
+      span.className = "err";
+      span.textContent = text;
+      status.replaceChildren(span);
+    };
+    const pick = (choice, not) => {
+      if (choice !== "random") return choice;
+      const options = FACTION_IDS.filter((f) => f !== not);
+      return options[Math.floor(Math.random() * options.length)];
+    };
+    const router = (link) => {
+      let handler = () => {
+      };
+      link.onMessage((m) => handler(m));
+      return (h) => handler = h;
+    };
+    hostBtn.addEventListener("click", () => {
+      pending?.cancel();
+      hostBtn.disabled = joinBtn.disabled = true;
+      say("Setting up\u2026");
+      pending = hostGame(
+        (code) => say(`Send your friend this code: <span class="code">${code}</span><br>Waiting for them to join\u2026`),
+        (link) => {
+          const route = router(link);
+          say("Friend connected. Starting\u2026");
+          route((m) => {
+            const msg = m;
+            if (msg.type !== "hello") return;
+            const s = current();
+            const mine = pick(s.faction);
+            const theirs = pick(msg.faction ?? "random", mine);
+            const factions = [mine, theirs];
+            link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions });
+            start({ ...s }, void 0, { link, local: 0, factions, route });
+          });
+        },
+        fail
+      );
+    });
+    const join = () => {
+      const code = cleanCode(codeInput.value);
+      if (code.length !== 5) return fail("Room codes are 5 letters and numbers.");
+      pending?.cancel();
+      hostBtn.disabled = joinBtn.disabled = true;
+      say("Connecting\u2026");
+      pending = joinGame(
+        code,
+        (link) => {
+          const route = router(link);
+          say("Connected. Waiting for the host to start\u2026");
+          route((m) => {
+            const msg = m;
+            if (msg.type !== "start" || !msg.factions) return;
+            const s = current();
+            start(
+              { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal" },
+              void 0,
+              { link, local: 1, factions: msg.factions, route }
+            );
+          });
+          link.send({ type: "hello", faction: current().faction });
+        },
+        fail
+      );
+    };
+    joinBtn.addEventListener("click", join);
+    codeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") join();
+    });
+  }
+  function missionQuery(id, settings) {
+    const q = settingsToQuery(settings, true);
+    q.set("mission", id);
+    return q.toString();
+  }
+  function buildCampaign(settings) {
+    const list = el("campaign-list");
+    const menuSound = new Sound();
+    const readBriefing = async (id, still) => {
+      menuSound.ensure();
+      for (let t = 0; t < 50 && !menuSound.samples.loaded; t++) await new Promise((r) => setTimeout(r, 100));
+      if (still()) menuSound.voice("briefing", [briefingKey(id)], true);
+    };
+    const completed = loadProgress();
+    let open = null;
+    MISSIONS.forEach((m, i) => {
+      const unlocked = isUnlocked(completed, i);
+      const won = completed.includes(m.id);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `mission${won ? " won" : ""}`;
+      button.disabled = !unlocked;
+      const title = document.createElement("span");
+      title.textContent = m.title;
+      const status = document.createElement("span");
+      status.className = "status";
+      status.textContent = won ? "Complete" : unlocked ? FACTIONS[m.faction].label : "Locked";
+      button.append(title, status);
+      list.append(button);
+      button.addEventListener("click", () => {
+        const wasOpen = open?.button === button;
+        if (open) {
+          open.button.classList.remove("open");
+          open.briefing.remove();
+          open = null;
+        }
+        menuSound.stopVoice("briefing");
+        if (wasOpen) return;
+        const briefing = describeMission(m, () => navigate(missionQuery(m.id, settings)));
+        button.after(briefing);
+        button.classList.add("open");
+        open = { button, briefing };
+        void readBriefing(m.id, () => open?.button === button);
+      });
+    });
+  }
+  function describeMission(m, begin) {
+    const box = document.createElement("div");
+    box.className = "briefing";
+    for (const text of m.briefing) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      box.append(p);
+    }
+    const h = document.createElement("h3");
+    h.textContent = "Objectives";
+    const ul = document.createElement("ul");
+    for (const o of m.objectives) {
+      const li = document.createElement("li");
+      li.textContent = o.text;
+      if (o.bonus) li.className = "bonus";
+      ul.append(li);
+    }
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "btn";
+    go.textContent = "Begin mission";
+    go.addEventListener("click", begin);
+    box.append(h, ul, go);
+    return box;
+  }
+  function boot() {
+    const params = launchQuery();
+    const settings = parseSettings(params, loadSaved());
+    if (params.get("play") === "1") start(settings, missionById(params.get("mission")));
+    else showMenu(settings);
+  }
+  function start(settings, mission, online) {
+    el("menu").hidden = true;
+    const sides = online ? { player: online.factions[0], enemy: online.factions[1] } : mission ? { player: mission.faction, enemy: mission.enemyFaction } : resolveFactions(settings, mulberry32(settings.seed * 31 + 7));
+    const seed = mission?.seed ?? settings.seed;
+    const difficulty = mission?.difficulty ?? settings.difficulty;
+    const game = mission ? createMissionGame(mission) : createGame(seed, difficulty, {
+      hazards: settings.hazards,
+      fog: settings.fog,
+      playerFaction: sides.player,
+      enemyFaction: sides.enemy,
+      pvp: !!online
+    });
+    if (online) {
+      game.local = online.local;
+      game.fog = game.fogs[online.local];
+    }
+    if (mission) document.title = `${mission.title.replace(/^\d+\. /, "")} \u2014 Vitrea`;
+    el("difficulty").textContent = online ? "Online" : LEVEL_LABELS[difficulty];
+    el("factions").textContent = `${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label}`;
+    el("map-seed").textContent = `#${seed}`;
+    let paused = false;
+    let speed = settings.speed;
+    const speedLabel = el("speed");
+    const showSpeed = () => speedLabel.textContent = SPEED_LABELS[speed];
+    showSpeed();
+    const pauseOverlay = el("paused");
+    const sound = new Sound();
+    const muteButton = el("mute");
+    const showMute = () => {
+      muteButton.textContent = sound.muted ? "\u{1F507}" : "\u{1F50A}";
+      muteButton.title = sound.muted ? "Sound off (M)" : "Sound on (M)";
+    };
+    showMute();
+    muteButton.addEventListener("click", () => {
+      sound.toggleMute();
+      showMute();
+      muteButton.blur();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "KeyM") {
+        sound.toggleMute();
+        showMute();
+      }
+      const faster = e.code === "Equal" || e.code === "NumpadAdd";
+      const slower = e.code === "Minus" || e.code === "NumpadSubtract";
+      if ((faster || slower) && !online) {
+        const i = SPEED_ORDER.indexOf(speed) + (faster ? 1 : -1);
+        speed = SPEED_ORDER[Math.max(0, Math.min(SPEED_ORDER.length - 1, i))];
+        showSpeed();
+        return;
+      }
+      if (e.code !== "KeyP" || game.result || online) return;
+      paused = !paused;
+      pauseOverlay.hidden = !paused;
+    });
+    const view = el("view");
+    const minimap = el("minimap");
+    const credits = el("credits");
+    const power2 = el("power");
+    const info = el("info");
+    const notices = el("notices");
+    const result = el("result");
+    const ability = el("ability");
+    let lastAbility = "";
+    const again = el("again");
+    const next = mission ? MISSIONS[MISSIONS.indexOf(mission) + 1] : void 0;
+    again.addEventListener("click", () => {
+      if (!mission) navigate(settingsToQuery({ ...settings, seed: seed % 99999 + 1 }, true).toString());
+      else if (game.result === "victory" && next) navigate(missionQuery(next.id, settings));
+      else navigate(missionQuery(mission.id, settings));
+    });
+    const objectives = el("objectives");
+    let lastObjectives = "";
+    const showObjectives = () => {
+      const m = game.mission;
+      if (!m) return;
+      const key = m.done.join();
+      if (key === lastObjectives) return;
+      lastObjectives = key;
+      const head = document.createElement("b");
+      head.textContent = m.def.title;
+      objectives.replaceChildren(
+        head,
+        ...m.def.objectives.map((o, i) => {
+          const d = document.createElement("div");
+          d.textContent = o.text;
+          d.className = [m.done[i] ? "done" : "", o.bonus ? "bonus" : ""].join(" ").trim();
+          return d;
+        })
+      );
+      objectives.hidden = false;
+    };
+    el("to-menu").addEventListener("click", () => {
+      navigate(settingsToQuery(settings, false).toString());
+    });
+    const cam = { x: 0, y: 0, w: 0, h: 0 };
+    const renderer = new Renderer(view, minimap, game.map, game.factions);
+    const input = new Input(game, cam, view, minimap);
+    const lockstep = online ? new Lockstep(game, online.local, (m) => online.link.send(m)) : null;
+    const complain = (text) => {
+      notify(game, text);
+      emit(game, { kind: "error" });
+    };
+    const issue = (c) => {
+      if (lockstep) return lockstep.issue(c);
+      const problem = applyCommand(game, game.local, c);
+      if (problem) complain(problem);
+    };
+    input.issue = issue;
+    if (lockstep && online) {
+      lockstep.onError = complain;
+      lockstep.onDesync = () => notify(game, "Warning: the two games have drifted out of sync.");
+      online.route((m) => lockstep.receive(m));
+      online.link.onClose(() => {
+        if (game.result) return;
+        game.result = online.local === 0 ? "victory" : "defeat";
+        game.resultReason = "Your opponent left the game.";
+      });
+    }
+    input.edgeScroll = settings.edgeScroll;
+    const sellButton = el("sell");
+    const repairButton = el("repair");
+    sellButton.addEventListener("click", () => {
+      input.toggleMode("sell");
+      sellButton.blur();
+    });
+    repairButton.addEventListener("click", () => {
+      input.toggleMode("repair");
+      repairButton.blur();
+    });
+    const modeLabel = el("mode");
+    ability.addEventListener("click", () => {
+      input.heroAbility();
+      ability.blur();
+    });
+    const sidebar = new Sidebar(el("structures"), el("units"), el("research"), game, {
+      beginPlacing: (kind) => {
+        input.placing = kind;
+        game.selection.clear();
+        game.selectedBuilding = null;
+      },
+      cancelPlacing: () => input.placing = null,
+      issue
+    });
+    const resize = () => {
+      view.width = window.innerWidth;
+      view.height = window.innerHeight;
+      cam.w = view.width;
+      cam.h = view.height;
+      input.clampCamera();
+    };
+    window.addEventListener("resize", resize);
+    resize();
+    input.goHome();
+    let last = performance.now();
+    let acc = 0;
+    let lastInfo = "";
+    let lastNotices = "";
+    let waitingFor = 0;
+    const frame = (now) => {
+      const dt = Math.min(0.1, (now - last) / 1e3);
+      last = now;
+      if (!paused) acc += dt * SPEEDS[speed];
+      input.update(dt);
+      if (lockstep) {
+        const ran = lockstep.advance(Math.min(12, Math.floor(acc / STEP2)));
+        acc = Math.min(acc - ran * STEP2, STEP2 * 12);
+        waitingFor = lockstep.waiting && !game.result ? waitingFor + dt : 0;
+        const waitText = waitingFor > 0.6 ? "WAITING FOR OPPONENT\u2026" : "";
+        if (pauseOverlay.textContent !== (waitText || "PAUSED")) pauseOverlay.textContent = waitText || "PAUSED";
+        pauseOverlay.hidden = !waitText;
+      } else {
+        for (let steps = 0; acc >= STEP2 && steps < 12; steps++) {
+          update(game, STEP2);
+          acc -= STEP2;
+        }
+        if (acc > STEP2 * 12) acc = 0;
+      }
+      if (input.placing && !structureOf(game, game.local)?.done) input.placing = null;
+      renderer.showAllHealth = input.showAllHealth;
+      sellButton.classList.toggle("on", input.mode === "sell");
+      repairButton.classList.toggle("on", input.mode === "repair");
+      const modeText = input.mode === "sell" ? "SELL \u2014 click a building for half its price \xB7 right-click or Esc to stop" : input.mode === "repair" ? "REPAIR \u2014 click damaged buildings \xB7 right-click or Esc to stop" : "";
+      if (modeLabel.textContent !== modeText) {
+        modeLabel.textContent = modeText;
+        modeLabel.hidden = !modeText;
+      }
+      renderer.draw(game, cam, input.drag, input.ghost, dt);
+      sidebar.update();
+      sound.playEvents(game, cam);
+      sound.updateWind(game, cam);
+      sound.updateEngines(game, cam);
+      credits.textContent = Math.floor(walletOf(game, game.local).credits).toLocaleString();
+      const p = powerInfo(game, game.local);
+      power2.textContent = `${p.produced} / ${p.used}`;
+      power2.classList.toggle("low", p.low);
+      const hero = [...game.selection].map((id) => game.units.find((u) => u.id === id)).find((u) => u && isHero(u.kind));
+      const status = hero ? abilityStatus(hero) : "";
+      if (status !== lastAbility) {
+        ability.hidden = !hero;
+        ability.innerHTML = hero ? `<kbd>Q</kbd>${status}` : "";
+        ability.classList.toggle("cooling", !!hero && hero.abilityCd > 0);
+        lastAbility = status;
+      }
+      const text = describeSelection(game);
+      if (text !== lastInfo) {
+        info.innerHTML = text;
+        info.style.display = text ? "block" : "none";
+        lastInfo = text;
+      }
+      const n = game.notices.map((x) => x.text).join("\n");
+      if (n !== lastNotices) {
+        notices.replaceChildren(
+          ...game.notices.map((x) => {
+            const d = document.createElement("div");
+            d.textContent = x.text;
+            return d;
+          })
+        );
+        lastNotices = n;
+      }
+      showObjectives();
+      if (game.result && result.hidden) {
+        result.hidden = false;
+        const time = `${Math.floor(game.time / 60)}m ${Math.floor(game.time % 60)}s`;
+        const won = game.result === "victory" === (game.local === 0);
+        el("result-title").textContent = won ? "Victory" : "Defeat";
+        if (online) {
+          el("result-text").textContent = game.resultReason || (won ? `You broke your opponent's base after ${time}.` : "Your base has fallen.");
+          again.hidden = true;
+          online.link.close();
+        } else if (mission) {
+          if (game.result === "victory") saveCompleted(mission.id);
+          const bonuses = mission.objectives.filter((o, i) => o.bonus && game.mission?.done[i]).length;
+          const bonusText = bonuses ? ` Bonus objectives: ${bonuses}.` : "";
+          el("result-text").textContent = game.result === "victory" ? `${mission.title.replace(/^\d+\. /, "")} complete in ${time}.${bonusText}${next ? "" : " The campaign is won."}` : game.resultReason || "Mission failed.";
+          again.textContent = game.result === "victory" ? next ? "Next mission" : "Play again" : "Retry mission";
+        } else {
+          el("result-text").textContent = game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen.";
+        }
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    if (lockstep) {
+      setInterval(() => {
+        if (!document.hidden) return;
+        const now = performance.now();
+        acc += Math.min(1.5, (now - last) / 1e3) * SPEEDS[speed];
+        last = now;
+        const ran = lockstep.advance(Math.min(90, Math.floor(acc / STEP2)));
+        acc = Math.min(acc - ran * STEP2, STEP2 * 90);
+        game.events.length = 0;
+      }, 100);
+    }
+    Object.assign(window, {
+      game,
+      issue,
+      sound,
+      skip: (seconds) => {
+        if (online) return;
+        for (let t = 0; t < seconds; t += STEP2) update(game, STEP2);
+      }
+    });
+  }
+  boot();
+})();

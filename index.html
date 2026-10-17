@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vitrea</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; background: #1b1612; font-family: system-ui, sans-serif; user-select: none; }
+    #view { display: block; }
+    #panel {
+      position: fixed; top: 12px; right: 12px; width: 216px; max-height: calc(100vh - 24px); overflow-y: auto;
+      background: rgba(28, 22, 17, 0.92); border: 1px solid #5c4a36; border-radius: 4px;
+      padding: 10px; color: #e9dcc4;
+    }
+    #panel .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    #panel .label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #b9a37f; }
+    #credits { font-size: 20px; font-weight: 700; color: #ffcf6b; font-variant-numeric: tabular-nums; }
+    #power { font-size: 13px; font-weight: 600; color: #8fd88a; font-variant-numeric: tabular-nums; }
+    #power.low { color: #ff7a5c; }
+    #difficulty {
+      font: inherit; font-size: 12px; color: #e9dcc4; background: #2c241c;
+      border: 1px solid #5c4a36; border-radius: 3px; padding: 1px 4px; cursor: pointer;
+    }
+    #minimap { display: block; width: 194px; height: 194px; border: 1px solid #5c4a36; image-rendering: pixelated; cursor: pointer; margin-bottom: 8px; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #research { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
+    .research-box h2 { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #b9a37f; font-weight: 600; margin: 6px 0 4px; }
+    .cols h2 { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #b9a37f; font-weight: 600; margin-bottom: 4px; }
+    .build {
+      position: relative; display: grid; grid-template-columns: 14px 1fr; grid-template-rows: auto auto; column-gap: 6px;
+      width: 100%; margin-bottom: 4px; padding: 5px 6px; text-align: left; overflow: hidden;
+      background: #2c241c; border: 1px solid #5c4a36; border-radius: 3px; color: #e9dcc4; cursor: pointer; font: inherit;
+    }
+    .build:hover { border-color: #b9a37f; }
+    .build .icon { grid-row: 1 / 3; align-self: center; width: 14px; height: 14px; border-radius: 2px; position: relative; }
+    .build .name { font-size: 11px; font-weight: 600; line-height: 1.2; position: relative; }
+    .build .cost { font-size: 10px; color: #ffcf6b; position: relative; }
+    .build .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255, 207, 107, 0.22); }
+    .build .badge {
+      position: absolute; right: 4px; bottom: 4px; font-size: 10px; font-weight: 700; color: #1b1612;
+      background: #ffcf6b; border-radius: 2px; padding: 0 4px;
+    }
+    .build .badge:empty { display: none; }
+    .build.ready { border-color: #8fd88a; }
+    .build.ready .badge { background: #8fd88a; }
+    .build.locked, .build.busy { opacity: 0.38; cursor: not-allowed; }
+    .build .key { position: absolute; right: 3px; bottom: 2px; font-size: 9px; color: #8a7a62; font-weight: 600; }
+    .tools { display: flex; gap: 6px; margin-bottom: 8px; }
+    .tools button {
+      flex: 1; font: inherit; font-size: 12px; font-weight: 600; padding: 4px; border-radius: 3px; cursor: pointer;
+      background: #2c241c; color: #e9dcc4; border: 1px solid #5c4a36;
+    }
+    .tools button.on { background: #ffcf6b; color: #1b1612; border-color: #ffcf6b; }
+    #mode {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none;
+      background: rgba(28, 22, 17, 0.92); border: 1px solid #ffcf6b; border-radius: 4px;
+      padding: 5px 14px; color: #ffcf6b; font-size: 13px; font-weight: 700;
+    }
+    #mode[hidden] { display: none; }
+    #info {
+      position: fixed; left: 12px; bottom: 12px; display: none;
+      background: rgba(28, 22, 17, 0.88); border: 1px solid #5c4a36; border-radius: 4px;
+      padding: 8px 12px; color: #e9dcc4; font-size: 13px; line-height: 1.5;
+    }
+    #notices {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none;
+    }
+    #notices div {
+      background: rgba(28, 22, 17, 0.88); border: 1px solid #5c4a36; border-radius: 4px;
+      padding: 5px 12px; color: #ffcf6b; font-size: 13px; font-weight: 600;
+    }
+    #result {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(10, 8, 6, 0.55);
+    }
+    #result[hidden] { display: none; }
+    #result .card {
+      background: rgba(28, 22, 17, 0.96); border: 1px solid #5c4a36; border-radius: 6px;
+      padding: 28px 40px; text-align: center; color: #e9dcc4;
+    }
+    #result-title { font-size: 40px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #ffcf6b; }
+    #result-text { margin: 8px 0 18px; font-size: 14px; }
+    .btn {
+      font: inherit; font-weight: 700; padding: 8px 18px; border-radius: 4px; cursor: pointer;
+      background: #ffcf6b; color: #1b1612; border: none;
+    }
+    .btn.ghost { background: transparent; color: #e9dcc4; border: 1px solid #5c4a36; margin-left: 8px; }
+    #map-seed { font-size: 12px; color: #b9a37f; font-variant-numeric: tabular-nums; }
+    .mute { font-size: 13px; background: none; border: 1px solid #5c4a36; border-radius: 3px; cursor: pointer; padding: 0 5px; margin-left: 6px; line-height: 1.4; }
+    #difficulty { font-size: 12px; color: #e9dcc4; }
+    #info .rank { color: #ffd75a; font-weight: 600; }
+    #ability {
+      position: fixed; left: 12px; bottom: 64px; font: inherit; font-size: 13px; font-weight: 700;
+      background: rgba(28, 22, 17, 0.92); color: #ffcf6b; border: 1px solid #ffcf6b; border-radius: 4px;
+      padding: 6px 12px; cursor: pointer;
+    }
+    #ability[hidden] { display: none; }
+    #ability.cooling { color: #b9a37f; border-color: #5c4a36; cursor: default; }
+    #ability kbd { font: inherit; background: #ffcf6b; color: #1b1612; border-radius: 2px; padding: 0 4px; margin-right: 6px; }
+
+    /* Start menu */
+    #menu {
+      position: fixed; inset: 0; z-index: 10; overflow-y: auto;
+      display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+      background:
+        radial-gradient(ellipse at 30% 20%, rgba(95, 216, 240, 0.18), transparent 55%),
+        radial-gradient(ellipse at 75% 80%, rgba(63, 184, 216, 0.14), transparent 50%),
+        linear-gradient(160deg, #1d2430 0%, #12151c 55%, #0b0d12 100%);
+      color: #dfe6ee;
+    }
+    #menu[hidden] { display: none; }
+    #menu .wrap { width: 100%; max-width: 860px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px; align-items: start; }
+    @media (max-width: 720px) { #menu .wrap { grid-template-columns: 1fr; } }
+    #menu h1 {
+      font-size: clamp(48px, 9vw, 84px); font-weight: 800; letter-spacing: 0.18em; line-height: 1;
+      background: linear-gradient(180deg, #e8fbff 0%, #7fe3f7 55%, #3fb8d8 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-shadow: 0 0 40px rgba(95, 216, 240, 0.25);
+    }
+    #menu .tagline { margin: 10px 0 18px; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: #8fd8ea; }
+    #menu .lore { font-size: 15px; line-height: 1.65; color: #c6d0da; }
+    #menu .lore p + p { margin-top: 10px; }
+    #menu details { margin-top: 18px; font-size: 13px; color: #aab6c2; }
+    #menu summary { cursor: pointer; color: #dfe6ee; font-weight: 600; }
+    #menu details ul { margin: 8px 0 0 18px; line-height: 1.7; }
+    #menu form {
+      background: rgba(18, 22, 30, 0.85); border: 1px solid rgba(127, 227, 247, 0.25); border-radius: 8px;
+      padding: 20px; display: grid; gap: 14px;
+    }
+    #menu form h2 { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #8fd8ea; font-weight: 600; }
+    #menu label.field { display: grid; gap: 6px; font-size: 13px; color: #c6d0da; }
+    #menu .seed-row { display: flex; gap: 8px; }
+    #menu input[type=number], #menu select {
+      font: inherit; font-size: 15px; color: #e8f2f8; background: #0f131a;
+      border: 1px solid #34404e; border-radius: 4px; padding: 7px 9px; width: 100%;
+    }
+    #menu .toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #c6d0da; cursor: pointer; }
+    #menu .toggle input { width: 18px; height: 18px; accent-color: #5fd8f0; }
+    #menu .start { background: linear-gradient(180deg, #8fe8fa, #3fb8d8); color: #0b1218; font-size: 16px; padding: 11px; letter-spacing: 0.1em; }
+    #menu-factions { display: grid; gap: 8px; }
+    #menu .faction {
+      display: grid; grid-template-columns: 18px 1fr; column-gap: 8px; align-items: start; cursor: pointer;
+      padding: 8px 10px; border: 1px solid #34404e; border-radius: 6px; background: #0f131a;
+    }
+    #menu .faction:has(input:checked) { border-color: #7fe3f7; background: #12202a; }
+    #menu .faction input { grid-row: 1 / 4; margin-top: 3px; accent-color: #5fd8f0; }
+    #menu .faction b { font-size: 14px; color: #e8f2f8; }
+    #menu .faction .blurb { font-size: 12px; color: #aab6c2; line-height: 1.45; }
+    #menu .faction ul { margin: 4px 0 0 16px; font-size: 11.5px; color: #8fd8ea; line-height: 1.5; }
+    #menu .faction ul:empty { display: none; }
+    #menu .faction-shardbound b { color: #8fe8fa; }
+    #menu .faction-reclaimers b { color: #f0b070; }
+    .factions { font-size: 11px; color: #b9a37f; letter-spacing: 0.04em; }
+    #menu .roll { white-space: nowrap; background: #1b222c; color: #dfe6ee; border: 1px solid #34404e; font-weight: 600; padding: 7px 12px; }
+
+    /* Online */
+    #online { margin-top: 22px; }
+    #online h2 { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #8fd8ea; font-weight: 600; margin-bottom: 6px; }
+    .online-hint { font-size: 12.5px; color: #aab6c2; line-height: 1.5; margin-bottom: 10px; }
+    .online-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    #online .btn { background: linear-gradient(180deg, #8fe8fa, #3fb8d8); color: #0b1218; }
+    #online .btn.ghost { background: transparent; color: #dfe6ee; border: 1px solid #34404e; margin-left: 0; }
+    .online-or { font-size: 12px; color: #8a96a2; }
+    #join-code {
+      width: 6.5em; font: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+      background: #0e141a; color: #e8f2f8; border: 1px solid #34404e; border-radius: 4px; padding: 7px 10px;
+    }
+    #online-status { margin-top: 10px; font-size: 13px; color: #c6d0da; min-height: 1.4em; }
+    #online-status .code { font-size: 22px; font-weight: 800; letter-spacing: 0.25em; color: #8fe8fa; user-select: text; }
+    #online-status .err { color: #ff8a70; }
+
+    /* Campaign */
+    #campaign { margin-top: 22px; }
+    #campaign h2 { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #8fd8ea; font-weight: 600; margin-bottom: 8px; }
+    #campaign-list { display: grid; gap: 6px; }
+    .mission {
+      display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; text-align: left;
+      font: inherit; font-size: 14px; color: #e8f2f8; background: #11171e; border: 1px solid #2a3440;
+      border-radius: 4px; padding: 8px 12px; cursor: pointer;
+    }
+    .mission:hover:not(:disabled), .mission.open { border-color: #7fe3f7; background: #12202a; }
+    .mission:disabled { opacity: 0.45; cursor: not-allowed; }
+    .mission .status { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #8fd8ea; }
+    .mission.won .status { color: #8fd88a; }
+    .briefing { background: #0e141a; border: 1px solid #2a3440; border-top: none; border-radius: 0 0 4px 4px; margin-top: -6px; padding: 12px; font-size: 13px; line-height: 1.6; color: #c6d0da; }
+    .briefing p + p { margin-top: 8px; }
+    .briefing h3 { margin: 12px 0 4px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #8fd8ea; font-weight: 600; }
+    .briefing ul { margin-left: 18px; }
+    .briefing li.bonus { color: #aab6c2; font-style: italic; }
+    .briefing .btn { margin-top: 12px; background: linear-gradient(180deg, #8fe8fa, #3fb8d8); color: #0b1218; }
+    #objectives {
+      position: fixed; left: 12px; top: 12px; max-width: 300px;
+      background: rgba(28, 22, 17, 0.88); border: 1px solid #5c4a36; border-radius: 4px;
+      padding: 8px 12px; color: #e9dcc4; font-size: 13px; line-height: 1.55;
+    }
+    #objectives[hidden] { display: none; }
+    #objectives b { display: block; color: #ffcf6b; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px; }
+    #objectives div::before { content: "\25A2  "; }
+    #objectives div.done { color: #8fd88a; }
+    #objectives div.done::before { content: "\2714  "; }
+    #objectives div.bonus:not(.done) { color: #b9a37f; font-style: italic; }
+
+    #paused {
+      position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+      background: rgba(8, 10, 14, 0.45); pointer-events: none;
+      font-size: 36px; font-weight: 800; letter-spacing: 0.3em; color: #e8fbff; text-shadow: 0 2px 8px #000;
+    }
+    #paused[hidden] { display: none; }
+    #help {
+      position: fixed; right: 240px; bottom: 12px; max-width: 360px;
+      color: rgba(233, 220, 196, 0.75); font-size: 12px; text-align: right; line-height: 1.5;
+      text-shadow: 0 1px 2px #000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="panel">
+    <div class="row"><span class="label">Credits</span><span id="credits">0</span></div>
+    <div class="row"><span class="label">Power</span><span id="power" title="Produced / used. Production slows to half speed when used exceeds produced.">0 / 0</span></div>
+    <div class="row"><span class="label">Enemy</span><span id="difficulty">Normal</span></div>
+    <div class="row"><span id="factions" class="factions"></span></div>
+    <div class="row"><span class="label">Speed</span><span id="speed" class="factions" title="+ / - to change">Normal</span></div>
+    <div class="row"><span class="label">Map</span><span><span id="map-seed"></span> <button id="mute" class="mute" type="button"></button></span></div>
+    <canvas id="minimap" width="194" height="194"></canvas>
+    <div class="tools"><button id="sell" type="button" title="Sell buildings for half their price (Z)">Sell (Z)</button><button id="repair" type="button" title="Repair buildings, paid as you go (C)">Repair (C)</button></div>
+    <div class="cols">
+      <div><h2>Structures</h2><div id="structures"></div></div>
+      <div><h2>Units</h2><div id="units"></div></div>
+    </div>
+    <div class="research-box"><h2>Research</h2><div id="research"></div></div>
+  </div>
+  <div id="notices"></div>
+  <div id="objectives" hidden></div>
+  <div id="info"></div>
+  <div id="mode" hidden></div>
+  <button id="ability" type="button" hidden></button>
+  <div id="result" hidden>
+    <div class="card">
+      <div id="result-title"></div>
+      <div id="result-text"></div>
+      <button id="again" class="btn">Play a new map</button><button id="to-menu" class="btn ghost">Main menu</button>
+    </div>
+  </div>
+  <div id="help">
+    Drag or click to select &middot; Right-click to move, harvest or attack &middot; Ctrl+right-click to attack-move<br>
+    Sidebar: left-click to build, right-click to cancel &middot; WASD / arrows / edge to scroll &middot; Shift+right-click waypoints &middot; E army &middot; H home &middot; Space last alert &middot; Z sell &middot; C repair &middot; ` health bars &middot; Q hero ability &middot; P pause &middot; M mute &middot; +/- speed &middot; double-click selects all of a type
+  </div>
+  <div id="paused" hidden>PAUSED</div>
+
+  <div id="menu" hidden>
+    <div class="wrap">
+      <div>
+        <h1>VITREA</h1>
+        <div class="tagline">The glass frontier</div>
+        <div class="lore">
+          <p>Vitrea was meant to be a quiet mining colony. Then the storms came &mdash; walls of
+          shattered glass that scour the plains and leave living crystal in their wake.</p>
+          <p>The colony company is long gone. Its claims are not. Rival outfits now fight over every
+          glowing vein, and the crystal keeps growing.</p>
+          <p>Build your base. Harvest the crystal. Break your rival before the next storm breaks you.</p>
+        </div>
+        <details>
+          <summary>How to play</summary>
+          <ul>
+            <li>Your harvester gathers crystal automatically; the refinery turns it into credits.</li>
+            <li>Build from the sidebar: power first, then factories. Place buildings on rock near your base.</li>
+            <li>Drag to select units, right-click to move or attack, Ctrl+right-click to attack-move.</li>
+            <li>Double-click a unit to select all of that type on screen.</li>
+            <li>Shift+1&ndash;9 saves a group, 1&ndash;9 recalls it. X stops. P pauses. + / &minus; change the game speed.</li>
+            <li>Shift+right-click queues waypoints. E selects your whole army, H jumps home, Space jumps to the last attack.</li>
+            <li>Select a factory and right-click the ground to set a rally point for its new units.</li>
+            <li>Sidebar: Shift-click queues five, Ctrl-click keeps a unit in production. Letters on the buttons are hotkeys (Shift for units).</li>
+            <li>Z sells and C repairs buildings. Hold Alt (or press `) to see every health bar. Shift+F1&ndash;F4 bookmarks the camera; F1&ndash;F4 jumps back.</li>
+            <li>Build a Radar Outpost to switch on your minimap.</li>
+            <li>A Tech Center unlocks your heavy unit and your hero. Select the hero and press Q for its ability.</li>
+            <li>Units that deal enough damage rank up: Veteran, Elite, Heroic.</li>
+            <li>Get out of the way of crystal storms &mdash; they shred infantry.</li>
+            <li>Destroy every enemy building to win.</li>
+          </ul>
+        </details>
+        <section id="online">
+          <h2>Play online</h2>
+          <p class="online-hint">1v1 against a friend. The host's map, storms and fog settings are used; each player brings the faction picked on the right.</p>
+          <div class="online-row">
+            <button type="button" id="host-btn" class="btn">Create game</button>
+            <span class="online-or">or</span>
+            <input id="join-code" type="text" maxlength="5" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
+            <button type="button" id="join-btn" class="btn ghost">Join</button>
+          </div>
+          <div id="online-status" role="status"></div>
+        </section>
+        <section id="campaign">
+          <h2>Campaign</h2>
+          <div id="campaign-list"></div>
+        </section>
+      </div>
+      <form id="menu-form">
+        <h2>Skirmish</h2>
+        <label class="field">Map
+          <div class="seed-row">
+            <input id="menu-seed" type="number" min="1" max="99999" required>
+            <button type="button" id="menu-random" class="btn roll" title="Pick a random map">&#127922; Random</button>
+          </div>
+        </label>
+        <div class="field">Your faction
+          <div id="menu-factions"></div>
+        </div>
+        <label class="field">Enemy faction
+          <select id="menu-enemy">
+            <option value="random">Random (not yours)</option>
+            <option value="concord">Concord</option>
+            <option value="shardbound">Shardbound</option>
+            <option value="reclaimers">Reclaimers</option>
+          </select>
+        </label>
+        <label class="field">Game speed
+          <select id="menu-speed">
+            <option value="slow">Slow</option>
+            <option value="normal">Normal</option>
+            <option value="fast">Fast</option>
+            <option value="fastest">Fastest</option>
+          </select>
+        </label>
+        <label class="field">Enemy skill
+          <select id="menu-ai">
+            <option value="easy">Easy</option>
+            <option value="normal">Normal</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <label class="toggle"><input id="menu-storms" type="checkbox"> Crystal storms</label>
+        <label class="toggle"><input id="menu-fog" type="checkbox"> Fog of war</label>
+        <label class="toggle"><input id="menu-edge" type="checkbox"> Scroll at the screen edge</label>
+        <button type="submit" class="btn start">START</button>
+      </form>
+    </div>
+  </div>
+  <script src="dist/game.js"></script>
+</body>
+</html>
