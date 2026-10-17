@@ -1502,6 +1502,15 @@
     }
     trim(g);
   }
+  function muzzleFx(g, x, y, tx, ty, style, reach) {
+    if (style === "beam" || style === "flame") return;
+    const angle = Math.atan2(ty - y, tx - x);
+    const mx = x + Math.cos(angle) * reach;
+    const my = y + Math.sin(angle) * reach;
+    const heavy = style === "shell" || style === "rocket" || style === "arc";
+    add(g, { kind: "muzzle", x: mx, y: my, angle, life: heavy ? 0.12 : 0.06, size: heavy ? 1.3 : 0.6 });
+    if (heavy) add(g, { kind: "smoke", x: mx, y: my, life: 0.6, size: 0.8 });
+  }
   function particlePos(e, age) {
     const k = Math.min(age, e.life) - Math.min(age, e.life) ** 2 / (2 * e.life);
     return { x: e.x + (e.vx ?? 0) * k, y: e.y + (e.vy ?? 0) * k };
@@ -1694,6 +1703,7 @@
   function fire(g, owner, x, y, weapon2, t, source) {
     const w = weapon(weapon2);
     emit(g, { kind: "shot", weapon: weapon2, x, y });
+    muzzleFx(g, x, y, t.x, t.y, w.style, source ? UNIT_STATS[source.kind].radius + 2 : 12);
     if (w.speed === 0) {
       const look2 = w.style === "beam" ? "beam" : w.style === "flame" ? "flame" : "tracer";
       addEffect(g, { kind: look2, x: t.x, y: t.y, x2: x, y2: y, life: look2 === "beam" ? 0.14 : look2 === "flame" ? 0.18 : 0.08 });
@@ -4199,6 +4209,10 @@
       this.miniTiles.height = map.h;
     }
     sprites;
+    /** Tread marks left in the sand (purely visual, kept per screen). */
+    tracks = [];
+    lastTrack = /* @__PURE__ */ new Map();
+    trackClock = 0;
     /** Health bars on every unit and building, not just damaged ones. */
     showAllHealth = false;
     /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
@@ -4230,6 +4244,35 @@
       ctx.drawImage(this.fogPixels, 0, 0, m.w * TILE, m.h * TILE);
       ctx.imageSmoothingEnabled = false;
     }
+    /** Drop a tread mark behind every vehicle that has rolled far enough since its last one. */
+    layTracks(g, seen) {
+      if (g.time < this.trackClock) {
+        this.tracks = [];
+        this.lastTrack.clear();
+      }
+      this.trackClock = g.time;
+      const alive2 = /* @__PURE__ */ new Set();
+      for (const u of g.units) {
+        if (!leavesTracks(u.kind)) continue;
+        alive2.add(u.id);
+        const last = this.lastTrack.get(u.id);
+        if (!last) {
+          this.lastTrack.set(u.id, { x: u.x, y: u.y });
+          continue;
+        }
+        const d = Math.hypot(u.x - last.x, u.y - last.y);
+        if (d < TRACK_STEP) continue;
+        if (d < TRACK_STEP * 4 && seen(u)) {
+          this.tracks.push({ x: (u.x + last.x) / 2, y: (u.y + last.y) / 2, angle: Math.atan2(u.y - last.y, u.x - last.x), gauge: UNIT_STATS[u.kind].radius * 0.62, len: d, t: g.time });
+        }
+        last.x = u.x;
+        last.y = u.y;
+      }
+      for (const id of this.lastTrack.keys()) if (!alive2.has(id)) this.lastTrack.delete(id);
+      let drop = 0;
+      while (drop < this.tracks.length && (g.time - this.tracks[drop].t > TRACK_LIFE || this.tracks.length - drop > MAX_TRACKS)) drop++;
+      if (drop > 0) this.tracks.splice(0, drop);
+    }
     draw(g, cam, drag, ghost, dt) {
       const ctx = this.ctx;
       const m = g.map;
@@ -4260,6 +4303,8 @@
       const y1 = Math.min(m.h - 1, Math.floor((cam.y + cam.h) / TILE));
       const known = (b) => b.owner === g.local || exploredRect(g, b.tx, b.ty, b.w, b.h);
       const seen = (u) => u.owner === g.local || visibleAt(g, u.x, u.y);
+      this.layTracks(g, seen);
+      drawTracks(ctx, this.tracks, g.time, cam);
       for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
       for (const b of [...g.buildings].sort((p, q) => p.ty + p.h - (q.ty + q.h))) if (known(b)) drawBuilding(ctx, b, this.sprites);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
@@ -4282,9 +4327,11 @@
           drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
         }
       }
+      for (const b of g.buildings) if (known(b)) drawBurning(ctx, b, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const p of g.projectiles) drawProjectile(ctx, p);
       for (const e of g.effects) if (e.kind !== "scorch" && e.kind !== "wreck" && e.kind !== "shake") drawEffect(ctx, e);
+      for (const st of g.storms) drawStormShadow(ctx, st);
       if (g.fog.enabled) this.drawShroud(ctx, g);
       for (const st of g.storms) drawStorm(ctx, st, g.time);
       for (const mk of g.markers) {
@@ -4634,6 +4681,69 @@
     ctx.fillRect(x, y, w * Math.max(0, frac), 3);
   }
   var REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var TRACK_STEP = 7;
+  var TRACK_LIFE = 16;
+  var MAX_TRACKS = 2400;
+  function leavesTracks(kind) {
+    return UNIT_STATS[kind].armor !== "infantry" && kind !== "skimmer" && kind !== "monolith";
+  }
+  function drawTracks(ctx, tracks, time, cam) {
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "butt";
+    for (const m of tracks) {
+      if (m.x < cam.x - 20 || m.x > cam.x + cam.w + 20 || m.y < cam.y - 20 || m.y > cam.y + cam.h + 20) continue;
+      const fade = 1 - (time - m.t) / TRACK_LIFE;
+      if (fade <= 0) continue;
+      const c = Math.cos(m.angle);
+      const s = Math.sin(m.angle);
+      const hx = c * m.len / 2;
+      const hy = s * m.len / 2;
+      const ox = -s * m.gauge;
+      const oy = c * m.gauge;
+      ctx.strokeStyle = `rgba(36,28,20,${0.28 * fade})`;
+      ctx.beginPath();
+      ctx.moveTo(m.x + ox - hx, m.y + oy - hy);
+      ctx.lineTo(m.x + ox + hx, m.y + oy + hy);
+      ctx.moveTo(m.x - ox - hx, m.y - oy - hy);
+      ctx.lineTo(m.x - ox + hx, m.y - oy + hy);
+      ctx.stroke();
+    }
+  }
+  function drawBurning(ctx, b, time) {
+    const frac = b.hp / BUILDING_STATS[b.kind].maxHp;
+    if (frac >= 0.5 || b.hp <= 0) return;
+    const w = b.w * TILE;
+    const h = b.h * TILE;
+    const spots = frac < 0.25 ? 2 : 1;
+    for (let k = 0; k < spots; k++) {
+      const seed = b.id * 7.3 + k * 3.1;
+      const fx = b.tx * TILE + w * (0.3 + 0.4 * ((Math.sin(seed) + 1) / 2));
+      const fy = b.ty * TILE + h * (0.25 + 0.35 * ((Math.cos(seed * 1.7) + 1) / 2));
+      const heavy = frac < 0.25 ? 1.3 : 0.8;
+      for (let p = 0; p < 7; p++) {
+        const a = (time * 0.45 + p / 7 + k * 0.37) % 1;
+        ctx.fillStyle = `rgba(186,180,172,${0.75 * Math.sqrt(1 - a) * Math.min(1, a * 4 + 0.4)})`;
+        ctx.beginPath();
+        ctx.arc(fx + Math.sin(p * 2.3 + time) * 3 + a * 14, fy - a * 52 * heavy, (5 + a * 15) * heavy, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (frac < 0.25) {
+        for (let f = 0; f < 3; f++) {
+          const flick = 0.6 + 0.4 * Math.sin(time * (13 + f * 4) + seed + f);
+          const fx2 = fx + (f - 1) * 4;
+          const r = (6 + 3 * f) * flick;
+          const g = ctx.createRadialGradient(fx2, fy, 0, fx2, fy - r * 0.4, r);
+          g.addColorStop(0, "rgba(255,240,180,0.9)");
+          g.addColorStop(0.45, "rgba(255,150,40,0.75)");
+          g.addColorStop(1, "rgba(200,60,20,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.ellipse(fx2, fy - r * 0.5, r * 0.6, r * 1.1, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
   function drawGroundEffect(ctx, e, sprites) {
     const t = e.age / e.life;
     const fade = t > 0.8 ? (1 - t) / 0.2 : 1;
@@ -4756,6 +4866,29 @@
           ctx.fillStyle = "#5a5047";
           ctx.fillRect(-s, -s * 0.6, s * 2, s * 0.4);
         }
+        ctx.restore();
+        break;
+      }
+      case "muzzle": {
+        const r = 9 * e.size * (1 - t * 0.5);
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.rotate(e.angle ?? 0);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        g.addColorStop(0, `rgba(255,250,220,${1 - t})`);
+        g.addColorStop(0.4, `rgba(255,200,90,${0.9 * (1 - t)})`);
+        g.addColorStop(1, "rgba(255,120,40,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(r * 1.6, 0);
+        ctx.lineTo(r * 0.3, r * 0.45);
+        ctx.lineTo(-r * 0.2, 0);
+        ctx.lineTo(r * 0.3, -r * 0.45);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
         break;
       }
@@ -4882,12 +5015,63 @@
     ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
+  function drawStormShadow(ctx, st) {
+    const r = STORMS.radius * TILE;
+    const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
+    const g = ctx.createRadialGradient(st.x, st.y, r * 0.3, st.x, st.y, r * 2.1);
+    g.addColorStop(0, `rgba(14,16,20,${0.35 * fade})`);
+    g.addColorStop(0.55, `rgba(20,20,22,${0.18 * fade})`);
+    g.addColorStop(1, "rgba(20,20,22,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(st.x - r * 2.1, st.y - r * 2.1, r * 4.2, r * 4.2);
+  }
   function drawStorm(ctx, st, time) {
     const r = STORMS.radius * TILE;
     const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
+    for (let i = 0; i < 18; i++) {
+      const a = i * 2.17 + time * (0.35 + i % 3 * 0.12);
+      const d = r * (0.55 + i % 4 * 0.17);
+      const cx = st.x + Math.cos(a) * d;
+      const cy = st.y + Math.sin(a) * d * 0.85;
+      const cr = r * (0.35 + i % 5 * 0.07);
+      const lit = i % 6 >= 4;
+      const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      cg.addColorStop(0, lit ? `rgba(176,156,126,${0.6 * fade})` : `rgba(88,78,66,${0.66 * fade})`);
+      cg.addColorStop(0.6, lit ? `rgba(140,124,102,${0.3 * fade})` : `rgba(70,62,52,${0.34 * fade})`);
+      cg.addColorStop(1, "rgba(70,62,52,0)");
+      ctx.fillStyle = cg;
+      ctx.fillRect(cx - cr, cy - cr, cr * 2, cr * 2);
+    }
+    const flare = Math.max(0, Math.sin(time * 0.9 + st.id) * Math.sin(time * 2.3 + 1)) ** 3;
+    const core = ctx.createRadialGradient(st.x, st.y, 0, st.x, st.y, r * 0.8);
+    core.addColorStop(0, `rgba(160,240,250,${(0.12 + flare * 0.4) * fade})`);
+    core.addColorStop(1, "rgba(111,227,240,0)");
+    ctx.fillStyle = core;
+    ctx.fillRect(st.x - r, st.y - r, r * 2, r * 2);
+    const beat = Math.floor(time * 1.3 + st.id * 0.37);
+    const phase = time * 1.3 + st.id * 0.37 - beat;
+    if (!REDUCED_MOTION && phase < 0.12 && beat * 2654435761 % 5 < 2) {
+      const a0 = beat * 1.618 % 1 * Math.PI * 2;
+      ctx.strokeStyle = `rgba(210,250,255,${(1 - phase / 0.12) * fade})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#6fe3f0";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      let lx = st.x + Math.cos(a0) * r * 0.15;
+      let ly = st.y + Math.sin(a0) * r * 0.15;
+      ctx.moveTo(lx, ly);
+      for (let k = 1; k <= 6; k++) {
+        const jitter = Math.sin(beat * 12.9898 + k * 78.233) * 0.5;
+        lx = st.x + Math.cos(a0 + jitter) * r * (0.15 + k * 0.13);
+        ly = st.y + Math.sin(a0 + jitter) * r * (0.15 + k * 0.13);
+        ctx.lineTo(lx, ly);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
     const grad = ctx.createRadialGradient(st.x, st.y, r * 0.2, st.x, st.y, r * 1.15);
-    grad.addColorStop(0, `rgba(30,45,65,${0.62 * fade})`);
-    grad.addColorStop(0.75, `rgba(60,100,135,${0.45 * fade})`);
+    grad.addColorStop(0, `rgba(30,45,65,${0.34 * fade})`);
+    grad.addColorStop(0.75, `rgba(60,100,135,${0.22 * fade})`);
     grad.addColorStop(1, "rgba(70,110,140,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
