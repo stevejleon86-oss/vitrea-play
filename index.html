@@ -181,6 +181,22 @@
       background: rgba(28, 22, 17, 0.95); border: 1px solid #ffcf6b; border-radius: 6px; padding: 18px 26px; color: #e9dcc4;
     }
     #netwait[hidden] { display: none; }
+    #chat { position: fixed; left: 12px; bottom: 104px; width: min(420px, calc(100vw - 280px)); pointer-events: none; }
+    #chat-log { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
+    .chat-line {
+      align-self: flex-start; max-width: 100%; overflow-wrap: anywhere;
+      background: rgba(28, 22, 17, 0.82); border-radius: 4px; padding: 3px 9px; font-size: 13px; color: #e9dcc4;
+      transition: opacity 1.5s;
+    }
+    .chat-line b { color: #8fd8ea; font-weight: 700; }
+    .chat-line.mine b { color: #ffcf6b; }
+    .chat-line.system { color: #b9a37f; font-style: italic; }
+    .chat-line.old { opacity: 0; }
+    #chat-log.open .chat-line.old { opacity: 0.85; }
+    #chat-input {
+      pointer-events: auto; width: 100%; font: inherit; font-size: 14px; color: #e9dcc4;
+      background: rgba(20, 16, 12, 0.95); border: 1px solid #ffcf6b; border-radius: 4px; padding: 6px 10px;
+    }
     #netwait-text { font-size: 15px; margin-bottom: 12px; }
 
     /* Campaign */
@@ -249,6 +265,10 @@
   <div id="objectives" hidden></div>
   <div id="info"></div>
   <div id="mode" hidden></div>
+  <div id="chat">
+    <div id="chat-log" aria-live="polite"></div>
+    <input id="chat-input" type="text" maxlength="200" autocomplete="off" hidden placeholder="Say something… (Enter to send, Esc to cancel)" aria-label="Chat message">
+  </div>
   <button id="ability" type="button" hidden></button>
   <div id="result" hidden>
     <div class="card">
@@ -259,7 +279,7 @@
   </div>
   <div id="help">
     Drag or click to select &middot; Right-click to move, harvest or attack &middot; Ctrl+right-click to attack-move<br>
-    Sidebar: left-click to build, right-click to cancel &middot; WASD / arrows / edge to scroll &middot; Shift+right-click waypoints &middot; E army &middot; H home &middot; Space last alert &middot; Z sell &middot; C repair &middot; ` health bars &middot; Q hero ability &middot; P pause &middot; M mute &middot; +/- speed &middot; double-click selects all of a type
+    Sidebar: left-click to build, right-click to cancel &middot; WASD / arrows / edge to scroll &middot; Enter chat (online) &middot; Shift+right-click waypoints &middot; E army &middot; H home &middot; Space last alert &middot; Z sell &middot; C repair &middot; ` health bars &middot; Q hero ability &middot; P pause &middot; M mute &middot; +/- speed &middot; double-click selects all of a type
   </div>
   <div id="paused" hidden>PAUSED</div>
   <div id="netwait" hidden>

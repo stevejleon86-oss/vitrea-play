@@ -3541,6 +3541,29 @@
     if (movers.length > 0) commandMove(g, movers, { x: tx, y: ty });
   }
 
+  // src/net/chat.ts
+  var CHAT_MAX = 200;
+  var CHAT_BURST = 5;
+  var CHAT_WINDOW = 8;
+  function cleanChat(text) {
+    if (typeof text !== "string") return null;
+    const tidy = text.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, CHAT_MAX);
+    return tidy || null;
+  }
+  var ChatLimiter = class {
+    times = [];
+    allow(now) {
+      this.times = this.times.filter((t) => now - t < CHAT_WINDOW);
+      if (this.times.length >= CHAT_BURST) return false;
+      this.times.push(now);
+      return true;
+    }
+  };
+  function typingIn(target) {
+    const el2 = target;
+    return !!el2 && (el2.tagName === "INPUT" || el2.tagName === "TEXTAREA" || !!el2.isContentEditable);
+  }
+
   // src/input.ts
   var EDGE = 14;
   var FACTORIES = ["barracks", "lightFactory", "heavyFactory"];
@@ -3591,6 +3614,7 @@
         this.inside = false;
       });
       window.addEventListener("keydown", (e) => {
+        if (typingIn(e.target)) return;
         this.keys.add(e.key.toLowerCase());
         this.onHotkey(e);
         if (e.key === "Escape") {
@@ -5045,7 +5069,7 @@
         this.buttons.push(b);
       });
       window.addEventListener("keydown", (e) => {
-        if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+        if (e.ctrlKey || e.altKey || e.metaKey || e.repeat || typingIn(e.target)) return;
         const m = /^Key([A-Z])$/.exec(e.code);
         if (!m) return;
         const b = (e.shiftKey ? this.unitKeys : this.structureKeys).get(m[1]);
@@ -5658,6 +5682,10 @@
             }
             break;
           }
+          case "chat":
+            this.tone({ freq: 988, type: "sine", dur: 0.07, vol: 0.1 });
+            this.tone({ freq: 1319, type: "sine", dur: 0.09, vol: 0.1, delay: 0.08 });
+            break;
           case "promote":
             this.arpeggio([659, 784, 988, 1319], "triangle", 0.06, 0.14);
             break;
@@ -10785,6 +10813,7 @@
       muteButton.blur();
     });
     window.addEventListener("keydown", (e) => {
+      if (typingIn(e.target)) return;
       if (e.code === "KeyM") {
         sound.toggleMute();
         showMute();
@@ -10868,7 +10897,10 @@
         link.onMessage((m) => {
           const msg = m;
           if (msg.type === "turn" || msg.type === "hash") lockstep.receive(m);
-          else if (msg.type === "rejoin" && msg.fresh) owesCatchUp = link;
+          else if (msg.type === "chat") {
+            const text = cleanChat(m.text);
+            if (text) showChat(FACTIONS[game.factions[online.local === 0 ? 1 : 0]].label, text, "theirs");
+          } else if (msg.type === "rejoin" && msg.fresh) owesCatchUp = link;
           else if (msg.type === "rejoin") {
             link.send({ type: "resume", turn: lockstep.turn });
             lockstep.resendFrom(msg.turn ?? 0);
@@ -10941,6 +10973,56 @@
     let lastInfo = "";
     let lastNotices = "";
     let waitingFor = 0;
+    const chatLog = el("chat-log");
+    const chatInput = el("chat-input");
+    const chatLimiter = new ChatLimiter();
+    const showChat = (who, text, side) => {
+      const line = document.createElement("div");
+      line.className = `chat-line ${side}`;
+      if (side !== "system") {
+        const name = document.createElement("b");
+        name.textContent = `${who}: `;
+        line.append(name);
+      }
+      line.append(text);
+      chatLog.append(line);
+      while (chatLog.children.length > 8) chatLog.firstElementChild?.remove();
+      setTimeout(() => line.classList.add("old"), 15e3);
+      if (side === "theirs") emit(game, { kind: "chat" });
+    };
+    const closeChat = () => {
+      chatInput.value = "";
+      chatInput.hidden = true;
+      chatInput.blur();
+      chatLog.classList.remove("open");
+    };
+    if (online) {
+      window.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || typingIn(e.target)) return;
+        e.preventDefault();
+        chatInput.hidden = false;
+        chatLog.classList.add("open");
+        chatInput.focus();
+      });
+      chatInput.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") return closeChat();
+        if (e.key !== "Enter") return;
+        const text = cleanChat(chatInput.value);
+        if (text) {
+          if (!online.link) showChat("", "Not sent: your opponent is away.", "system");
+          else if (!chatLimiter.allow(performance.now() / 1e3)) showChat("", "Slow down a little before sending more.", "system");
+          else {
+            online.link.send({ type: "chat", text });
+            showChat("You", text, "mine");
+          }
+        }
+        closeChat();
+      });
+      chatInput.addEventListener("blur", () => {
+        if (!chatInput.value) closeChat();
+      });
+    }
     const netWait = el("netwait");
     const netWaitText = el("netwait-text");
     const claimVictory = () => {
