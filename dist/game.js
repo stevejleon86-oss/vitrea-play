@@ -4305,10 +4305,13 @@
     }
     minimapToWorld(e) {
       const r = this.minimap.getBoundingClientRect();
+      const mm = this.minimap;
       const m = this.game.map;
+      const w = mm.clientWidth || r.width;
+      const h = mm.clientHeight || r.height;
       return {
-        x: (e.clientX - r.left) / r.width * m.w * TILE,
-        y: (e.clientY - r.top) / r.height * m.h * TILE
+        x: Math.min(1, Math.max(0, (e.clientX - r.left - mm.clientLeft) / w)) * m.w * TILE,
+        y: Math.min(1, Math.max(0, (e.clientY - r.top - mm.clientTop) / h)) * m.h * TILE
       };
     }
     onDown(e) {
@@ -5888,6 +5891,16 @@
     ctx.drawImage(img, frame * sheet.size, 0, sheet.size, sheet.size, x - s / 2, y - s / 2, s, s);
     ctx.imageSmoothingEnabled = false;
   }
+  function recoil(u) {
+    const kind = UNIT_STATS[u.kind].weapon;
+    if (!kind || UNIT_STATS[u.kind].armor === "infantry") return 0;
+    const w = weapon(kind);
+    const since = w.cooldown * rankCooldown(u) - u.cooldown;
+    if (since < 0 || since > RECOIL_TIME) return 0;
+    const heavy = w.style === "shell" || w.style === "arc" || w.style === "rocket";
+    return (heavy ? 3 : 1) * (1 - since / RECOIL_TIME);
+  }
+  var RECOIL_TIME = 0.16;
   function drawUnit(ctx, u, time, sprites) {
     const sheet = UNIT_SPRITES[u.kind];
     const img = sheet && sprites.get(u.kind, u.owner);
@@ -5899,7 +5912,9 @@
         drawDust(ctx, time);
         ctx.restore();
       }
-      drawStrip(ctx, img, sheet, u.angle, u.x, u.y);
+      const kick = recoil(u);
+      const bob = UNIT_STATS[u.kind].armor === "infantry" && u.path.length > 0 ? Math.abs(Math.sin(time * 11 + u.id)) * -1.5 : 0;
+      drawStrip(ctx, img, sheet, u.angle, u.x - Math.cos(u.angle) * kick, u.y - Math.sin(u.angle) * kick + bob);
       return;
     }
     const team = TEAM[u.owner];
@@ -6184,7 +6199,8 @@
         this.tabButtons.set(t.id, { el: el2, dot });
       }
       BUILDABLE.forEach((kind, i) => {
-        const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i]);
+        const art = BUILDING_STATS[kind].weapon ? portraitOf(kind, me) : `assets/buildings/${game.factions[me]}/${kind}_${me}.png`;
+        const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i], art, BUILDING_STATS[kind].weapon ? "unit" : "building");
         b.press = () => {
           const job = structureOf(game, me);
           if (job?.kind === kind && job.done) hooks.beginPlacing(kind);
@@ -6219,7 +6235,7 @@
       TRAINABLE.filter((k) => canTrain(faction, k)).forEach((kind, i) => {
         const cost = unitCost(faction, kind);
         const key = HOTKEYS[i];
-        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`);
+        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`, portraitOf(kind, me), "unit");
         b.producer = UNIT_STATS[kind].producer;
         b.press = () => issue({ t: "train", kind, n: 1 });
         if (key) this.unitKeys.set(key, b);
@@ -6312,9 +6328,23 @@
       for (const b of this.buttons) b.update();
     }
   };
-  function makeButton(label, cost, color, key) {
+  function makeButton(label, cost, color, key, art, fit) {
     const el2 = document.createElement("button");
     el2.className = "build";
+    if (art) {
+      const img = document.createElement("img");
+      img.className = `art ${fit ?? "unit"}`;
+      img.alt = "";
+      img.decoding = "async";
+      img.draggable = false;
+      img.src = art;
+      img.onerror = () => {
+        img.remove();
+        el2.classList.remove("has-art");
+      };
+      el2.classList.add("has-art");
+      el2.append(img);
+    }
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.style.background = color;
