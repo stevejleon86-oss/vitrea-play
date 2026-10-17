@@ -1434,6 +1434,79 @@
     return false;
   }
 
+  // src/fx.ts
+  var WRECK_LIFE = 40;
+  var SCORCH_LIFE = 30;
+  var CRATER_LIFE = 60;
+  var MAX_EFFECTS = 1400;
+  function add(g, e) {
+    g.effects.push({ x2: e.x, y2: e.y, age: 0, size: 1, ...e });
+  }
+  var rand = (a, b) => a + Math.random() * (b - a);
+  function burst(g, kind, x, y, count2, speed, life, size, color) {
+    for (let i = 0; i < count2; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = speed * rand(0.4, 1);
+      add(g, { kind, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.75, spin: rand(-12, 12), life: life * rand(0.7, 1.15), size: size * rand(0.6, 1.3), color });
+    }
+  }
+  function trim(g) {
+    if (g.effects.length <= MAX_EFFECTS) return;
+    const lasting = (e) => e.kind === "wreck" || e.kind === "scorch";
+    let excess = g.effects.length - MAX_EFFECTS;
+    g.effects = g.effects.filter((e) => excess <= 0 || lasting(e) || (excess--, false));
+  }
+  function unitDeathFx(g, u) {
+    const glass = g.factions[u.owner] === "shardbound";
+    const stats = UNIT_STATS[u.kind];
+    if (stats.armor === "infantry") {
+      add(g, { kind: "fire", x: u.x, y: u.y, life: 0.35, size: 0.45 });
+      add(g, { kind: "plume", x: u.x, y: u.y, life: 1.6, size: 0.5 });
+      burst(g, "debris", u.x, u.y, 4, 60, 0.6, 0.6);
+      if (glass) burst(g, "shard", u.x, u.y, 9, 90, 0.9, 0.7);
+    } else {
+      const scale = stats.radius / 11;
+      add(g, { kind: "fire", x: u.x, y: u.y, life: 0.7, size: 1.2 * scale });
+      add(g, { kind: "ring", x: u.x, y: u.y, life: 0.45, size: 1.1 * scale });
+      add(g, { kind: "plume", x: u.x, y: u.y, life: 6, size: 1.1 * scale });
+      burst(g, "debris", u.x, u.y, Math.round(10 * scale), 130, 1, scale);
+      burst(g, "spark", u.x, u.y, Math.round(8 * scale), 200, 0.45, 1);
+      if (glass || u.kind === "harvester") burst(g, "shard", u.x, u.y, Math.round(14 * scale), 150, 1.2, scale, glass ? "#6fe3f0" : "#8fe8f5");
+      add(g, { kind: "scorch", x: u.x, y: u.y, life: SCORCH_LIFE, size: 1.2 * scale });
+      add(g, { kind: "wreck", x: u.x, y: u.y, life: WRECK_LIFE, size: scale, unit: u.kind, angle: u.angle, owner: u.owner });
+      add(g, { kind: "shake", x: u.x, y: u.y, life: 0.3, size: 0.6 * scale });
+    }
+    trim(g);
+  }
+  function buildingDeathFx(g, x, y, w, h) {
+    const scale = Math.max(w, h) / 2;
+    add(g, { kind: "fire", x, y, life: 1.1, size: 2.2 * scale });
+    add(g, { kind: "fire", x: x + rand(-10, 10) * scale, y: y + rand(-8, 8) * scale, life: 0.9, size: 1.4 * scale });
+    add(g, { kind: "ring", x, y, life: 0.7, size: 2.2 * scale });
+    add(g, { kind: "plume", x, y, life: 10, size: 1.8 * scale });
+    burst(g, "debris", x, y, Math.round(14 * scale), 170, 1.3, 1.3);
+    burst(g, "spark", x, y, Math.round(12 * scale), 240, 0.6, 1.2);
+    add(g, { kind: "scorch", x, y, life: CRATER_LIFE, size: 1.4 * Math.max(w, h) });
+    add(g, { kind: "shake", x, y, life: 0.5, size: 1.2 * scale });
+    trim(g);
+  }
+  function impactFx(g, x, y, big) {
+    if (big) {
+      add(g, { kind: "fire", x, y, life: 0.5, size: 0.9 });
+      add(g, { kind: "ring", x, y, life: 0.35, size: 0.7 });
+      burst(g, "spark", x, y, 5, 170, 0.35, 0.9);
+      add(g, { kind: "scorch", x, y, life: 10, size: 0.6 });
+    } else {
+      add(g, { kind: "fire", x, y, life: 0.3, size: 0.45 });
+      burst(g, "spark", x, y, 3, 130, 0.3, 0.7);
+    }
+    trim(g);
+  }
+  function particlePos(e, age) {
+    const k = Math.min(age, e.life) - Math.min(age, e.life) ** 2 / (2 * e.life);
+    return { x: e.x + (e.vx ?? 0) * k, y: e.y + (e.vy ?? 0) * k };
+  }
+
   // src/research.ts
   var RESEARCH_SPEED = 0.5;
   var AI_RESERVE = 1500;
@@ -1585,7 +1658,7 @@
     g.selection.delete(u.id);
     const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
     emit(g, { kind: "explode", big, x: u.x, y: u.y });
-    addEffect(g, { kind: big ? "bigBoom" : "boom", x: u.x, y: u.y, life: big ? 0.8 : 0.5, size: big ? 1.4 : u.kind === "infantry" ? 0.5 : 1 });
+    unitDeathFx(g, u);
     if (isHero(u.kind)) notify(g, u.owner === g.local ? `${UNIT_STATS[u.kind].label} has fallen!` : `Enemy hero ${UNIT_STATS[u.kind].label} is down!`);
     if (u.owner === g.local && isHero(u.kind)) emit(g, { kind: "heroVoice", unit: u.kind, line: "fallen" });
     else if (u.owner === g.local && u.kind !== "harvester") announce(g, "unit_lost", 6);
@@ -1614,7 +1687,7 @@
     if (g.selectedBuilding === b.id) g.selectedBuilding = null;
     const c = buildingCentre(b);
     emit(g, { kind: "explode", big: true, x: c.x, y: c.y });
-    addEffect(g, { kind: "bigBoom", x: c.x, y: c.y, life: 1.1, size: 1 + Math.max(b.w, b.h) * 0.6 });
+    buildingDeathFx(g, c.x, c.y, b.w, b.h);
     notify(g, b.owner === g.local ? `${BUILDING_STATS[b.kind].label} destroyed` : `Enemy ${BUILDING_STATS[b.kind].label} destroyed`);
     if (b.owner === g.local) announce(g, "structure_lost", 3);
   }
@@ -1807,10 +1880,10 @@
         const source = p.sourceId !== null ? g.units.find((u) => u.id === p.sourceId) : void 0;
         if (w.splash) {
           splashDamage(g, p.owner, p.tx, p.ty, p.weapon, source);
-          addEffect(g, { kind: "bigBoom", x: p.tx, y: p.ty, life: 0.6, size: 0.9 });
+          impactFx(g, p.tx, p.ty, true);
         } else {
           if (t) damage(g, t.id, w.damage * w.vs[t.armor] * power(g, source), source, p.owner);
-          addEffect(g, { kind: "boom", x: p.tx, y: p.ty, life: 0.35, size: 0.6 });
+          impactFx(g, p.tx, p.ty, false);
         }
       } else {
         p.x += dx / d * step;
@@ -4167,8 +4240,18 @@
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.terrain, cam.x / k, cam.y / k, cam.w / k, cam.h / k, 0, 0, cam.w, cam.h);
       ctx.imageSmoothingEnabled = false;
+      let shakeX = 0;
+      let shakeY = 0;
+      if (!REDUCED_MOTION) {
+        for (const e of g.effects) {
+          if (e.kind !== "shake" || e.x < cam.x || e.x > cam.x + cam.w || e.y < cam.y || e.y > cam.y + cam.h) continue;
+          const amp = 5 * e.size * (1 - e.age / e.life);
+          shakeX += (Math.random() - 0.5) * amp;
+          shakeY += (Math.random() - 0.5) * amp;
+        }
+      }
       ctx.save();
-      ctx.translate(-cam.x, -cam.y);
+      ctx.translate(Math.round(-cam.x + shakeX), Math.round(-cam.y + shakeY));
       this.spice.update(m);
       ctx.drawImage(this.spice.canvas, cam.x, cam.y, cam.w, cam.h, cam.x, cam.y, cam.w, cam.h);
       const x0 = Math.max(0, Math.floor(cam.x / TILE));
@@ -4177,6 +4260,7 @@
       const y1 = Math.min(m.h - 1, Math.floor((cam.y + cam.h) / TILE));
       const known = (b) => b.owner === g.local || exploredRect(g, b.tx, b.ty, b.w, b.h);
       const seen = (u) => u.owner === g.local || visibleAt(g, u.x, u.y);
+      for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
       for (const b of [...g.buildings].sort((p, q) => p.ty + p.h - (q.ty + q.h))) if (known(b)) drawBuilding(ctx, b, this.sprites);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
       if (sel) drawBuildingSelection(ctx, sel);
@@ -4200,7 +4284,7 @@
       }
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const p of g.projectiles) drawProjectile(ctx, p);
-      for (const e of g.effects) drawEffect(ctx, e);
+      for (const e of g.effects) if (e.kind !== "scorch" && e.kind !== "wreck" && e.kind !== "shake") drawEffect(ctx, e);
       if (g.fog.enabled) this.drawShroud(ctx, g);
       for (const st of g.storms) drawStorm(ctx, st, g.time);
       for (const mk of g.markers) {
@@ -4549,9 +4633,132 @@
     ctx.fillStyle = frac > 0.5 ? "#5fd35a" : frac > 0.25 ? "#e8c35a" : "#e0503a";
     ctx.fillRect(x, y, w * Math.max(0, frac), 3);
   }
+  var REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function drawGroundEffect(ctx, e, sprites) {
+    const t = e.age / e.life;
+    const fade = t > 0.8 ? (1 - t) / 0.2 : 1;
+    if (e.kind === "scorch") {
+      const r = 14 * e.size;
+      const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+      g.addColorStop(0, `rgba(18,14,10,${0.55 * fade})`);
+      g.addColorStop(0.6, `rgba(30,24,18,${0.32 * fade})`);
+      g.addColorStop(1, "rgba(30,24,18,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, r, r * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    const sheet = e.unit ? UNIT_SPRITES[e.unit] : void 0;
+    const img = sheet && e.unit ? sprites.get(e.unit, e.owner ?? 0) : null;
+    ctx.save();
+    ctx.globalAlpha = 0.9 * fade;
+    if (sheet && img) {
+      ctx.filter = "brightness(0.28) saturate(0.25)";
+      drawStrip(ctx, img, sheet, (e.angle ?? 0) + 0.25, e.x, e.y);
+      ctx.filter = "none";
+    } else {
+      ctx.fillStyle = "#1c1814";
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, 10 * e.size, 7 * e.size, e.angle ?? 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    if (e.age < 8) {
+      const flicker = 0.5 + 0.5 * Math.sin(e.age * 23 + e.x);
+      ctx.fillStyle = `rgba(255,${Math.round(120 + 80 * flicker)},40,${0.55 * (1 - e.age / 8)})`;
+      ctx.beginPath();
+      ctx.arc(e.x + 3 * e.size, e.y - 2 * e.size, (2 + 2 * flicker) * e.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (e.age < 20) {
+      for (let k = 0; k < 3; k++) {
+        const a = (e.age * 0.7 + k * 0.33) % 1;
+        ctx.fillStyle = `rgba(70,64,58,${0.28 * (1 - a) * (1 - e.age / 20) * fade})`;
+        ctx.beginPath();
+        ctx.arc(e.x + 2 + a * 6, e.y - 4 - a * 26, 3 + a * 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
   function drawEffect(ctx, e) {
     const t = e.age / e.life;
     switch (e.kind) {
+      case "fire": {
+        const grow = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) * 0.5;
+        const r = 16 * e.size * grow;
+        if (r <= 0) break;
+        const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+        g.addColorStop(0, `rgba(255,250,220,${1 - t})`);
+        g.addColorStop(0.35, `rgba(255,190,70,${0.95 * (1 - t)})`);
+        g.addColorStop(0.7, `rgba(220,80,30,${0.7 * (1 - t)})`);
+        g.addColorStop(1, "rgba(80,40,20,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y - 6 * t * e.size, r, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "ring": {
+        ctx.strokeStyle = `rgba(255,235,200,${0.6 * (1 - t)})`;
+        ctx.lineWidth = 3 * (1 - t) + 0.5;
+        ctx.beginPath();
+        ctx.ellipse(e.x, e.y, 30 * e.size * t, 22 * e.size * t, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "plume": {
+        for (let k = 0; k < 6; k++) {
+          const a = (e.age * 0.6 + k / 6) % 1;
+          const alpha = 0.32 * (1 - a) * Math.min(1, (1 - t) * 3) * Math.min(1, e.age * 4);
+          if (alpha < 0.01) continue;
+          ctx.fillStyle = `rgba(60,55,50,${alpha})`;
+          ctx.beginPath();
+          ctx.arc(e.x + Math.sin(k * 2.1 + e.age) * 4 * e.size + a * 10, e.y - a * 46 * e.size, (4 + a * 12) * e.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "debris":
+      case "shard":
+      case "spark": {
+        const p = particlePos(e, e.age);
+        const hop = e.kind === "spark" ? 0 : Math.sin(Math.min(1, t * 1.4) * Math.PI) * 14 * e.size;
+        const rot = (e.spin ?? 0) * e.age;
+        ctx.save();
+        ctx.translate(p.x, p.y - hop);
+        ctx.rotate(rot);
+        if (e.kind === "spark") {
+          ctx.strokeStyle = `rgba(255,${Math.round(220 - 100 * t)},120,${1 - t})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(-(e.vx ?? 0) * 0.03, -(e.vy ?? 0) * 0.03);
+          ctx.stroke();
+        } else if (e.kind === "shard") {
+          const s = 4 * e.size;
+          ctx.globalAlpha = Math.min(1, (1 - t) * 2);
+          ctx.fillStyle = e.color ?? "#6fe3f0";
+          ctx.shadowColor = e.color ?? "#6fe3f0";
+          ctx.shadowBlur = 6;
+          ctx.beginPath();
+          ctx.moveTo(0, -s);
+          ctx.lineTo(s * 0.4, 0);
+          ctx.lineTo(0, s * 0.8);
+          ctx.lineTo(-s * 0.4, 0);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          const s = 2.6 * e.size;
+          ctx.globalAlpha = Math.min(1, (1 - t) * 2);
+          ctx.fillStyle = "#2c2824";
+          ctx.fillRect(-s, -s * 0.6, s * 2, s * 1.2);
+          ctx.fillStyle = "#5a5047";
+          ctx.fillRect(-s, -s * 0.6, s * 2, s * 0.4);
+        }
+        ctx.restore();
+        break;
+      }
       case "tracer":
         ctx.strokeStyle = `rgba(255,235,150,${1 - t})`;
         ctx.lineWidth = 1.5;
@@ -5262,10 +5469,10 @@
       edgeScroll: flag(query.get("edge")) ?? base.edgeScroll
     };
   }
-  function resolveFactions(s, rand) {
-    const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand() * FACTION_IDS.length)] : s.faction;
+  function resolveFactions(s, rand2) {
+    const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand2() * FACTION_IDS.length)] : s.faction;
     const others = FACTION_IDS.filter((f) => f !== player);
-    const enemy = s.enemyFaction === "random" ? others[Math.floor(rand() * others.length)] : s.enemyFaction;
+    const enemy = s.enemyFaction === "random" ? others[Math.floor(rand2() * others.length)] : s.enemyFaction;
     return { player, enemy };
   }
   function settingsToQuery(s, play) {
@@ -5282,8 +5489,8 @@
     if (play) q.set("play", "1");
     return q;
   }
-  function randomSeed(rand = Math.random) {
-    return 1 + Math.floor(rand() * MAX_SEED);
+  function randomSeed(rand2 = Math.random) {
+    return 1 + Math.floor(rand2() * MAX_SEED);
   }
   var STORAGE_KEY = "vitrea.settings";
   function loadSaved() {
@@ -10366,9 +10573,9 @@
   // src/net/peer.ts
   var PREFIX = "vitrea-mp-";
   var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  function makeCode(rand = Math.random) {
+  function makeCode(rand2 = Math.random) {
     let code = "";
-    for (let i = 0; i < 5; i++) code += CODE_CHARS[Math.floor(rand() * CODE_CHARS.length)];
+    for (let i = 0; i < 5; i++) code += CODE_CHARS[Math.floor(rand2() * CODE_CHARS.length)];
     return code;
   }
   function cleanCode(text) {
