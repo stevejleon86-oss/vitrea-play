@@ -952,6 +952,15 @@
     seer: STRIP,
     rook: STRIP
   };
+  var UNIT_TURRETS = {
+    tank: { pivot: -1.33 },
+    quad: { pivot: -2 },
+    prismTank: { pivot: 0.67 },
+    wrecker: { pivot: -2 },
+    mortarCrawler: { pivot: -0.67 },
+    bastion: { pivot: -2 },
+    titan: { pivot: -2.67 }
+  };
   var TURRET_SPRITES = {
     turret: STRIP,
     rocketTurret: STRIP
@@ -1455,7 +1464,8 @@
     }
     trim(g);
   }
-  function muzzleFx(g, x, y, tx, ty, style, reach) {
+  function muzzleFx(g, x, y, tx, ty, style, reach, infantry = false) {
+    if (infantry) add(g, { kind: "smoke", x: x + (Math.random() - 0.5) * 4, y: y + 3, life: 0.45, size: 0.4 });
     if (style === "beam" || style === "flame") return;
     const angle = Math.atan2(ty - y, tx - x);
     const mx = x + Math.cos(angle) * reach;
@@ -1656,7 +1666,7 @@
   function fire(g, owner, x, y, weapon2, t, source) {
     const w = weapon(weapon2);
     emit(g, { kind: "shot", weapon: weapon2, x, y });
-    muzzleFx(g, x, y, t.x, t.y, w.style, source ? UNIT_STATS[source.kind].radius + 2 : 12);
+    muzzleFx(g, x, y, t.x, t.y, w.style, source ? UNIT_STATS[source.kind].radius + 2 : 12, !!source && UNIT_STATS[source.kind].armor === "infantry");
     if (w.speed === 0) {
       const look2 = w.style === "beam" ? "beam" : w.style === "flame" ? "flame" : "tracer";
       addEffect(g, { kind: look2, x: t.x, y: t.y, x2: x, y2: y, life: look2 === "beam" ? 0.14 : look2 === "flame" ? 0.18 : 0.08 });
@@ -4848,6 +4858,7 @@
     miniTiles;
     miniAge = Infinity;
     constructor(view, minimap, map, factions) {
+      this.factions = factions;
       this.sprites = new SpriteBank(factions);
       this.ctx = view.getContext("2d");
       this.mini = minimap.getContext("2d");
@@ -4864,10 +4875,16 @@
       }
     }
     sprites;
+    factions;
     /** Scenery scattered over the map, back to front. */
     props;
     /** Each prop's image and its mirror image, once loaded. */
     propImages = /* @__PURE__ */ new Map();
+    /** Crystal light: one pixel per tile, how strongly the glass lights the ground there. */
+    crystalLight = null;
+    crystalLightAt = -Infinity;
+    /** How each turreted vehicle is shown: hull along its travel, turret on its target. */
+    poses = /* @__PURE__ */ new Map();
     /** Dust kicked up behind vehicles on the sand (purely visual). */
     dust = [];
     /** Tread marks left in the sand (purely visual, kept per screen). */
@@ -4919,6 +4936,73 @@
       ctx.imageSmoothingEnabled = false;
     }
     fogImage = null;
+    /**
+     * Turreted vehicles: the hull swings round to wherever the vehicle is actually
+     * going, the turret to whatever it's shooting at (or back to the front), each
+     * at its own pace. Purely visual; the simulation keeps its single facing.
+     */
+    updatePoses(g, dt) {
+      const alive2 = /* @__PURE__ */ new Set();
+      for (const u of g.units) {
+        if (!UNIT_TURRETS[u.kind]) continue;
+        alive2.add(u.id);
+        let p = this.poses.get(u.id);
+        if (!p) {
+          p = { hull: u.angle, turret: u.angle, x: u.x, y: u.y };
+          this.poses.set(u.id, p);
+        }
+        const dx = u.x - p.x;
+        const dy = u.y - p.y;
+        p.x = u.x;
+        p.y = u.y;
+        const hullAim = dx * dx + dy * dy > 0.04 ? Math.atan2(dy, dx) : p.hull;
+        p.hull = turnTowards(p.hull, hullAim, HULL_TURN * dt);
+        const t = u.targetId !== null ? targetInfo(g, u.targetId) : null;
+        const turretAim = t ? Math.atan2(t.y - u.y, t.x - u.x) : p.hull;
+        p.turret = turnTowards(p.turret, turretAim, TURRET_TURN * dt);
+      }
+      for (const id of this.poses.keys()) if (!alive2.has(id)) this.poses.delete(id);
+    }
+    /**
+     * Rebuild the crystal light map every couple of seconds (fields grow and get
+     * mined slowly): each tile glows with the crystal around it, spread over a
+     * few tiles, so fields cast a soft cyan light on the ground and on anything
+     * standing near them.
+     */
+    updateCrystalLight(g) {
+      const m = g.map;
+      if (this.crystalLight && g.time - this.crystalLightAt < 2 && g.time >= this.crystalLightAt) return;
+      this.crystalLightAt = g.time;
+      if (!this.crystalLight) {
+        this.crystalLight = document.createElement("canvas");
+        this.crystalLight.width = m.w;
+        this.crystalLight.height = m.h;
+      }
+      const lctx = this.crystalLight.getContext("2d");
+      const img = lctx.createImageData(m.w, m.h);
+      const R = 2;
+      for (let y = 0; y < m.h; y++) {
+        for (let x = 0; x < m.w; x++) {
+          let sum = 0;
+          for (let dy = -R; dy <= R; dy++) {
+            const yy = y + dy;
+            if (yy < 0 || yy >= m.h) continue;
+            for (let dx = -R; dx <= R; dx++) {
+              const xx = x + dx;
+              if (xx < 0 || xx >= m.w) continue;
+              const s = m.spice[yy * m.w + xx];
+              if (s > 0) sum += Math.min(1, s / 400) / (1 + dx * dx + dy * dy);
+            }
+          }
+          const o = (y * m.w + x) * 4;
+          img.data[o] = 110;
+          img.data[o + 1] = 225;
+          img.data[o + 2] = 245;
+          img.data[o + 3] = Math.min(255, sum * 70);
+        }
+      }
+      lctx.putImageData(img, 0, 0);
+    }
     /** Drop a tread mark behind every vehicle that has rolled far enough since its last one. */
     layTracks(g, seen) {
       if (g.time < this.trackClock) {
@@ -5011,8 +5095,9 @@
       if (sel) drawBuildingSelection(ctx, sel);
       if (sel?.rally && sel.owner === g.local) drawRally(ctx, sel);
       for (const b of g.buildings) if (b.repairing && b.owner === g.local) drawRepairing(ctx, b, g.time);
+      this.updatePoses(g, dt);
       const units = g.units.filter((u) => onScreen(u.x, u.y) && seen(u));
-      for (const u of units) drawUnit(ctx, u, g.time, this.sprites);
+      for (const u of units) drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
       for (const u of units) {
         if (g.selection.has(u.id)) {
           drawSelection(ctx, u);
@@ -5033,12 +5118,31 @@
         drawGlow(ctx, dustGlow(), d.x, d.y - a * 5, r, r * 0.8, 0.6 * (1 - a));
       }
       for (const b of shown) drawBurning(ctx, b, g.time);
+      for (const u of units) drawDamageSmoke(ctx, u, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
       for (const e of g.effects) {
         if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
         if (onScreen(e.x, e.y) || onScreen(e.x2, e.y2)) drawEffect(ctx, e);
       }
+      this.updateCrystalLight(g);
+      if (this.crystalLight) {
+        const sx = Math.max(0, Math.floor(cam.x / TILE) - 2);
+        const sy = Math.max(0, Math.floor(cam.y / TILE) - 2);
+        const sw = Math.min(m.w - sx, Math.ceil(cam.w / TILE) + 5);
+        const sh = Math.min(m.h - sy, Math.ceil(cam.h / TILE) + 5);
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = 0.16 + 0.04 * Math.sin(g.time * 0.8);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(this.crystalLight, sx, sy, sw, sh, sx * TILE, sy * TILE, sw * TILE, sh * TILE);
+        ctx.restore();
+      }
+      const lowPower = { 0: powerInfo(g, 0).low, 1: powerInfo(g, 1).low };
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
+      ctx.restore();
       for (const st of g.storms) drawStormShadow(ctx, st);
       if (g.fog.enabled) this.drawShroud(ctx, g, cam);
       for (const st of g.storms) drawStorm(ctx, st, g.time);
@@ -5389,6 +5493,14 @@
     ctx.fillRect(x, y, w * Math.max(0, frac), 3);
   }
   var REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var HULL_TURN = 4.5;
+  var TURRET_TURN = 7;
+  var DEPTH = Math.sin(50 * Math.PI / 180);
+  function turnTowards(from, to, step) {
+    let d = ((to - from + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    if (Math.abs(d) <= step) return to;
+    return from + Math.sign(d) * step;
+  }
   var TRACK_STEP = 7;
   var DUST_LIFE = 0.9;
   var MAX_DUST = 400;
@@ -5502,6 +5614,35 @@
       WRECK_STRIPS.set(img, c);
     }
     return c;
+  }
+  var BEACON_COLOR = { concord: "#f2b33d", shardbound: "#6fe3f0", reclaimers: "#ff6a3d" };
+  var beaconGlow = (color) => radialGlow(`beacon${color}`, [[0, "rgba(255,255,255,1)"], [0.18, color], [1, "rgba(0,0,0,0)"]]);
+  var smokeGlow = () => radialGlow("smoke", [[0, "rgba(192,186,178,0.95)"], [0.55, "rgba(170,164,156,0.5)"], [1, "rgba(150,144,136,0)"]]);
+  function drawBeacons(ctx, b, time, color, dark) {
+    const w = b.w * TILE;
+    const corners = b.w >= 2 ? [0.2, 0.82] : [0.5];
+    corners.forEach((fx, k) => {
+      const phase = (time * (dark ? 0.5 : 0.7) + b.id * 0.37 + k * 0.5) % 1;
+      const on2 = dark ? phase < 0.5 ? 0.5 : 0 : phase < 0.12 ? 1 : phase < 0.2 ? 0.35 : 0.12;
+      if (on2 <= 0) return;
+      const x = b.tx * TILE + w * fx;
+      const y = b.ty * TILE - 4;
+      drawGlow(ctx, beaconGlow(dark ? "#e0503a" : color), x, y, 9, 9, on2);
+    });
+  }
+  function drawDamageSmoke(ctx, u, time) {
+    const s = UNIT_STATS[u.kind];
+    if (s.armor === "infantry") return;
+    const frac = u.hp / s.maxHp;
+    if (frac >= 0.35) return;
+    const heavy = frac < 0.15 ? 1.3 : 1;
+    const r = s.radius / 11;
+    for (let p = 0; p < 5; p++) {
+      const a = (time * 0.7 + p / 5 + u.id * 0.13) % 1;
+      const size = (4 + a * 10) * r * heavy;
+      drawGlow(ctx, smokeGlow(), u.x - 2 * r + a * 8, u.y - 4 - a * 28 * r, size, size, 0.95 * Math.sqrt(1 - a) * Math.min(1, a * 4 + 0.4));
+    }
+    if (frac < 0.15 && (time * 3 + u.id) % 1 < 0.15) drawGlow(ctx, flameGlow(), u.x - 2 * r, u.y - 3, 4 * r, 5 * r, 0.9);
   }
   function drawBurning(ctx, b, time) {
     const frac = b.hp / BUILDING_STATS[b.kind].maxHp;
@@ -5869,6 +6010,7 @@
       const buildings = Object.keys(BUILDING_STATS).filter((k) => !(k in TURRET_SPRITES));
       for (const owner of [0, 1]) {
         for (const kind of strips) this.load(`${kind}_${owner}`, `assets/units/${kind}_${owner}.png`);
+        for (const kind of Object.keys(UNIT_TURRETS)) this.load(`${kind}_turret_${owner}`, `assets/units/${kind}_turret_${owner}.png`);
         for (const kind of buildings) this.load(`${kind}_${owner}`, `assets/buildings/${factions[owner]}/${kind}_${owner}.png`);
       }
     }
@@ -5879,6 +6021,10 @@
     }
     get(kind, owner) {
       const img = this.images.get(`${kind}_${owner}`);
+      return img && img.complete && img.naturalWidth > 0 ? img : null;
+    }
+    turret(kind, owner) {
+      const img = this.images.get(`${kind}_turret_${owner}`);
       return img && img.complete && img.naturalWidth > 0 ? img : null;
     }
   };
@@ -5901,9 +6047,19 @@
     return (heavy ? 3 : 1) * (1 - since / RECOIL_TIME);
   }
   var RECOIL_TIME = 0.16;
-  function drawUnit(ctx, u, time, sprites) {
+  function drawUnit(ctx, u, time, sprites, pose) {
     const sheet = UNIT_SPRITES[u.kind];
     const img = sheet && sprites.get(u.kind, u.owner);
+    const turretInfo = UNIT_TURRETS[u.kind];
+    const turretImg = turretInfo && sprites.turret(u.kind, u.owner);
+    if (sheet && img && pose && turretInfo && turretImg) {
+      const kick = recoil(u);
+      drawStrip(ctx, img, sheet, pose.hull, u.x, u.y);
+      const px = u.x + Math.cos(pose.hull) * turretInfo.pivot - Math.cos(pose.turret) * kick;
+      const py = u.y + (Math.sin(pose.hull) * turretInfo.pivot - Math.sin(pose.turret) * kick) * DEPTH;
+      drawStrip(ctx, turretImg, sheet, pose.turret, px, py);
+      return;
+    }
     if (sheet && img) {
       if (u.kind === "harvester" && u.harvest === "harvesting") {
         ctx.save();
