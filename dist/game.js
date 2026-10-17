@@ -11114,6 +11114,16 @@
       showMute();
       muteButton.blur();
     });
+    const controls = el("controls");
+    window.addEventListener("keydown", (e) => {
+      if (typingIn(e.target)) return;
+      if (e.code === "Slash" || e.key === "/" || e.key === "?") {
+        e.preventDefault();
+        controls.hidden = !controls.hidden;
+        return;
+      }
+      if (e.key === "Escape" && !controls.hidden) controls.hidden = true;
+    });
     window.addEventListener("keydown", (e) => {
       if (typingIn(e.target)) return;
       if (e.code === "KeyM") {
