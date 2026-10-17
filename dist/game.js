@@ -3449,9 +3449,9 @@
     const taken = /* @__PURE__ */ new Set();
     const claim = (p) => {
       const options = formationTiles(g.map, p, units.length + taken.size + 1);
-      const pick = options.find((o) => !taken.has(idx(g.map, o.x, o.y))) ?? p;
-      taken.add(idx(g.map, pick.x, pick.y));
-      return pick;
+      const pick2 = options.find((o) => !taken.has(idx(g.map, o.x, o.y))) ?? p;
+      taken.add(idx(g.map, pick2.x, pick2.y));
+      return pick2;
     };
     if (units.length > 1 && spread <= 4) {
       const order2 = units.map((_, k) => k).sort((a, b) => Math.hypot(tiles[a].x - target.x, tiles[a].y - target.y) - Math.hypot(tiles[b].x - target.x, tiles[b].y - target.y));
@@ -4595,11 +4595,98 @@
     }
   };
 
+  // src/props.ts
+  var PROP_NAMES = ["boulders_a", "boulders_b", "boulders_c", "rubble_a", "rubble_b", "barrels", "crates", "pipe", "ribs", "scrap", "deadcrystal", "wreck"];
+  var PROP_SIZE = {
+    boulders_a: 128,
+    boulders_b: 128,
+    boulders_c: 128,
+    rubble_a: 96,
+    rubble_b: 96,
+    barrels: 96,
+    crates: 96,
+    pipe: 128,
+    ribs: 160,
+    scrap: 96,
+    deadcrystal: 96,
+    wreck: 160
+  };
+  var BASE_CLEARANCE = 9;
+  function hash(x, y, salt) {
+    let h = x * 374761393 + y * 668265263 + salt * 1442695041 | 0;
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
+  function pick(roll, options) {
+    let acc = 0;
+    for (const [value, chance] of options) {
+      acc += chance;
+      if (roll < acc) return value;
+    }
+    return null;
+  }
+  function scatterProps(m, seed = 0) {
+    const props = [];
+    const terrainAt = (x, y) => inBounds(m, x, y) ? m.terrain[idx(m, x, y)] : Terrain.Cliff;
+    const nearBase2 = (x, y) => [m.start, m.enemyStart].some((s) => Math.hypot(x - (s.x + 1.5), y - (s.y + 1.5)) < BASE_CLEARANCE);
+    const open = (x, y, t) => {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (terrainAt(x + dx, y + dy) !== t || m.spice[idx(m, Math.min(m.w - 1, Math.max(0, x + dx)), Math.min(m.h - 1, Math.max(0, y + dy)))] > 0) return false;
+      return true;
+    };
+    for (let y = 0; y < m.h; y++) {
+      for (let x = 0; x < m.w; x++) {
+        if (nearBase2(x, y)) continue;
+        const i = idx(m, x, y);
+        if (m.spice[i] > 0) continue;
+        const t = m.terrain[i];
+        const roll = hash(x, y, seed + 1);
+        let name = null;
+        if (t === Terrain.Cliff) {
+          const edge = [terrainAt(x + 1, y), terrainAt(x - 1, y), terrainAt(x, y + 1), terrainAt(x, y - 1)].some((n) => n !== Terrain.Cliff);
+          name = pick(roll, [
+            ["boulders_a", edge ? 0.05 : 0.012],
+            ["boulders_b", edge ? 0.05 : 0.012],
+            ["boulders_c", edge ? 0.05 : 0.012],
+            ["rubble_a", edge ? 0.03 : 0]
+          ]);
+        } else if (t === Terrain.Rock) {
+          name = pick(roll, [
+            ["rubble_a", 0.018],
+            ["rubble_b", 0.018],
+            ["scrap", 4e-3],
+            ["barrels", 3e-3],
+            ["crates", 3e-3],
+            ["deadcrystal", 4e-3],
+            ["pipe", open(x, y, t) ? 2e-3 : 0]
+          ]);
+        } else {
+          name = pick(roll, [
+            ["rubble_b", 6e-3],
+            ["scrap", 4e-3],
+            ["barrels", 3e-3],
+            ["deadcrystal", 3e-3],
+            ["ribs", open(x, y, t) ? 25e-4 : 0],
+            ["wreck", open(x, y, t) ? 25e-4 : 0],
+            ["pipe", open(x, y, t) ? 2e-3 : 0]
+          ]);
+        }
+        if (!name) continue;
+        props.push({
+          name,
+          x: (x + 0.25 + hash(x, y, seed + 2) * 0.5) * TILE,
+          y: (y + 0.25 + hash(x, y, seed + 3) * 0.5) * TILE,
+          flip: hash(x, y, seed + 4) < 0.5
+        });
+      }
+    }
+    return props.sort((a, b) => a.y - b.y);
+  }
+
   // src/terrain.ts
   var HEIGHT = { [Terrain.Sand]: 0, [Terrain.Rock]: 1, [Terrain.Cliff]: 2 };
   var TERRAIN_SCALE = 2;
   var WOBBLE = 0.38;
-  function hash(x, y, seed) {
+  function hash2(x, y, seed) {
     let h = x * 374761393 + y * 668265263 + seed * 2147483647 | 0;
     h = Math.imul(h ^ h >>> 13, 1274126177);
     return ((h ^ h >>> 16) >>> 0) / 4294967296;
@@ -4615,10 +4702,10 @@
     const y0 = Math.floor(gy);
     const tx = smooth(gx - x0);
     const ty = smooth(gy - y0);
-    const a = hash(mod(x0, n), mod(y0, n), seed);
-    const b = hash(mod(x0 + 1, n), mod(y0, n), seed);
-    const c = hash(mod(x0, n), mod(y0 + 1, n), seed);
-    const d = hash(mod(x0 + 1, n), mod(y0 + 1, n), seed);
+    const a = hash2(mod(x0, n), mod(y0, n), seed);
+    const b = hash2(mod(x0 + 1, n), mod(y0, n), seed);
+    const c = hash2(mod(x0, n), mod(y0 + 1, n), seed);
+    const d = hash2(mod(x0 + 1, n), mod(y0 + 1, n), seed);
     return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
   }
   function fbmRaw(x, y, seed) {
@@ -4674,23 +4761,23 @@
     const r = Math.sin(px * 0.09 + py * 0.035 + warp);
     const crest = r > 0.82 ? (r - 0.82) / 0.18 : 0;
     const trough = r < -0.85 ? (-0.85 - r) / 0.15 : 0;
-    const grain = (hash(px, py, seed + 30) - 0.5) * 8;
+    const grain = (hash2(px, py, seed + 30) - 0.5) * 8;
     const k = 1 + crest * 0.07 - trough * 0.05;
-    if (hash(px, py, seed + 35) > 0.9985) return [215, 245, 255];
+    if (hash2(px, py, seed + 35) > 0.9985) return [215, 245, 255];
     return [c[0] * k + grain, c[1] * k + grain, c[2] * k + grain + 3];
   }
   function rockColour(px, py, seed) {
     const mottle = fbm(px, py, seed + 40);
     const c = lerp3([100, 94, 86], [80, 75, 68], mottle);
     const crack = Math.abs(noise(px, py, 24, seed + 50) - 0.5) < 0.018 ? 0.75 : 1;
-    const grain = (hash(px, py, seed + 60) - 0.5) * 10;
+    const grain = (hash2(px, py, seed + 60) - 0.5) * 10;
     return [c[0] * crack + grain, c[1] * crack + grain, c[2] * crack + grain];
   }
   function cliffColour(px, py, seed) {
     const mottle = fbm(px, py, seed + 70);
     const c = lerp3([54, 50, 46], [40, 37, 34], mottle);
     const strata = Math.sin(py * 0.32 + noise(px, py, 30, seed + 80) * 5) * 5;
-    const grain = (hash(px, py, seed + 90) - 0.5) * 8;
+    const grain = (hash2(px, py, seed + 90) - 0.5) * 8;
     return [c[0] + strata + grain, c[1] + strata + grain, c[2] + strata + grain];
   }
   function paintTerrain(m, seed = 0, scale = TERRAIN_SCALE) {
@@ -4745,7 +4832,7 @@
     0: { main: "#2f6fb0", dark: "#1d4a78", mini: "#8fc3ff" },
     1: { main: "#c0392b", dark: "#7d2219", mini: "#ff8a7a" }
   };
-  function hash2(i, k) {
+  function hash3(i, k) {
     let h = i * 374761393 + k * 668265263 | 0;
     h = Math.imul(h ^ h >>> 13, 1274126177);
     return ((h ^ h >>> 16) >>> 0) / 4294967296;
@@ -4766,8 +4853,20 @@
       this.miniTiles = document.createElement("canvas");
       this.miniTiles.width = map.w;
       this.miniTiles.height = map.h;
+      this.props = scatterProps(map);
+      for (const name of PROP_NAMES) {
+        const img = new Image();
+        img.src = `assets/props/${name}.png`;
+        img.onload = () => this.propImages.set(name, propPair(img));
+      }
     }
     sprites;
+    /** Scenery scattered over the map, back to front. */
+    props;
+    /** Each prop's image and its mirror image, once loaded. */
+    propImages = /* @__PURE__ */ new Map();
+    /** Dust kicked up behind vehicles on the sand (purely visual). */
+    dust = [];
     /** Tread marks left in the sand (purely visual, kept per screen). */
     tracks = [];
     lastTrack = /* @__PURE__ */ new Map();
@@ -4836,6 +4935,12 @@
         const d = Math.hypot(u.x - last.x, u.y - last.y);
         if (d < TRACK_STEP) continue;
         if (d < TRACK_STEP * 4 && seen(u)) {
+          const tile = g.map.terrain[idx(g.map, Math.floor(u.x / TILE), Math.floor(u.y / TILE))];
+          if (tile === Terrain.Sand && this.dust.length < MAX_DUST) {
+            const back = Math.atan2(last.y - u.y, last.x - u.x);
+            const r = UNIT_STATS[u.kind].radius;
+            this.dust.push({ x: u.x + Math.cos(back) * r + (Math.random() - 0.5) * 6, y: u.y + Math.sin(back) * r + (Math.random() - 0.5) * 6, t: g.time, s: r / 11 });
+          }
           this.tracks.push({ x: (u.x + last.x) / 2, y: (u.y + last.y) / 2, angle: Math.atan2(u.y - last.y, u.x - last.x), gauge: UNIT_STATS[u.kind].radius * 0.62, len: d, t: g.time });
         }
         last.x = u.x;
@@ -4845,6 +4950,9 @@
       let drop = 0;
       while (drop < this.tracks.length && (g.time - this.tracks[drop].t > TRACK_LIFE || this.tracks.length - drop > MAX_TRACKS)) drop++;
       if (drop > 0) this.tracks.splice(0, drop);
+      let gone = 0;
+      while (gone < this.dust.length && g.time - this.dust[gone].t > DUST_LIFE) gone++;
+      if (gone > 0) this.dust.splice(0, gone);
     }
     draw(g, cam, drag, ghost, dt) {
       const ctx = this.ctx;
@@ -4884,6 +4992,15 @@
       const vy1 = cam.y + cam.h + 120;
       const onScreen = (x, y) => x >= vx0 && x <= vx1 && y >= vy0 && y <= vy1;
       const buildingOnScreen = (b) => b.tx * TILE < vx1 && (b.tx + b.w) * TILE > vx0 && b.ty * TILE < vy1 && (b.ty + b.h) * TILE > vy0;
+      ctx.imageSmoothingEnabled = true;
+      for (const p of this.props) {
+        const pair = this.propImages.get(p.name);
+        if (!pair) continue;
+        const half = PROP_SIZE[p.name] / 4;
+        if (p.x + half < vx0 || p.x - half > vx1 || p.y + half < vy0 || p.y - half > vy1) continue;
+        ctx.drawImage(pair[p.flip ? 1 : 0], p.x - half, p.y - half, half * 2, half * 2);
+      }
+      ctx.imageSmoothingEnabled = false;
       for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
       for (const b of shown) drawBuilding(ctx, b, this.sprites);
@@ -4905,6 +5022,12 @@
         if (b.id !== g.selectedBuilding && (b.hp < BUILDING_STATS[b.kind].maxHp || this.showAllHealth)) {
           drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
         }
+      }
+      for (const d of this.dust) {
+        if (!onScreen(d.x, d.y)) continue;
+        const a = (g.time - d.t) / DUST_LIFE;
+        const r = (6 + a * 13) * d.s;
+        drawGlow(ctx, dustGlow(), d.x, d.y - a * 5, r, r * 0.8, 0.6 * (1 - a));
       }
       for (const b of shown) drawBurning(ctx, b, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
@@ -5084,8 +5207,8 @@
       if (lvl <= 0) return;
       const ctx = this.ctx;
       const a = lvl / 6;
-      const cx = (x + 0.5) * TILE + (hash2(i, 1) - 0.5) * 8;
-      const cy = (y + 0.5) * TILE + (hash2(i, 2) - 0.5) * 8;
+      const cx = (x + 0.5) * TILE + (hash3(i, 1) - 0.5) * 8;
+      const cy = (y + 0.5) * TILE + (hash3(i, 2) - 0.5) * 8;
       const r = TILE * (0.7 + 0.35 * a);
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
       grad.addColorStop(0, `rgba(110,225,250,${0.1 + 0.22 * a})`);
@@ -5094,11 +5217,11 @@
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       const shards = 1 + lvl;
       for (let k = 0; k < shards; k++) {
-        const px = x * TILE + 4 + hash2(i, k + 5) * (TILE - 8);
-        const py = y * TILE + 6 + hash2(i, k + 37) * (TILE - 10);
-        const h = 5 + 9 * a * (0.6 + 0.4 * hash2(i, k + 71));
-        const w = 2 + 2 * hash2(i, k + 91);
-        const lean = (hash2(i, k + 13) - 0.5) * 0.8;
+        const px = x * TILE + 4 + hash3(i, k + 5) * (TILE - 8);
+        const py = y * TILE + 6 + hash3(i, k + 37) * (TILE - 10);
+        const h = 5 + 9 * a * (0.6 + 0.4 * hash3(i, k + 71));
+        const w = 2 + 2 * hash3(i, k + 91);
+        const lean = (hash3(i, k + 13) - 0.5) * 0.8;
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(lean);
@@ -5264,6 +5387,18 @@
   }
   var REDUCED_MOTION = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   var TRACK_STEP = 7;
+  var DUST_LIFE = 0.9;
+  var MAX_DUST = 400;
+  function propPair(img) {
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const x = c.getContext("2d");
+    x.translate(c.width, 0);
+    x.scale(-1, 1);
+    x.drawImage(img, 0, 0);
+    return [img, c];
+  }
   var TRACK_LIFE = 16;
   var MAX_TRACKS = 2400;
   function leavesTracks(kind) {
@@ -5322,6 +5457,7 @@
   var scorchGlow = () => radialGlow("scorch", [[0, "rgba(18,14,10,0.55)"], [0.6, "rgba(30,24,18,0.32)"], [1, "rgba(30,24,18,0)"]]);
   var flameGlow = () => radialGlow("flame", [[0, "rgba(255,240,180,0.9)"], [0.45, "rgba(255,150,40,0.75)"], [1, "rgba(200,60,20,0)"]]);
   var cloudGlow = (lit) => lit ? radialGlow("cloudLit", [[0, "rgba(176,156,126,0.6)"], [0.6, "rgba(140,124,102,0.3)"], [1, "rgba(70,62,52,0)"]]) : radialGlow("cloudDark", [[0, "rgba(88,78,66,0.66)"], [0.6, "rgba(70,62,52,0.34)"], [1, "rgba(70,62,52,0)"]]);
+  var dustGlow = () => radialGlow("dust", [[0, "rgba(232,218,190,0.95)"], [0.55, "rgba(212,196,166,0.5)"], [1, "rgba(190,175,148,0)"]]);
   var shardGlow = (color) => radialGlow(`shard${color}`, [[0, color], [1, "rgba(111,227,240,0)"]]);
   var muzzleGlow = () => glow("muzzle", 48, 32, (c) => {
     const r = 16;
@@ -7183,9 +7319,9 @@
         if (++this.step === TURN_STEPS) {
           this.step = 0;
           if (this.turn % HASH_EVERY === 0 && !this.catchingUp) {
-            const hash3 = stateHash(this.g);
-            this.hashes.set(this.turn, hash3);
-            this.send({ type: "hash", turn: this.turn, hash: hash3 });
+            const hash4 = stateHash(this.g);
+            this.hashes.set(this.turn, hash4);
+            this.send({ type: "hash", turn: this.turn, hash: hash4 });
           }
           this.turn++;
         }
@@ -11805,7 +11941,7 @@
       span2.textContent = text;
       status.replaceChildren(span2);
     };
-    const pick = (choice, not) => {
+    const pick2 = (choice, not) => {
       if (choice !== "random") return choice;
       const options = FACTION_IDS.filter((f) => f !== not);
       return options[Math.floor(Math.random() * options.length)];
@@ -11836,8 +11972,8 @@
           const msg = m;
           if (msg.type !== "hello") return;
           const s = current();
-          const mine = pick(s.faction);
-          const theirs = pick(msg.faction ?? "random", mine);
+          const mine = pick2(s.faction);
+          const theirs = pick2(msg.faction ?? "random", mine);
           const factions = [mine, theirs];
           link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions });
           start({ ...s }, void 0, { station: host, link, code, local: 0, factions });

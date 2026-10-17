@@ -67,7 +67,17 @@
       font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text);
       background: var(--plate-lo); border: 1px solid var(--edge); padding: 0 6px;
     }
-    #minimap { display: block; width: 194px; height: 194px; border: 1px solid var(--edge); image-rendering: pixelated; cursor: pointer; margin-bottom: 8px; background: #12110f; }
+    #minimap {
+      display: block; width: 194px; height: 194px; image-rendering: pixelated; cursor: pointer; margin: 4px auto 12px; background: #12110f;
+      /* A steel bezel: dark inner lip, worn steel band, dark outer edge. */
+      border: 2px solid #12110f;
+      box-shadow: 0 0 0 3px #6b6357, 0 0 0 4px #2a2723, 0 0 0 5px #8a8172, 0 3px 8px 5px rgba(0,0,0,0.45);
+    }
+    /* Soft darkening towards the screen edges; the browser composites it, so it costs nothing per frame. */
+    #vignette {
+      position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 75% 70% at 45% 50%, transparent 55%, rgba(12, 9, 6, 0.38) 100%);
+    }
     /* Build menus: one list at a time, picked by tab or by selecting the building that makes it */
     .side-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin-bottom: 8px; }
     .side-tab {
@@ -391,6 +401,7 @@
 </head>
 <body>
   <canvas id="view"></canvas>
+  <div id="vignette" aria-hidden="true"></div>
   <div id="panel">
     <div class="row"><span class="label">Credits</span><span id="credits">0</span></div>
     <div class="row"><span class="label">Power</span><span id="power" title="Produced / used. Production slows to half speed when used exceeds produced.">0 / 0</span></div>
