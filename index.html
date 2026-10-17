@@ -40,7 +40,7 @@
     button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
     /* Steel plate: a dark sheet with a rivet in each corner. */
-    #panel, #info, #notices div, #result .card, #objectives, #netwait, #mode, #ability, #menu form, .briefing, #controls, #bench {
+    #panel, #info, #notices div, #result .card, #objectives, #netwait, #mode, #ability, #menu form, .briefing, #controls, #bench, #settings {
       background-color: var(--plate);
       background-image:
         radial-gradient(circle at 6px 6px, var(--rivet) 1.6px, transparent 2.2px),
@@ -296,6 +296,31 @@
       background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge); padding: 10px 12px; margin-bottom: 14px; user-select: text; }
     .bench-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
     .bench-btn { width: 100%; margin-top: 8px; }
+    /* Settings card */
+    #settings {
+      position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 8;
+      width: min(720px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow-y: auto;
+      padding: 18px 22px 18px; border-top: 6px solid var(--amber);
+    }
+    #settings[hidden] { display: none; }
+    .settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 26px; }
+    .settings-body section:last-child { grid-column: 1 / -1; }
+    .settings-body h3 { font-family: var(--cond); font-size: 14px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber); margin-bottom: 8px; }
+    .settings-row { display: grid; grid-template-columns: 70px 1fr 44px; align-items: center; gap: 10px; margin-bottom: 6px; font-family: var(--cond); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 13px; }
+    .settings-row input[type=range] { width: 100%; accent-color: var(--amber); }
+    .settings-row output { text-align: right; color: var(--muted); font-weight: 600; }
+    .settings-choice { display: flex; gap: 8px; }
+    .settings-choice .btn { flex: 1; }
+    .settings-note { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+    .settings-keys { display: grid; grid-template-columns: repeat(2, 1fr auto); gap: 6px 16px; align-items: center; font-size: 13.5px; }
+    .keycap {
+      min-width: 92px; padding: 4px 10px; font-family: var(--cond); font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--text); background: #2b2823; border: 1px solid var(--edge); border-bottom-width: 3px; cursor: pointer;
+    }
+    .keycap:hover { border-color: var(--amber); }
+    .keycap.waiting { color: var(--plate-lo); background: var(--amber); border-color: var(--amber); }
+    .settings-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
+    @media (max-width: 640px) { .settings-body { grid-template-columns: 1fr; } .settings-keys { grid-template-columns: 1fr auto; } }
     #netwait { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); text-align: center; padding: 20px 28px; border-top: 6px solid var(--amber); }
     #netwait[hidden] { display: none; }
     #netwait-text { font-size: 15px; margin-bottom: 12px; }
@@ -428,7 +453,7 @@
     <div class="row"><span class="label">Enemy</span><span id="difficulty">Normal</span></div>
     <div class="row"><span id="factions" class="factions"></span></div>
     <div class="row"><span class="label">Speed</span><span id="speed" class="factions" title="+ / - to change">Normal</span></div>
-    <div class="row"><span class="label">Map</span><span><span id="map-seed"></span> <button id="mute" class="mute" type="button"></button></span></div>
+    <div class="row"><span class="label">Map</span><span><span id="map-seed"></span> <button id="settings-btn" class="mute" type="button" title="Settings">&#9881;</button> <button id="mute" class="mute" type="button"></button></span></div>
     <canvas id="minimap" width="194" height="194"></canvas>
     <div class="tools"><button id="sell" type="button" title="Sell buildings for half their price (Z)">Sell (Z)</button><button id="repair" type="button" title="Repair buildings, paid as you go (C)">Repair (C)</button></div>
     <div id="side-tabs" class="side-tabs" role="tablist" aria-label="Build menus"></div>
@@ -478,41 +503,46 @@
           <dt>Shift-click a unit</dt><dd>Queue five</dd>
           <dt>Ctrl-click a unit</dt><dd>Keep building it</dd>
           <dt>Right-click a button</dt><dd>Cancel or remove</dd>
-          <dt>Z / C</dt><dd>Sell / repair buildings</dd>
+          <dt data-keys="{sell} / {repair}">Z / C</dt><dd>Sell / repair buildings</dd>
         </dl>
       </section>
       <section>
         <h3>Army</h3>
         <dl>
-          <dt>E</dt><dd>Select your whole army (twice to look)</dd>
+          <dt data-keys="{army}">E</dt><dd>Select your whole army (twice to look)</dd>
           <dt>Ctrl + 1–9</dt><dd>Save a control group</dd>
           <dt>1–9</dt><dd>Select a group (twice to look)</dd>
-          <dt>X</dt><dd>Stop</dd>
-          <dt>Q</dt><dd>Hero ability</dd>
+          <dt data-keys="{stop}">X</dt><dd>Stop</dd>
+          <dt data-keys="{ability}">Q</dt><dd>Hero ability</dd>
         </dl>
       </section>
       <section>
         <h3>View</h3>
         <dl>
           <dt>WASD / arrows / screen edge</dt><dd>Scroll</dd>
-          <dt>H</dt><dd>Jump to your base</dd>
-          <dt>Space</dt><dd>Jump to the last attack</dd>
+          <dt data-keys="{home}">H</dt><dd>Jump to your base</dd>
+          <dt data-keys="{ping}">Space</dt><dd>Jump to the last attack</dd>
           <dt>Shift + F1–F4 / F1–F4</dt><dd>Save / jump to a camera spot</dd>
-          <dt>Alt (hold) or `</dt><dd>Show every health bar</dd>
+          <dt data-keys="Alt (hold) or {health}">Alt (hold) or `</dt><dd>Show every health bar</dd>
         </dl>
       </section>
       <section>
         <h3>Game</h3>
         <dl>
-          <dt>P</dt><dd>Pause (not online)</dd>
+          <dt data-keys="{pause}">P</dt><dd>Pause (not online)</dd>
           <dt>+ / −</dt><dd>Game speed (not online)</dd>
-          <dt>M</dt><dd>Mute</dd>
+          <dt data-keys="{mute}">M</dt><dd>Mute</dd>
           <dt>Enter</dt><dd>Chat (online)</dd>
-          <dt>F9</dt><dd>Frame rate and timings</dd>
-          <dt>?</dt><dd>Show or hide this card</dd>
+          <dt data-keys="{perf}">F9</dt><dd>Frame rate and timings</dd>
+          <dt data-keys="{controls}">?</dt><dd>Show or hide this card</dd>
         </dl>
       </section>
     </div>
+  </div>
+  <div id="settings" hidden role="dialog" aria-label="Settings">
+    <div class="controls-head"><h2>Settings</h2><span>Esc to close</span></div>
+    <div class="settings-body"></div>
+    <div class="settings-foot"><span class="settings-reset"></span><button type="button" class="btn settings-done">Done</button></div>
   </div>
   <div id="perf" hidden aria-live="off"></div>
   <div id="bench" hidden role="dialog" aria-label="Benchmark results">
@@ -620,6 +650,7 @@
         <label class="toggle"><input id="menu-fog" type="checkbox"> Fog of war</label>
         <label class="toggle"><input id="menu-edge" type="checkbox"> Scroll at the screen edge</label>
         <button type="submit" class="btn start">START</button>
+        <button type="button" id="menu-settings" class="btn ghost bench-btn">Settings</button>
         <button type="button" id="menu-bench" class="btn ghost bench-btn" title="A fixed 40-second battle that measures how smoothly the game runs on this computer">Performance test</button>
       </form>
     </div>

@@ -3838,18 +3838,18 @@
       return head;
     }
     picture(src, cls, fallback) {
-      const box = div(`card-pic ${cls}`);
+      const box2 = div(`card-pic ${cls}`);
       const img = document.createElement("img");
       img.alt = "";
       img.decoding = "async";
       img.src = src;
       img.onerror = () => {
         img.remove();
-        box.classList.add("nopic");
-        box.textContent = fallback;
+        box2.classList.add("nopic");
+        box2.textContent = fallback;
       };
-      box.append(img);
-      return box;
+      box2.append(img);
+      return box2;
     }
     buildUnit(g, id) {
       const u = g.units.find((x) => x.id === id);
@@ -3989,6 +3989,303 @@
       dl.append(dt, dd);
     }
     return dl;
+  }
+
+  // src/prefs.ts
+  var ACTIONS = {
+    stop: { label: "Stop", key: "KeyX" },
+    ability: { label: "Hero ability", key: "KeyQ" },
+    army: { label: "Select whole army", key: "KeyE" },
+    home: { label: "Jump to base", key: "KeyH" },
+    ping: { label: "Jump to last attack", key: "Space" },
+    health: { label: "Toggle health bars", key: "Backquote" },
+    sell: { label: "Sell mode", key: "KeyZ" },
+    repair: { label: "Repair mode", key: "KeyC" },
+    pause: { label: "Pause", key: "KeyP" },
+    mute: { label: "Mute", key: "KeyM" },
+    perf: { label: "Performance overlay", key: "F9" },
+    controls: { label: "Controls card", key: "Slash" }
+  };
+  var ACTION_IDS = Object.keys(ACTIONS);
+  var RESERVED_KEYS = /* @__PURE__ */ new Set([
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `Digit${n}`),
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F11",
+    "F12",
+    ...["R", "T", "Y", "U", "I", "O", "F", "G", "J", "K", "L", "N", "B", "V"].map((k) => `Key${k}`),
+    "Equal",
+    "Minus",
+    "NumpadAdd",
+    "NumpadSubtract",
+    "Escape",
+    "Enter",
+    "NumpadEnter",
+    "Tab",
+    "CapsLock",
+    "ShiftLeft",
+    "ShiftRight",
+    "ControlLeft",
+    "ControlRight",
+    "AltLeft",
+    "AltRight",
+    "MetaLeft",
+    "MetaRight",
+    "ContextMenu"
+  ]);
+  var DEFAULT_PREFS = {
+    master: 0.8,
+    music: 0.5,
+    effects: 0.8,
+    voices: 0.9,
+    graphics: "high",
+    keys: Object.fromEntries(ACTION_IDS.map((a) => [a, ACTIONS[a].key]))
+  };
+  var STORE_KEY = "vitrea.prefs";
+  var volume = (v, fallback) => typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : fallback;
+  function parsePrefs(raw) {
+    const p = raw && typeof raw === "object" ? raw : {};
+    const keys = { ...DEFAULT_PREFS.keys };
+    const stored = p.keys && typeof p.keys === "object" ? p.keys : {};
+    for (const a of ACTION_IDS) {
+      const k = stored[a];
+      if (typeof k === "string" && bindable(k)) keys[a] = k;
+    }
+    const used = /* @__PURE__ */ new Map();
+    for (const a of ACTION_IDS) {
+      if (used.has(keys[a])) keys[a] = [ACTIONS[a].key].find((d) => !used.has(d)) ?? "";
+      if (keys[a]) used.set(keys[a], a);
+    }
+    return {
+      master: volume(p.master, DEFAULT_PREFS.master),
+      music: volume(p.music, DEFAULT_PREFS.music),
+      effects: volume(p.effects, DEFAULT_PREFS.effects),
+      voices: volume(p.voices, DEFAULT_PREFS.voices),
+      graphics: p.graphics === "low" ? "low" : "high",
+      keys
+    };
+  }
+  var bindable = (code) => code.length > 0 && !RESERVED_KEYS.has(code);
+  function rebind(p, action, code) {
+    if (!bindable(code)) return null;
+    const keys = { ...p.keys };
+    const other = ACTION_IDS.find((a) => a !== action && keys[a] === code);
+    if (other) keys[other] = keys[action];
+    keys[action] = code;
+    return { ...p, keys };
+  }
+  function keyLabel(code) {
+    if (!code) return "\u2014";
+    const named = {
+      Space: "Space",
+      Backquote: "`",
+      Slash: "/",
+      Backslash: "\\",
+      Semicolon: ";",
+      Quote: "'",
+      Comma: ",",
+      Period: ".",
+      BracketLeft: "[",
+      BracketRight: "]",
+      Delete: "Del",
+      Insert: "Ins",
+      PageUp: "PgUp",
+      PageDown: "PgDn",
+      Home: "Home",
+      End: "End"
+    };
+    if (named[code]) return named[code];
+    const m = /^(?:Key|Digit)(.)$/.exec(code);
+    if (m) return m[1];
+    if (code.startsWith("Numpad")) return `Num ${code.slice(6)}`;
+    return code;
+  }
+  var current = load();
+  var listeners = /* @__PURE__ */ new Set();
+  function load() {
+    try {
+      const s = globalThis.localStorage?.getItem(STORE_KEY);
+      return parsePrefs(s ? JSON.parse(s) : null);
+    } catch {
+      return parsePrefs(null);
+    }
+  }
+  var prefs = () => current;
+  var keyFor = (a) => current.keys[a];
+  function setPrefs(p) {
+    current = parsePrefs(p);
+    try {
+      globalThis.localStorage?.setItem(STORE_KEY, JSON.stringify(current));
+    } catch {
+    }
+    for (const l of listeners) l(current);
+  }
+  function onPrefs(l) {
+    listeners.add(l);
+    return () => listeners.delete(l);
+  }
+
+  // src/settingsui.ts
+  var box = null;
+  var onClosed = null;
+  var capturing = null;
+  function settingsOpen() {
+    return !!box && !box.hidden;
+  }
+  function openSettings(closed) {
+    box = document.getElementById("settings");
+    if (!box) return;
+    onClosed = closed ?? null;
+    render();
+    box.hidden = false;
+  }
+  function closeSettings() {
+    if (!box || box.hidden) return;
+    capturing = null;
+    box.hidden = true;
+    onClosed?.();
+    onClosed = null;
+  }
+  var VOLUMES = [
+    { key: "master", label: "Master" },
+    { key: "music", label: "Music" },
+    { key: "effects", label: "Effects" },
+    { key: "voices", label: "Voices" }
+  ];
+  function render() {
+    if (!box) return;
+    const p = prefs();
+    const body = box.querySelector(".settings-body");
+    body.replaceChildren();
+    const audio = section("Sound");
+    for (const v of VOLUMES) {
+      const row = document.createElement("label");
+      row.className = "settings-row";
+      const name = document.createElement("span");
+      name.textContent = v.label;
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0";
+      slider.max = "100";
+      slider.value = String(Math.round(p[v.key] * 100));
+      const value = document.createElement("output");
+      value.textContent = `${slider.value}%`;
+      slider.addEventListener("input", () => {
+        value.textContent = `${slider.value}%`;
+        setPrefs({ ...prefs(), [v.key]: Number(slider.value) / 100 });
+      });
+      row.append(name, slider, value);
+      audio.append(row);
+    }
+    const gfx = section("Graphics");
+    const choice = document.createElement("div");
+    choice.className = "settings-choice";
+    for (const [q, label, hint2] of [
+      ["high", "High", "Everything on"],
+      ["low", "Low", "No smoke, dust, tracks, crystal light, storm clouds or screen shake \u2014 for slower computers"]
+    ]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `btn ${p.graphics === q ? "" : "ghost"}`;
+      b.textContent = label;
+      b.title = hint2;
+      b.addEventListener("click", () => {
+        setPrefs({ ...prefs(), graphics: q });
+        render();
+      });
+      choice.append(b);
+    }
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = p.graphics === "low" ? "Low: decorative effects are off." : "High: all effects on.";
+    gfx.append(choice, note);
+    const keys = section("Keys");
+    const grid = document.createElement("div");
+    grid.className = "settings-keys";
+    for (const a of ACTION_IDS) {
+      const name = document.createElement("span");
+      name.textContent = ACTIONS[a].label;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `keycap${capturing === a ? " waiting" : ""}`;
+      b.textContent = capturing === a ? "Press a key\u2026" : keyLabel(p.keys[a]);
+      b.addEventListener("click", () => {
+        capturing = capturing === a ? null : a;
+        render();
+      });
+      grid.append(name, b);
+    }
+    const hint = document.createElement("p");
+    hint.className = "settings-note";
+    hint.textContent = "Click a key, then press the new one. Keys already used for scrolling, groups, camera spots and building can't be picked; taking another action's key swaps them.";
+    keys.append(grid, hint);
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "btn ghost";
+    reset.textContent = "Reset to defaults";
+    reset.addEventListener("click", () => {
+      capturing = null;
+      setPrefs({ ...DEFAULT_PREFS, keys: { ...DEFAULT_PREFS.keys } });
+      render();
+    });
+    const foot = box.querySelector(".settings-foot");
+    foot.querySelector(".settings-reset")?.replaceWith(reset);
+    reset.classList.add("settings-reset");
+    body.append(audio, gfx, keys);
+  }
+  function section(title) {
+    const s = document.createElement("section");
+    const h = document.createElement("h3");
+    h.textContent = title;
+    s.append(h);
+    return s;
+  }
+  function initSettings() {
+    const el2 = document.getElementById("settings");
+    if (!el2) return;
+    el2.querySelector(".settings-done")?.addEventListener("click", closeSettings);
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (!settingsOpen()) return;
+        if (capturing) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (e.code === "Escape") {
+            capturing = null;
+            render();
+            return;
+          }
+          const next = rebind(prefs(), capturing, e.code);
+          if (!next) {
+            const b = box?.querySelector(".keycap.waiting");
+            if (b) b.textContent = `${keyLabel(e.code)} is reserved \u2014 try another`;
+            return;
+          }
+          capturing = null;
+          setPrefs(next);
+          render();
+          return;
+        }
+        if (e.code === "Escape") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          closeSettings();
+        }
+      },
+      true
+    );
   }
 
   // src/perf.ts
@@ -4487,25 +4784,25 @@
           this.centreOn(cx, cy);
         }
         this.lastGroupKey = { n, time: now };
-      } else if (e.code === "KeyX") {
+      } else if (e.code === keyFor("stop")) {
         const units = selectedUnits(g);
         if (units.length > 0) this.issue({ t: "stop", units: units.map((u) => u.id) });
-      } else if (e.code === "KeyQ") {
+      } else if (e.code === keyFor("ability")) {
         this.heroAbility();
-      } else if (e.code === "KeyH") {
+      } else if (e.code === keyFor("home")) {
         this.goHome();
-      } else if (e.code === "KeyE" && !e.shiftKey && !e.ctrlKey) {
+      } else if (e.code === keyFor("army") && !e.shiftKey && !e.ctrlKey) {
         this.selectArmy();
-      } else if (e.code === "Space") {
+      } else if (e.code === keyFor("ping")) {
         e.preventDefault();
         const ping = [...g.pings].sort((a, b) => a.age - b.age)[0];
         if (ping && ping.age < PING_LIFE) this.centreOn(ping.x, ping.y);
-      } else if (e.code === "Backquote") {
+      } else if (e.code === keyFor("health")) {
         this.alwaysHealth = !this.alwaysHealth;
         notify(g, this.alwaysHealth ? "Health bars: always" : "Health bars: when damaged");
-      } else if (e.code === "KeyZ" && !e.ctrlKey) {
+      } else if (e.code === keyFor("sell") && !e.ctrlKey) {
         this.toggleMode("sell");
-      } else if (e.code === "KeyC" && !e.ctrlKey) {
+      } else if (e.code === keyFor("repair") && !e.ctrlKey) {
         this.toggleMode("repair");
       } else if (e.key === "Alt") {
         e.preventDefault();
@@ -4829,6 +5126,8 @@
   }
 
   // src/render.ts
+  var LOW = prefs().graphics === "low";
+  onPrefs((p) => LOW = p.graphics === "low");
   var COLORS = {
     sandA: [154, 141, 120],
     sandB: [136, 124, 106],
@@ -5053,7 +5352,7 @@
       ctx.imageSmoothingEnabled = false;
       let shakeX = 0;
       let shakeY = 0;
-      if (!REDUCED_MOTION) {
+      if (!REDUCED_MOTION && !LOW) {
         for (const e of g.effects) {
           if (e.kind !== "shake" || e.x < cam.x || e.x > cam.x + cam.w || e.y < cam.y || e.y > cam.y + cam.h) continue;
           const amp = 5 * e.size * (1 - e.age / e.life);
@@ -5071,8 +5370,10 @@
       const y1 = Math.min(m.h - 1, Math.floor((cam.y + cam.h) / TILE));
       const known = (b) => b.owner === g.local || exploredRect(g, b.tx, b.ty, b.w, b.h);
       const seen = (u) => u.owner === g.local || visibleAt(g, u.x, u.y);
-      this.layTracks(g, seen);
-      drawTracks(ctx, this.tracks, g.time, cam);
+      if (!LOW) {
+        this.layTracks(g, seen);
+        drawTracks(ctx, this.tracks, g.time, cam);
+      }
       const vx0 = cam.x - 80;
       const vy0 = cam.y - 80;
       const vx1 = cam.x + cam.w + 80;
@@ -5111,22 +5412,22 @@
           drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
         }
       }
-      for (const d of this.dust) {
+      for (const d of LOW ? [] : this.dust) {
         if (!onScreen(d.x, d.y)) continue;
         const a = (g.time - d.t) / DUST_LIFE;
         const r = (6 + a * 13) * d.s;
         drawGlow(ctx, dustGlow(), d.x, d.y - a * 5, r, r * 0.8, 0.6 * (1 - a));
       }
       for (const b of shown) drawBurning(ctx, b, g.time);
-      for (const u of units) drawDamageSmoke(ctx, u, g.time);
+      if (!LOW) for (const u of units) drawDamageSmoke(ctx, u, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
       for (const e of g.effects) {
         if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
         if (onScreen(e.x, e.y) || onScreen(e.x2, e.y2)) drawEffect(ctx, e);
       }
-      this.updateCrystalLight(g);
-      if (this.crystalLight) {
+      if (!LOW) this.updateCrystalLight(g);
+      if (this.crystalLight && !LOW) {
         const sx = Math.max(0, Math.floor(cam.x / TILE) - 2);
         const sy = Math.max(0, Math.floor(cam.y / TILE) - 2);
         const sw = Math.min(m.w - sx, Math.ceil(cam.w / TILE) + 5);
@@ -5141,7 +5442,7 @@
       const lowPower = { 0: powerInfo(g, 0).low, 1: powerInfo(g, 1).low };
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
+      if (!LOW) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
       ctx.restore();
       for (const st of g.storms) drawStormShadow(ctx, st);
       if (g.fog.enabled) this.drawShroud(ctx, g, cam);
@@ -5655,7 +5956,7 @@
       const fx = b.tx * TILE + w * (0.3 + 0.4 * ((Math.sin(seed) + 1) / 2));
       const fy = b.ty * TILE + h * (0.25 + 0.35 * ((Math.cos(seed * 1.7) + 1) / 2));
       const heavy = frac < 0.25 ? 1.3 : 0.8;
-      for (let p = 0; p < 7; p++) {
+      for (let p = 0; p < (LOW ? 0 : 7); p++) {
         const a = (time * 0.45 + p / 7 + k * 0.37) % 1;
         ctx.fillStyle = `rgba(186,180,172,${0.75 * Math.sqrt(1 - a) * Math.min(1, a * 4 + 0.4)})`;
         ctx.beginPath();
@@ -5693,14 +5994,14 @@
       ctx.fill();
     }
     ctx.restore();
-    if (e.age < 8) {
+    if (e.age < 8 && !LOW) {
       const flicker = 0.5 + 0.5 * Math.sin(e.age * 23 + e.x);
       ctx.fillStyle = `rgba(255,${Math.round(120 + 80 * flicker)},40,${0.55 * (1 - e.age / 8)})`;
       ctx.beginPath();
       ctx.arc(e.x + 3 * e.size, e.y - 2 * e.size, (2 + 2 * flicker) * e.size, 0, Math.PI * 2);
       ctx.fill();
     }
-    if (e.age < 20) {
+    if (e.age < 20 && !LOW) {
       for (let k = 0; k < 3; k++) {
         const a = (e.age * 0.7 + k * 0.33) % 1;
         ctx.fillStyle = `rgba(70,64,58,${0.28 * (1 - a) * (1 - e.age / 20) * fade})`;
@@ -5728,6 +6029,7 @@
         break;
       }
       case "plume": {
+        if (LOW) break;
         for (let k = 0; k < 6; k++) {
           const a = (e.age * 0.6 + k / 6) % 1;
           const alpha = 0.32 * (1 - a) * Math.min(1, (1 - t) * 3) * Math.min(1, e.age * 4);
@@ -5758,7 +6060,7 @@
         } else if (e.kind === "shard") {
           const s = 4 * e.size;
           const alpha = Math.min(1, (1 - t) * 2);
-          drawGlow(ctx, shardGlow(e.color ?? "#6fe3f0"), 0, 0, s * 1.8, s * 1.8, alpha * 0.5);
+          if (!LOW) drawGlow(ctx, shardGlow(e.color ?? "#6fe3f0"), 0, 0, s * 1.8, s * 1.8, alpha * 0.5);
           ctx.globalAlpha = alpha;
           ctx.fillStyle = e.color ?? "#6fe3f0";
           ctx.beginPath();
@@ -5925,7 +6227,7 @@
   function drawStorm(ctx, st, time) {
     const r = STORMS.radius * TILE;
     const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < (LOW ? 0 : 18); i++) {
       const a = i * 2.17 + time * (0.35 + i % 3 * 0.12);
       const d = r * (0.55 + i % 4 * 0.17);
       const cx = st.x + Math.cos(a) * d;
@@ -5941,7 +6243,7 @@
     ctx.fillRect(st.x - r, st.y - r, r * 2, r * 2);
     const beat = Math.floor(time * 1.3 + st.id * 0.37);
     const phase = time * 1.3 + st.id * 0.37 - beat;
-    if (!REDUCED_MOTION && phase < 0.12 && beat * 2654435761 % 5 < 2) {
+    if (!REDUCED_MOTION && !LOW && phase < 0.12 && beat * 2654435761 % 5 < 2) {
       const a0 = beat * 1.618 % 1 * Math.PI * 2;
       const flash = (1 - phase / 0.12) * fade;
       ctx.beginPath();
@@ -6753,6 +7055,10 @@
   var Sound = class {
     ctx = null;
     master = null;
+    /** Sub-mixes under the master volume: effects, voices and music, each with its own slider. */
+    sfx = null;
+    voiceBus = null;
+    musicBus = null;
     noise = null;
     muted = false;
     last = /* @__PURE__ */ new Map();
@@ -6770,6 +7076,7 @@
         this.muted = globalThis.localStorage?.getItem(MUTE_KEY) === "1";
       } catch {
       }
+      onPrefs((p) => this.applyPrefs(p));
       const wake = () => this.ensure();
       window.addEventListener("pointerdown", wake);
       window.addEventListener("keydown", wake);
@@ -6781,11 +7088,15 @@
         if (!Ctor) return;
         this.ctx = new Ctor();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : 0.5;
         const comp = this.ctx.createDynamicsCompressor();
         comp.threshold.value = -12;
         comp.ratio.value = 6;
         this.master.connect(comp).connect(this.ctx.destination);
+        this.sfx = this.ctx.createGain();
+        this.voiceBus = this.ctx.createGain();
+        this.musicBus = this.ctx.createGain();
+        for (const bus of [this.sfx, this.voiceBus, this.musicBus]) bus.connect(this.master);
+        this.applyPrefs(prefs(), true);
         const len = this.ctx.sampleRate * 1.5;
         this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
         const data = this.noise.getChannelData(0);
@@ -6794,9 +7105,18 @@
       }
       if (this.ctx.state === "suspended") void this.ctx.resume();
     }
+    /** Set the volumes from the player's preferences (master 0.8 = the old fixed level). */
+    applyPrefs(p, now = false) {
+      if (!this.ctx || !this.master || !this.sfx || !this.voiceBus || !this.musicBus) return;
+      const set = (node, v) => now ? node.gain.value = v : node.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
+      set(this.master, this.muted ? 0 : p.master * 0.625);
+      set(this.sfx, p.effects * 1.25);
+      set(this.voiceBus, p.voices * 1.1);
+      set(this.musicBus, p.music);
+    }
     toggleMute() {
       this.muted = !this.muted;
-      if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime, 0.02);
+      this.applyPrefs(prefs());
       try {
         globalThis.localStorage?.setItem(MUTE_KEY, this.muted ? "1" : "0");
       } catch {
@@ -6835,7 +7155,7 @@
       src.buffer = buf;
       const g = ctx.createGain();
       g.gain.value = channel === "briefing" ? 1 : 0.9;
-      src.connect(g).connect(this.master);
+      src.connect(g).connect(this.voiceBus);
       src.start();
       ch.src = src;
       ch.until = ctx.currentTime + buf.duration;
@@ -6869,7 +7189,7 @@
       g.gain.value = vol;
       const p = ctx.createStereoPanner();
       p.pan.value = pan;
-      src.connect(g).connect(p).connect(this.master);
+      src.connect(g).connect(p).connect(this.sfx);
       src.start();
       return true;
     }
@@ -6891,7 +7211,7 @@
       g.gain.exponentialRampToValueAtTime(1e-4, t + o.dur);
       const p = ctx.createStereoPanner();
       p.pan.value = o.pan;
-      src.connect(f).connect(g).connect(p).connect(this.master);
+      src.connect(f).connect(g).connect(p).connect(this.sfx);
       src.start(t, Math.random() * 1);
       src.stop(t + o.dur + 0.05);
     }
@@ -6909,7 +7229,7 @@
       g.gain.exponentialRampToValueAtTime(1e-4, t + o.dur);
       const p = ctx.createStereoPanner();
       p.pan.value = o.pan ?? 0;
-      osc.connect(g).connect(p).connect(this.master);
+      osc.connect(g).connect(p).connect(this.sfx);
       osc.start(t);
       osc.stop(t + o.dur + 0.05);
     }
@@ -7182,7 +7502,7 @@
         filter.frequency.value = 160;
         const gain = ctx.createGain();
         gain.gain.value = 0;
-        filter.connect(gain).connect(this.master);
+        filter.connect(gain).connect(this.sfx);
         const loop = this.samples.pick(["engine_loop"]);
         if (loop) {
           const src = ctx.createBufferSource();
@@ -7231,7 +7551,7 @@
         filter.Q.value = 0.9;
         const gain = this.ctx.createGain();
         gain.gain.value = 0;
-        src.connect(filter).connect(gain).connect(this.master);
+        src.connect(filter).connect(gain).connect(this.sfx);
         src.start();
         this.wind = { gain, filter };
       }
@@ -10308,7 +10628,7 @@
     if (Object.getOwnPropertySymbols) return names.concat(Object.getOwnPropertySymbols(events));
     return names;
   };
-  $c4dcfd1d1ea86647$var$EventEmitter.prototype.listeners = function listeners(event) {
+  $c4dcfd1d1ea86647$var$EventEmitter.prototype.listeners = function listeners2(event) {
     var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event, handlers = this._events[evt];
     if (!handlers) return [];
     if (handlers.fn) return [
@@ -10318,53 +10638,53 @@
     return ee;
   };
   $c4dcfd1d1ea86647$var$EventEmitter.prototype.listenerCount = function listenerCount(event) {
-    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event, listeners2 = this._events[evt];
-    if (!listeners2) return 0;
-    if (listeners2.fn) return 1;
-    return listeners2.length;
+    var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event, listeners3 = this._events[evt];
+    if (!listeners3) return 0;
+    if (listeners3.fn) return 1;
+    return listeners3.length;
   };
   $c4dcfd1d1ea86647$var$EventEmitter.prototype.emit = function emit2(event, a1, a2, a3, a4, a5) {
     var evt = $c4dcfd1d1ea86647$var$prefix ? $c4dcfd1d1ea86647$var$prefix + event : event;
     if (!this._events[evt]) return false;
-    var listeners2 = this._events[evt], len = arguments.length, args, i;
-    if (listeners2.fn) {
-      if (listeners2.once) this.removeListener(event, listeners2.fn, void 0, true);
+    var listeners3 = this._events[evt], len = arguments.length, args, i;
+    if (listeners3.fn) {
+      if (listeners3.once) this.removeListener(event, listeners3.fn, void 0, true);
       switch (len) {
         case 1:
-          return listeners2.fn.call(listeners2.context), true;
+          return listeners3.fn.call(listeners3.context), true;
         case 2:
-          return listeners2.fn.call(listeners2.context, a1), true;
+          return listeners3.fn.call(listeners3.context, a1), true;
         case 3:
-          return listeners2.fn.call(listeners2.context, a1, a2), true;
+          return listeners3.fn.call(listeners3.context, a1, a2), true;
         case 4:
-          return listeners2.fn.call(listeners2.context, a1, a2, a3), true;
+          return listeners3.fn.call(listeners3.context, a1, a2, a3), true;
         case 5:
-          return listeners2.fn.call(listeners2.context, a1, a2, a3, a4), true;
+          return listeners3.fn.call(listeners3.context, a1, a2, a3, a4), true;
         case 6:
-          return listeners2.fn.call(listeners2.context, a1, a2, a3, a4, a5), true;
+          return listeners3.fn.call(listeners3.context, a1, a2, a3, a4, a5), true;
       }
       for (i = 1, args = new Array(len - 1); i < len; i++) args[i - 1] = arguments[i];
-      listeners2.fn.apply(listeners2.context, args);
+      listeners3.fn.apply(listeners3.context, args);
     } else {
-      var length = listeners2.length, j;
+      var length = listeners3.length, j;
       for (i = 0; i < length; i++) {
-        if (listeners2[i].once) this.removeListener(event, listeners2[i].fn, void 0, true);
+        if (listeners3[i].once) this.removeListener(event, listeners3[i].fn, void 0, true);
         switch (len) {
           case 1:
-            listeners2[i].fn.call(listeners2[i].context);
+            listeners3[i].fn.call(listeners3[i].context);
             break;
           case 2:
-            listeners2[i].fn.call(listeners2[i].context, a1);
+            listeners3[i].fn.call(listeners3[i].context, a1);
             break;
           case 3:
-            listeners2[i].fn.call(listeners2[i].context, a1, a2);
+            listeners3[i].fn.call(listeners3[i].context, a1, a2);
             break;
           case 4:
-            listeners2[i].fn.call(listeners2[i].context, a1, a2, a3);
+            listeners3[i].fn.call(listeners3[i].context, a1, a2, a3);
             break;
           default:
             if (!args) for (j = 1, args = new Array(len - 1); j < len; j++) args[j - 1] = arguments[j];
-            listeners2[i].fn.apply(listeners2[i].context, args);
+            listeners3[i].fn.apply(listeners3[i].context, args);
         }
       }
     }
@@ -10383,11 +10703,11 @@
       $c4dcfd1d1ea86647$var$clearEvent(this, evt);
       return this;
     }
-    var listeners2 = this._events[evt];
-    if (listeners2.fn) {
-      if (listeners2.fn === fn && (!once2 || listeners2.once) && (!context || listeners2.context === context)) $c4dcfd1d1ea86647$var$clearEvent(this, evt);
+    var listeners3 = this._events[evt];
+    if (listeners3.fn) {
+      if (listeners3.fn === fn && (!once2 || listeners3.once) && (!context || listeners3.context === context)) $c4dcfd1d1ea86647$var$clearEvent(this, evt);
     } else {
-      for (var i = 0, events = [], length = listeners2.length; i < length; i++) if (listeners2[i].fn !== fn || once2 && !listeners2[i].once || context && listeners2[i].context !== context) events.push(listeners2[i]);
+      for (var i = 0, events = [], length = listeners3.length; i < length; i++) if (listeners3[i].fn !== fn || once2 && !listeners3[i].once || context && listeners3[i].context !== context) events.push(listeners3[i]);
       if (events.length) this._events[evt] = events.length === 1 ? events[0] : events;
       else $c4dcfd1d1ea86647$var$clearEvent(this, evt);
     }
@@ -11850,10 +12170,10 @@
       if (still) draw(STORM_PERIOD * 0.55, 0);
     };
     const stormPlace = (t) => {
-      const box = menuBox?.();
-      const right = box ? box.right * scale : w;
+      const box2 = menuBox?.();
+      const right = box2 ? box2.right * scale : w;
       const open = w - right;
-      if (box && open >= MIN_OPEN * scale) {
+      if (box2 && open >= MIN_OPEN * scale) {
         const sway = Math.sin(t / SWAY_PERIOD * Math.PI * 2);
         return { x: right + open * (0.62 + sway * 0.3), width: Math.max(open * 1.05, 240 * scale) };
       }
@@ -12044,7 +12364,7 @@
     seed.focus();
   }
   function buildFactionCards(selected) {
-    const box = el("menu-factions");
+    const box2 = el("menu-factions");
     const card = (value, title, blurb, perks) => {
       const label = document.createElement("label");
       label.className = `faction faction-${value}`;
@@ -12065,7 +12385,7 @@
         ul.append(li);
       }
       label.append(input, h, p, ul);
-      box.append(label);
+      box2.append(label);
     };
     for (const id of FACTION_IDS) card(id, FACTIONS[id].label, FACTIONS[id].blurb, FACTIONS[id].perks);
     card("random", "Random", "Let the frontier decide.", []);
@@ -12104,7 +12424,7 @@
       return spare;
     }
   }
-  function buildOnline(current) {
+  function buildOnline(current2) {
     const status = el("online-status");
     const hostBtn = el("host-btn");
     const joinBtn = el("join-btn");
@@ -12157,7 +12477,7 @@
         link.onMessage((m) => {
           const msg = m;
           if (msg.type !== "hello") return;
-          const s = current();
+          const s = current2();
           const mine = pick2(s.faction);
           const theirs = pick2(msg.faction ?? "random", mine);
           const factions = [mine, theirs];
@@ -12180,14 +12500,14 @@
         link.onMessage((m) => {
           const msg = m;
           if (msg.type !== "start" || !msg.factions) return;
-          const s = current();
+          const s = current2();
           start(
             { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal" },
             void 0,
             { station: guest, link, code, local: 1, factions: msg.factions }
           );
         });
-        link.send({ type: "hello", faction: current().faction });
+        link.send({ type: "hello", faction: current2().faction });
       } catch (e) {
         fail(e instanceof Error && e.message.startsWith("No answer") ? "No game with that code is open. Check it and try again." : e.message);
       }
@@ -12210,7 +12530,7 @@
         link.onMessage((m) => {
           const msg = m;
           if (msg.type !== "catchup" || !msg.data) return;
-          const base = current();
+          const base = current2();
           start(
             { ...base, seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed },
             void 0,
@@ -12272,12 +12592,12 @@
     });
   }
   function describeMission(m, begin) {
-    const box = document.createElement("div");
-    box.className = "briefing";
+    const box2 = document.createElement("div");
+    box2.className = "briefing";
     for (const text of m.briefing) {
       const p = document.createElement("p");
       p.textContent = text;
-      box.append(p);
+      box2.append(p);
     }
     const h = document.createElement("h3");
     h.textContent = "Objectives";
@@ -12293,10 +12613,20 @@
     go.className = "btn";
     go.textContent = "Begin mission";
     go.addEventListener("click", begin);
-    box.append(h, ul, go);
-    return box;
+    box2.append(h, ul, go);
+    return box2;
+  }
+  function labelControls() {
+    const keys = prefs().keys;
+    for (const dt of document.querySelectorAll("#controls dt[data-keys]")) {
+      dt.textContent = (dt.dataset.keys ?? "").replace(/\{(\w+)\}/g, (_, a) => keyLabel(keys[a] ?? ""));
+    }
   }
   function boot() {
+    initSettings();
+    labelControls();
+    onPrefs(labelControls);
+    el("menu-settings").addEventListener("click", () => openSettings());
     const params = launchQuery();
     const settings = parseSettings(params, loadSaved());
     if (params.get("bench") === "1") {
@@ -12339,6 +12669,14 @@
       muteButton.title = sound.muted ? "Sound off (M)" : "Sound on (M)";
     };
     showMute();
+    el("settings-btn").addEventListener("click", (e) => {
+      e.currentTarget.blur();
+      const wasPaused = paused;
+      if (!online) paused = true;
+      openSettings(() => {
+        if (!online) paused = wasPaused;
+      });
+    });
     muteButton.addEventListener("click", () => {
       sound.toggleMute();
       showMute();
@@ -12354,20 +12692,20 @@
     const controls = el("controls");
     window.addEventListener("keydown", (e) => {
       if (typingIn(e.target)) return;
-      if (e.code === "Slash" || e.key === "/" || e.key === "?") {
+      if (e.code === keyFor("controls") || keyFor("controls") === "Slash" && (e.key === "/" || e.key === "?")) {
         e.preventDefault();
         controls.hidden = !controls.hidden;
         return;
       }
       if (e.key === "Escape" && !controls.hidden) controls.hidden = true;
-      if (e.code === "F9") {
+      if (e.code === keyFor("perf")) {
         e.preventDefault();
         perfBox.hidden = !perfBox.hidden;
       }
     });
     window.addEventListener("keydown", (e) => {
       if (typingIn(e.target)) return;
-      if (e.code === "KeyM") {
+      if (e.code === keyFor("mute")) {
         sound.toggleMute();
         showMute();
       }
@@ -12379,7 +12717,7 @@
         showSpeed();
         return;
       }
-      if (e.code !== "KeyP" || game.result || online) return;
+      if (e.code !== keyFor("pause") || game.result || online) return;
       paused = !paused;
       pauseOverlay.hidden = !paused;
     });
