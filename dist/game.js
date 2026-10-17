@@ -2610,6 +2610,84 @@
   function spawnGroup(g, owner, kinds, near) {
     formationTiles(g.map, near, kinds.length).forEach((t, i) => spawnUnit(g, kinds[i], t.x, t.y, owner));
   }
+  var drill = /* @__PURE__ */ new WeakMap();
+  var combatUnits = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind !== "harvester");
+  var TUTORIAL = {
+    id: "training",
+    title: "Basic Training",
+    briefing: [
+      "Commander, before the real thing: a short drill on a quiet stretch of the plateau. Nobody's shooting at us today.",
+      "Follow the steps in the top-left corner. Each one waits until you've done it, and the button you need will glow."
+    ],
+    seed: 5,
+    faction: "concord",
+    enemyFaction: "reclaimers",
+    difficulty: "easy",
+    hazards: false,
+    fog: false,
+    enemyBuilds: false,
+    enemyAttacks: false,
+    sequential: true,
+    setup(g) {
+      const quadStarts = new Map(g.units.filter((u) => u.owner === PLAYER && u.kind === "quad").map((u) => [u.id, { x: u.x, y: u.y }]));
+      const near = { x: Math.round((g.map.start.x + g.map.w / 2) / 2) + 4, y: Math.round((g.map.start.y + g.map.h / 2) / 2) };
+      const before = new Set(g.units.map((u) => u.id));
+      spawnGroup(g, ENEMY, ["scrapper", "scrapper", "scrapper"], openSpot(g, near, 2));
+      const scouts = g.units.filter((u) => !before.has(u.id)).map((u) => u.id);
+      drill.set(g, { quadStarts, scouts });
+    },
+    objectives: [
+      {
+        text: "Select your Quads",
+        hint: "Drag a box around the three Quads next to your base. Clicking one selects just that one; its ID card appears bottom-left.",
+        done: (g) => [...g.selection].some((id) => g.units.find((u) => u.id === id)?.kind === "quad")
+      },
+      {
+        text: "Move them out",
+        hint: "Right-click open ground to send them there. Move the view with WASD, the arrow keys, or by pushing the mouse against the screen edge.",
+        done: (g) => {
+          const d = drill.get(g);
+          return !!d && g.units.some((u) => {
+            const s = d.quadStarts.get(u.id);
+            return !!s && Math.hypot(u.x - s.x, u.y - s.y) > 4 * 32;
+          });
+        }
+      },
+      {
+        text: "Build a Barracks",
+        hint: "Click Barracks in the sidebar (or press Y). When it reads READY, click it again and pick a spot near your base \u2014 green squares mean the ground is clear.",
+        point: "Barracks",
+        done: (g) => has(g, PLAYER, "barracks")
+      },
+      {
+        text: "Train three Infantry",
+        hint: "Click your new Barracks and its troops appear in the sidebar. Click Infantry three times \u2014 Shift-click queues five at once.",
+        point: "Infantry",
+        done: (g) => g.units.filter((u) => u.owner === PLAYER && u.kind === "infantry").length >= 3
+      },
+      {
+        text: "Earn 600 credits from crystal",
+        hint: "Your Harvester mines the glowing crystal by itself and unloads at the Refinery; watch Credits climb in the top-right. More Harvesters mean more money.",
+        done: (g) => g.stats.creditsHarvested >= 600
+      },
+      {
+        text: "Select your whole army",
+        hint: "Press E to select every fighting unit (twice to jump the camera to them). Ctrl + 1\u20139 saves a group you can call back with that number.",
+        done: (g) => {
+          const army = combatUnits(g);
+          return army.length >= 4 && army.every((u) => g.selection.has(u.id));
+        }
+      },
+      {
+        text: "Destroy the Reclaimer scouts",
+        hint: "They're dug in south-east of your base, out on the plain. Right-click an enemy to attack it, or Ctrl + right-click the ground to attack-move: your units fight whatever they meet on the way.",
+        done: (g) => {
+          const d = drill.get(g);
+          return !!d && d.scouts.every((id) => !g.units.some((u) => u.id === id));
+        }
+      }
+    ]
+  };
   var MISSIONS = [
     {
       id: "landfall",
@@ -2734,7 +2812,7 @@
     }
   ];
   function missionById(id) {
-    return MISSIONS.find((m) => m.id === id);
+    return id === TUTORIAL.id ? TUTORIAL : MISSIONS.find((m) => m.id === id);
   }
   function createMissionGame(def) {
     const g = createGame(def.seed, def.difficulty, {
@@ -2752,7 +2830,9 @@
   function updateMission(g) {
     const m = g.mission;
     if (!m || g.result) return;
+    const current2 = m.def.sequential ? m.done.indexOf(false) : -1;
     m.def.objectives.forEach((o, i) => {
+      if (m.def.sequential && i !== current2) return;
       if (m.done[i] || !o.done(g)) return;
       m.done[i] = true;
       notify(g, `Objective complete: ${o.text.replace(/^Bonus: /, "")}`);
@@ -12806,18 +12886,20 @@
     };
     const completed = loadProgress();
     let open = null;
-    MISSIONS.forEach((m, i) => {
-      const unlocked = isUnlocked(completed, i);
+    [TUTORIAL, ...MISSIONS].forEach((m, k) => {
+      const i = k - 1;
+      const training = m === TUTORIAL;
+      const unlocked = training || isUnlocked(completed, i);
       const won = completed.includes(m.id);
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `mission${won ? " won" : ""}`;
+      button.className = `mission${won ? " won" : ""}${training ? " training" : ""}`;
       button.disabled = !unlocked;
       const title = document.createElement("span");
       title.textContent = m.title;
       const status = document.createElement("span");
       status.className = "status";
-      status.textContent = won ? "Complete" : unlocked ? FACTIONS[m.faction].label : "Locked";
+      status.textContent = won ? "Complete" : training ? "Start here" : unlocked ? FACTIONS[m.faction].label : "Locked";
       button.append(title, status);
       list.append(button);
       button.addEventListener("click", () => {
@@ -12993,6 +13075,31 @@
       lastObjectives = key;
       const head = document.createElement("b");
       head.textContent = m.def.title;
+      if (m.def.sequential) {
+        const current2 = m.done.indexOf(false);
+        head.textContent = current2 < 0 ? `${m.def.title} \u2014 done` : `${m.def.title} \u2014 step ${current2 + 1} of ${m.def.objectives.length}`;
+        const rows = [head];
+        m.def.objectives.forEach((o, i) => {
+          if (current2 >= 0 && i > current2) return;
+          const d = document.createElement("div");
+          d.textContent = o.text;
+          d.className = m.done[i] ? "done" : "current";
+          rows.push(d);
+          if (i === current2 && o.hint) {
+            const p = document.createElement("p");
+            p.className = "hint";
+            p.textContent = o.hint;
+            rows.push(p);
+          }
+        });
+        objectives.replaceChildren(...rows);
+        objectives.hidden = false;
+        const point = current2 >= 0 ? m.def.objectives[current2].point : void 0;
+        for (const b of document.querySelectorAll(".build")) {
+          b.classList.toggle("coach", !!point && b.querySelector(".name")?.textContent === point);
+        }
+        return;
+      }
       objectives.replaceChildren(
         head,
         ...m.def.objectives.map((o, i) => {
