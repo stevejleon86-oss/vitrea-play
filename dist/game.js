@@ -4027,7 +4027,7 @@
   }
   function sandColour(px, py, seed) {
     const tone = noise(px, py, 96, seed + 10);
-    const c = lerp3([200, 193, 178], [182, 174, 160], tone);
+    const c = lerp3([158, 145, 124], [136, 124, 106], tone);
     const warp = fbm(px, py, seed + 20) * 9;
     const r = Math.sin(px * 0.09 + py * 0.035 + warp);
     const crest = r > 0.82 ? (r - 0.82) / 0.18 : 0;
@@ -4039,14 +4039,14 @@
   }
   function rockColour(px, py, seed) {
     const mottle = fbm(px, py, seed + 40);
-    const c = lerp3([112, 116, 128], [88, 92, 104], mottle);
+    const c = lerp3([100, 94, 86], [80, 75, 68], mottle);
     const crack = Math.abs(noise(px, py, 24, seed + 50) - 0.5) < 0.018 ? 0.75 : 1;
     const grain = (hash(px, py, seed + 60) - 0.5) * 10;
     return [c[0] * crack + grain, c[1] * crack + grain, c[2] * crack + grain];
   }
   function cliffColour(px, py, seed) {
     const mottle = fbm(px, py, seed + 70);
-    const c = lerp3([66, 66, 80], [50, 50, 62], mottle);
+    const c = lerp3([54, 50, 46], [40, 37, 34], mottle);
     const strata = Math.sin(py * 0.32 + noise(px, py, 30, seed + 80) * 5) * 5;
     const grain = (hash(px, py, seed + 90) - 0.5) * 8;
     return [c[0] + strata + grain, c[1] + strata + grain, c[2] + strata + grain];
@@ -4088,14 +4088,14 @@
 
   // src/render.ts
   var COLORS = {
-    sandA: [196, 189, 174],
-    sandB: [180, 172, 158],
-    rockA: [104, 108, 120],
-    rockB: [86, 90, 102],
-    cliff: [58, 58, 70],
+    sandA: [154, 141, 120],
+    sandB: [136, 124, 106],
+    rockA: [100, 94, 86],
+    rockB: [80, 75, 68],
+    cliff: [46, 43, 40],
     player: "#2f6fb0",
     playerDark: "#1d4a78",
-    select: "#7dff7a",
+    select: "#f2b33d",
     spice: "#5fd8f0",
     concrete: "#c9c2b4"
   };
@@ -4205,7 +4205,7 @@
       for (const st of g.storms) drawStorm(ctx, st, g.time);
       for (const mk of g.markers) {
         const t = mk.age / 0.6;
-        ctx.strokeStyle = mk.kind === "move" ? `rgba(125,255,122,${1 - t})` : mk.kind === "attack" ? `rgba(255,80,60,${1 - t})` : `rgba(255,170,60,${1 - t})`;
+        ctx.strokeStyle = mk.kind === "move" ? `rgba(242,179,61,${1 - t})` : mk.kind === "attack" ? `rgba(255,80,60,${1 - t})` : `rgba(111,227,240,${1 - t})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(mk.x, mk.y, 14 * (1 - t) + 3, 0, Math.PI * 2);
@@ -4226,7 +4226,7 @@
         const y = Math.min(drag.y0, drag.y1);
         const w = Math.abs(drag.x1 - drag.x0);
         const h = Math.abs(drag.y1 - drag.y0);
-        ctx.fillStyle = "rgba(125,255,122,0.08)";
+        ctx.fillStyle = "rgba(242,179,61,0.08)";
         ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = COLORS.select;
         ctx.lineWidth = 1;
@@ -4834,7 +4834,7 @@
     const c = buildingCentre(b);
     const x = (b.rally.x + 0.5) * TILE;
     const y = (b.rally.y + 0.5) * TILE;
-    ctx.strokeStyle = "rgba(125,255,122,0.8)";
+    ctx.strokeStyle = "rgba(242,179,61,0.85)";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -4847,7 +4847,7 @@
     ctx.moveTo(x, y);
     ctx.lineTo(x, y - 16);
     ctx.stroke();
-    ctx.fillStyle = "#7dff7a";
+    ctx.fillStyle = "#f2b33d";
     ctx.beginPath();
     ctx.moveTo(x, y - 16);
     ctx.lineTo(x + 10, y - 12);
@@ -4856,8 +4856,8 @@
   }
   function drawWaypoints(ctx, u) {
     const pts = [u.goal, ...u.waypoints].filter((p) => !!p);
-    ctx.strokeStyle = "rgba(125,255,122,0.55)";
-    ctx.fillStyle = "rgba(125,255,122,0.8)";
+    ctx.strokeStyle = "rgba(242,179,61,0.6)";
+    ctx.fillStyle = "rgba(242,179,61,0.85)";
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -4993,13 +4993,57 @@
     seer: "#e0f8ff",
     rook: "#e07a30"
   };
+  var TABS = [
+    { id: "build", label: "Build", title: "Structures", needs: "yard" },
+    { id: "barracks", label: "Troops", title: "Barracks \xB7 infantry", needs: "barracks" },
+    { id: "lightFactory", label: "Light", title: "Light Factory \xB7 vehicles", needs: "lightFactory" },
+    { id: "heavyFactory", label: "Heavy", title: "Heavy Factory \xB7 armour", needs: "heavyFactory" },
+    { id: "research", label: "Tech", title: "Tech Center \xB7 research", needs: "techCenter" }
+  ];
+  var TAB_FOR = { yard: "build", barracks: "barracks", lightFactory: "lightFactory", heavyFactory: "heavyFactory", techCenter: "research" };
   var Sidebar = class {
     buttons = [];
     structureKeys = /* @__PURE__ */ new Map();
     unitKeys = /* @__PURE__ */ new Map();
+    /** The menu showing, the one last picked by hand, and the building selected last frame. */
+    tab = "build";
+    chosen = "build";
+    lastSelected = null;
+    panes = /* @__PURE__ */ new Map();
+    tabButtons = /* @__PURE__ */ new Map();
+    title = document.getElementById("side-title");
+    game;
     constructor(structures, units, research, game, hooks) {
       const me = game.local;
       const issue = hooks.issue;
+      this.game = game;
+      this.panes.set("build", structures);
+      this.panes.set("research", research);
+      for (const p of ["barracks", "lightFactory", "heavyFactory"]) {
+        const pane = document.createElement("div");
+        pane.className = "grid2";
+        units.append(pane);
+        this.panes.set(p, pane);
+      }
+      const tabRow = document.getElementById("side-tabs");
+      for (const t of TABS) {
+        const el2 = document.createElement("button");
+        el2.type = "button";
+        el2.className = "side-tab";
+        el2.setAttribute("role", "tab");
+        el2.textContent = t.label;
+        el2.title = t.title;
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.hidden = true;
+        el2.append(dot);
+        el2.addEventListener("click", () => {
+          this.chosen = this.tab = t.id;
+          el2.blur();
+        });
+        tabRow?.append(el2);
+        this.tabButtons.set(t.id, { el: el2, dot });
+      }
       BUILDABLE.forEach((kind, i) => {
         const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i]);
         b.press = () => {
@@ -5037,6 +5081,7 @@
         const cost = unitCost(faction, kind);
         const key = HOTKEYS[i];
         const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`);
+        b.producer = UNIT_STATS[kind].producer;
         b.press = () => issue({ t: "train", kind, n: 1 });
         if (key) this.unitKeys.set(key, b);
         b.el.addEventListener("click", (e) => {
@@ -5065,7 +5110,7 @@
             ready: false
           });
         };
-        units.append(b.el);
+        this.panes.get(UNIT_STATS[kind].producer).append(b.el);
         this.buttons.push(b);
       });
       window.addEventListener("keydown", (e) => {
@@ -5073,7 +5118,10 @@
         const m = /^Key([A-Z])$/.exec(e.code);
         if (!m) return;
         const b = (e.shiftKey ? this.unitKeys : this.structureKeys).get(m[1]);
-        if (b?.press && !b.el.classList.contains("locked")) b.press();
+        if (b?.press && !b.el.classList.contains("locked")) {
+          b.press();
+          this.tab = b.producer ?? "build";
+        }
       });
       for (const id of researchFor(faction)) {
         const r = RESEARCH[id];
@@ -5102,6 +5150,26 @@
       }
     }
     update() {
+      const g = this.game;
+      const me = g.local;
+      const sel = g.buildings.find((b) => b.id === g.selectedBuilding && b.owner === me);
+      const selId = sel?.id ?? null;
+      if (selId !== this.lastSelected) {
+        this.lastSelected = selId;
+        this.tab = (sel && TAB_FOR[sel.kind]) ?? this.chosen;
+      }
+      const lines2 = linesOf(g, me);
+      for (const t of TABS) {
+        const tb = this.tabButtons.get(t.id);
+        const active = t.id === this.tab;
+        if (tb.el.getAttribute("aria-selected") !== String(active)) tb.el.setAttribute("aria-selected", String(active));
+        tb.el.classList.toggle("absent", !hasBuilding(g, t.needs, me));
+        const busy = t.id === "build" ? !!structureOf(g, me) : t.id === "research" ? !!g.research[me].current : !!lines2[t.id].current;
+        if (tb.dot.hidden === busy) tb.dot.hidden = !busy;
+      }
+      for (const [id, pane] of this.panes) if (pane.hidden !== (id !== this.tab)) pane.hidden = id !== this.tab;
+      const title = TABS.find((t) => t.id === this.tab).title;
+      if (this.title && this.title.textContent !== title) this.title.textContent = title;
       for (const b of this.buttons) b.update();
     }
   };
