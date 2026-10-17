@@ -170,6 +170,18 @@
     #online-status { margin-top: 10px; font-size: 13px; color: #c6d0da; min-height: 1.4em; }
     #online-status .code { font-size: 22px; font-weight: 800; letter-spacing: 0.25em; color: #8fe8fa; user-select: text; }
     #online-status .err { color: #ff8a70; }
+    #online .btn.rejoin { margin-top: 10px; background: linear-gradient(180deg, #ffd98a, #e0a63c); color: #1b1612; }
+    .surrender {
+      width: 100%; margin-top: 8px; font: inherit; font-size: 12px; font-weight: 600; padding: 4px; border-radius: 3px; cursor: pointer;
+      background: transparent; color: #b9a37f; border: 1px solid #5c4a36;
+    }
+    .surrender.armed { background: #8a2a20; color: #ffe0d8; border-color: #c0392b; }
+    #netwait {
+      position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); text-align: center;
+      background: rgba(28, 22, 17, 0.95); border: 1px solid #ffcf6b; border-radius: 6px; padding: 18px 26px; color: #e9dcc4;
+    }
+    #netwait[hidden] { display: none; }
+    #netwait-text { font-size: 15px; margin-bottom: 12px; }
 
     /* Campaign */
     #campaign { margin-top: 22px; }
@@ -231,6 +243,7 @@
       <div><h2>Units</h2><div id="units"></div></div>
     </div>
     <div class="research-box"><h2>Research</h2><div id="research"></div></div>
+    <button id="surrender" class="surrender" type="button" title="Give up this game (click twice)">Surrender</button>
   </div>
   <div id="notices"></div>
   <div id="objectives" hidden></div>
@@ -249,6 +262,10 @@
     Sidebar: left-click to build, right-click to cancel &middot; WASD / arrows / edge to scroll &middot; Shift+right-click waypoints &middot; E army &middot; H home &middot; Space last alert &middot; Z sell &middot; C repair &middot; ` health bars &middot; Q hero ability &middot; P pause &middot; M mute &middot; +/- speed &middot; double-click selects all of a type
   </div>
   <div id="paused" hidden>PAUSED</div>
+  <div id="netwait" hidden>
+    <div id="netwait-text"></div>
+    <button id="claim-btn" class="btn" type="button">Claim victory</button>
+  </div>
 
   <div id="menu" hidden>
     <div class="wrap">
@@ -290,6 +307,7 @@
             <input id="join-code" type="text" maxlength="5" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Room code">
             <button type="button" id="join-btn" class="btn ghost">Join</button>
           </div>
+          <button type="button" id="rejoin-btn" class="btn rejoin" hidden>Rejoin game</button>
           <div id="online-status" role="status"></div>
         </section>
         <section id="campaign">

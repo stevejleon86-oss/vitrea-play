@@ -5997,6 +5997,7 @@
       case "surrender":
         g.result = owner === 0 ? "defeat" : "victory";
         g.resultReason = owner === g.local ? "You surrendered." : "Your opponent surrendered.";
+        emit(g, { kind: g.result });
         return null;
     }
   }
@@ -6036,6 +6037,13 @@
     mine = /* @__PURE__ */ new Map();
     outbox = [];
     hashes = /* @__PURE__ */ new Map();
+    /** Every turn's applied commands, [side 0, side 1], for catching up a player who rejoins. */
+    history = [];
+    /** Every turn message we've sent, so they can be resent after a dropped connection. */
+    sent = /* @__PURE__ */ new Map();
+    /** Turns still to replay when catching up (oldest first), and where they end. */
+    replay = [];
+    replayIndex = 0;
     /** Called with the commanding side's error text when one of the local player's commands fails. */
     onError = () => {
     };
@@ -6045,6 +6053,7 @@
     desynced = false;
     g;
     local;
+    /** How messages reach the other player; swapped when they reconnect. */
     send;
     constructor(g, local, send) {
       this.g = g;
@@ -6071,24 +6080,68 @@
     }
     /** True if the next turn is waiting on the other player's commands. */
     get waiting() {
-      return this.step === 0 && !this.incoming.has(this.turn);
+      return !this.catchingUp && this.step === 0 && !this.incoming.has(this.turn);
+    }
+    /** True while replaying the game's history after rejoining. */
+    get catchingUp() {
+      return this.replayIndex < this.replay.length;
+    }
+    /** How far through catching up (0-1). */
+    get catchUpProgress() {
+      return this.replay.length ? this.replayIndex / this.replay.length : 1;
+    }
+    /** Snapshot for a rejoining player. Only valid at the start of a turn (`step === 0`). */
+    catchUpData() {
+      const side = (o) => [...o === this.local ? this.mine : this.incoming].filter(([t]) => t >= this.turn);
+      return { turn: this.turn, history: this.history.slice(0, this.turn), future: { 0: side(0), 1: side(1) } };
+    }
+    /**
+     * Rebuild from a catch-up: replay the history (a chunk per `advance` call),
+     * then carry on with the scheduled commands. Turns we have no commands for
+     * yet get empty ones, sent at once, so the other player isn't left waiting.
+     */
+    loadCatchUp(data) {
+      this.replay = data.history;
+      this.replayIndex = 0;
+      this.turn = 0;
+      this.step = 0;
+      this.mine = new Map(data.future[this.local]);
+      this.incoming = new Map(data.future[this.local === 0 ? 1 : 0]);
+      for (let t = data.turn; t < data.turn + DELAY_TURNS; t++) {
+        if (!this.mine.has(t)) this.mine.set(t, []);
+      }
+      for (const [t, cmds] of this.mine) {
+        this.sent.set(t, cmds);
+        this.send({ type: "turn", turn: t, cmds });
+      }
+    }
+    /** After a dropped connection: resend every turn message from `from` on. */
+    resendFrom(from) {
+      for (const [t, cmds] of this.sent) if (t >= from) this.send({ type: "turn", turn: t, cmds });
     }
     /** Run up to `steps` simulation steps; returns how many ran (fewer while waiting for the other side). */
     advance(steps) {
       let ran = 0;
       while (ran < steps) {
-        if (this.step === 0) {
+        if (this.catchingUp && this.step === 0) {
+          const [first, second] = this.replay[this.replayIndex++];
+          for (const c of first) applyCommand(this.g, 0, c);
+          for (const c of second) applyCommand(this.g, 1, c);
+          this.history[this.turn] = [first, second];
+        } else if (this.step === 0) {
           const theirs = this.incoming.get(this.turn);
           if (!theirs) break;
           const later = this.turn + DELAY_TURNS;
           const outgoing = this.outbox;
           this.outbox = [];
           this.mine.set(later, outgoing);
+          this.sent.set(later, outgoing);
           this.send({ type: "turn", turn: later, cmds: outgoing });
           const mine = this.mine.get(this.turn) ?? [];
           const [first, second] = this.local === 0 ? [mine, theirs] : [theirs, mine];
           for (const c of first) this.apply(0, c);
           for (const c of second) this.apply(1, c);
+          this.history[this.turn] = [first, second];
           this.mine.delete(this.turn);
           this.incoming.delete(this.turn);
         }
@@ -6096,7 +6149,7 @@
         ran++;
         if (++this.step === TURN_STEPS) {
           this.step = 0;
-          if (this.turn % HASH_EVERY === 0) {
+          if (this.turn % HASH_EVERY === 0 && !this.catchingUp) {
             const hash3 = stateHash(this.g);
             this.hashes.set(this.turn, hash3);
             this.send({ type: "hash", turn: this.turn, hash: hash3 });
@@ -10225,7 +10278,10 @@
   function cleanCode(text) {
     return text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
   }
-  function wrap(peer, conn) {
+  function stationId(code, side) {
+    return PREFIX + code + (side === 1 ? "-g" : "");
+  }
+  function wrap(conn) {
     let closed = false;
     const closeHandlers = [];
     const closeOnce = () => {
@@ -10235,26 +10291,31 @@
     };
     conn.on("close", closeOnce);
     conn.on("error", closeOnce);
-    peer.on("disconnected", closeOnce);
+    const watchdog = setInterval(() => {
+      if (!closed && conn.peerConnection && ["failed", "closed", "disconnected"].includes(conn.peerConnection.iceConnectionState)) closeOnce();
+      if (closed) clearInterval(watchdog);
+    }, 1e3);
     return {
       send: (m) => {
         if (!closed && conn.open) conn.send(m);
       },
       onMessage: (h) => conn.on("data", (d) => h(d)),
-      onClose: (h) => closeHandlers.push(h),
+      onClose: (h) => {
+        if (closed) h();
+        else closeHandlers.push(h);
+      },
       close: () => {
         closeOnce();
         conn.close();
-        peer.destroy();
       }
     };
   }
   function describe(err) {
     switch (err.type) {
       case "peer-unavailable":
-        return "No game with that code. Check it and try again.";
+        return "No game with that code is open. Check it and try again.";
       case "unavailable-id":
-        return "That code is taken. Try creating the game again.";
+        return "That code is in use. Try again in a moment.";
       case "network":
       case "server-error":
       case "socket-error":
@@ -10266,25 +10327,56 @@
         return err.message ?? "Connection failed.";
     }
   }
-  function hostGame(onReady, onJoin, onError) {
-    const code = makeCode();
-    const peer = new $dd0187d7f28e386f$export$2e2bcd8739ae039(PREFIX + code);
-    peer.on("open", () => onReady(code));
-    peer.on("error", (e) => onError(describe(e)));
-    peer.on("connection", (conn) => {
-      conn.on("open", () => onJoin(wrap(peer, conn)));
-    });
-    return { cancel: () => peer.destroy() };
-  }
-  function joinGame(code, onOpen, onError) {
-    const peer = new $dd0187d7f28e386f$export$2e2bcd8739ae039();
-    peer.on("error", (e) => onError(describe(e)));
-    peer.on("open", () => {
-      const conn = peer.connect(PREFIX + cleanCode(code), { reliable: true, serialization: "json" });
-      conn.on("open", () => onOpen(wrap(peer, conn)));
-    });
-    return { cancel: () => peer.destroy() };
-  }
+  var Station = class {
+    peer;
+    /** Called for every incoming connection, once it's open. */
+    onConnection = () => {
+    };
+    /** Called on errors, with a message for the player. */
+    onError = () => {
+    };
+    ready;
+    constructor(id) {
+      this.peer = id ? new $dd0187d7f28e386f$export$2e2bcd8739ae039(id) : new $dd0187d7f28e386f$export$2e2bcd8739ae039();
+      this.ready = new Promise((resolve, reject) => {
+        this.peer.on("open", () => resolve());
+        this.peer.on("error", (e) => {
+          const text = describe(e);
+          reject(new Error(text));
+          this.onError(text);
+        });
+      });
+      this.ready.catch(() => {
+      });
+      this.peer.on("connection", (conn) => conn.on("open", () => this.onConnection(wrap(conn))));
+      this.peer.on("disconnected", () => {
+        if (!this.peer.destroyed) this.peer.reconnect();
+      });
+    }
+    /** Resolves once the station is registered (and so findable). */
+    whenReady() {
+      return this.ready;
+    }
+    /** Connect to another station by id. */
+    async connect(id) {
+      await this.ready;
+      return new Promise((resolve, reject) => {
+        const conn = this.peer.connect(id, { reliable: true, serialization: "json" });
+        const timer = setTimeout(() => reject(new Error("No answer from the other player.")), 12e3);
+        conn.on("open", () => {
+          clearTimeout(timer);
+          resolve(wrap(conn));
+        });
+        conn.on("error", () => {
+          clearTimeout(timer);
+          reject(new Error("Connection failed."));
+        });
+      });
+    }
+    destroy() {
+      this.peer.destroy();
+    }
+  };
 
   // src/main.ts
   var STEP2 = 1 / 60;
@@ -10324,6 +10416,7 @@
     return [...counts].map(([label, n]) => `${n} &times; ${label}`).join(", ");
   }
   var LEVEL_LABELS = { easy: "Easy", normal: "Normal", hard: "Hard" };
+  var REJOIN_WAIT = 120;
   var LAUNCH_KEY = "vitrea.launch";
   function navigate(query) {
     if (window.top === window) {
@@ -10421,22 +10514,58 @@
     for (const id of FACTION_IDS) card(id, FACTIONS[id].label, FACTIONS[id].blurb, FACTIONS[id].perks);
     card("random", "Random", "Let the frontier decide.", []);
   }
+  var SESSION_KEY = "vitrea.online";
+  var SESSION_MAX_AGE = 3 * 60 * 60 * 1e3;
+  function saveSession(s) {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    } catch {
+    }
+  }
+  function loadSession() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null");
+      return s && Date.now() - s.at < SESSION_MAX_AGE ? s : null;
+    } catch {
+      return null;
+    }
+  }
+  function clearSession() {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+    }
+  }
+  async function claimStation(id) {
+    const s = new Station(id);
+    try {
+      await s.whenReady();
+      return s;
+    } catch {
+      s.destroy();
+      const spare = new Station(null);
+      await spare.whenReady();
+      return spare;
+    }
+  }
   function buildOnline(current) {
     const status = el("online-status");
     const hostBtn = el("host-btn");
     const joinBtn = el("join-btn");
+    const rejoinBtn = el("rejoin-btn");
     const codeInput = el("join-code");
-    let pending = null;
+    let station = null;
     if (window.top !== window) {
       hostBtn.disabled = joinBtn.disabled = codeInput.disabled = true;
       status.textContent = "Online play needs the full game site; it doesn't work inside this embedded preview.";
       return;
     }
     const say = (html) => status.innerHTML = html;
+    const busy = (on2) => hostBtn.disabled = joinBtn.disabled = rejoinBtn.disabled = on2;
     const fail = (text) => {
-      pending?.cancel();
-      pending = null;
-      hostBtn.disabled = joinBtn.disabled = false;
+      station?.destroy();
+      station = null;
+      busy(false);
       const span = document.createElement("span");
       span.className = "err";
       span.textContent = text;
@@ -10447,64 +10576,97 @@
       const options = FACTION_IDS.filter((f) => f !== not);
       return options[Math.floor(Math.random() * options.length)];
     };
-    const router = (link) => {
-      let handler = () => {
-      };
-      link.onMessage((m) => handler(m));
-      return (h) => handler = h;
-    };
-    hostBtn.addEventListener("click", () => {
-      pending?.cancel();
-      hostBtn.disabled = joinBtn.disabled = true;
+    const session = loadSession();
+    if (session) {
+      rejoinBtn.hidden = false;
+      rejoinBtn.textContent = `Rejoin game ${session.code}`;
+    }
+    hostBtn.addEventListener("click", async () => {
+      station?.destroy();
+      busy(true);
       say("Setting up\u2026");
-      pending = hostGame(
-        (code) => say(`Send your friend this code: <span class="code">${code}</span><br>Waiting for them to join\u2026`),
-        (link) => {
-          const route = router(link);
-          say("Friend connected. Starting\u2026");
-          route((m) => {
-            const msg = m;
-            if (msg.type !== "hello") return;
-            const s = current();
-            const mine = pick(s.faction);
-            const theirs = pick(msg.faction ?? "random", mine);
-            const factions = [mine, theirs];
-            link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions });
-            start({ ...s }, void 0, { link, local: 0, factions, route });
-          });
-        },
-        fail
-      );
+      const code = makeCode();
+      station = new Station(stationId(code, 0));
+      station.onError = fail;
+      try {
+        await station.whenReady();
+      } catch {
+        return;
+      }
+      say(`Send your friend this code: <span class="code">${code}</span><br>Waiting for them to join\u2026`);
+      const host = station;
+      host.onConnection = (link) => {
+        host.onConnection = (extra) => extra.close();
+        say("Friend connected. Starting\u2026");
+        link.onMessage((m) => {
+          const msg = m;
+          if (msg.type !== "hello") return;
+          const s = current();
+          const mine = pick(s.faction);
+          const theirs = pick(msg.faction ?? "random", mine);
+          const factions = [mine, theirs];
+          link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions });
+          start({ ...s }, void 0, { station: host, link, code, local: 0, factions });
+        });
+      };
     });
-    const join = () => {
+    const join = async () => {
       const code = cleanCode(codeInput.value);
       if (code.length !== 5) return fail("Room codes are 5 letters and numbers.");
-      pending?.cancel();
-      hostBtn.disabled = joinBtn.disabled = true;
+      station?.destroy();
+      busy(true);
       say("Connecting\u2026");
-      pending = joinGame(
-        code,
-        (link) => {
-          const route = router(link);
-          say("Connected. Waiting for the host to start\u2026");
-          route((m) => {
-            const msg = m;
-            if (msg.type !== "start" || !msg.factions) return;
-            const s = current();
-            start(
-              { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal" },
-              void 0,
-              { link, local: 1, factions: msg.factions, route }
-            );
-          });
-          link.send({ type: "hello", faction: current().faction });
-        },
-        fail
-      );
+      try {
+        station = await claimStation(stationId(code, 1));
+        const guest = station;
+        const link = await guest.connect(stationId(code, 0));
+        say("Connected. Waiting for the host to start\u2026");
+        link.onMessage((m) => {
+          const msg = m;
+          if (msg.type !== "start" || !msg.factions) return;
+          const s = current();
+          start(
+            { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal" },
+            void 0,
+            { station: guest, link, code, local: 1, factions: msg.factions }
+          );
+        });
+        link.send({ type: "hello", faction: current().faction });
+      } catch (e) {
+        fail(e instanceof Error && e.message.startsWith("No answer") ? "No game with that code is open. Check it and try again." : e.message);
+      }
     };
     joinBtn.addEventListener("click", join);
     codeInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") join();
+      if (e.key === "Enter") void join();
+    });
+    rejoinBtn.addEventListener("click", async () => {
+      const s = loadSession();
+      if (!s) return fail("That game has ended.");
+      station?.destroy();
+      busy(true);
+      say(`Reconnecting to game <b>${s.code}</b>\u2026`);
+      try {
+        station = await claimStation(stationId(s.code, s.side === 0 ? 0 : 1));
+        const me = station;
+        const link = await me.connect(stationId(s.code, s.side === 0 ? 1 : 0));
+        say("Connected. Fetching the game\u2026");
+        link.onMessage((m) => {
+          const msg = m;
+          if (msg.type !== "catchup" || !msg.data) return;
+          const base = current();
+          start(
+            { ...base, seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed },
+            void 0,
+            { station: me, link, code: s.code, local: s.side, factions: s.factions, catchUp: msg.data }
+          );
+        });
+        link.send({ type: "rejoin", fresh: true });
+      } catch {
+        clearSession();
+        rejoinBtn.hidden = true;
+        fail("Couldn't reach your opponent. They may have left the game.");
+      }
     });
   }
   function missionQuery(id, settings) {
@@ -10682,26 +10844,62 @@
     const cam = { x: 0, y: 0, w: 0, h: 0 };
     const renderer = new Renderer(view, minimap, game.map, game.factions);
     const input = new Input(game, cam, view, minimap);
-    const lockstep = online ? new Lockstep(game, online.local, (m) => online.link.send(m)) : null;
+    const lockstep = online ? new Lockstep(game, online.local, (m) => online.link?.send(m)) : null;
     const complain = (text) => {
       notify(game, text);
       emit(game, { kind: "error" });
     };
     const issue = (c) => {
-      if (lockstep) return lockstep.issue(c);
+      if (lockstep && (online?.link || c.t !== "surrender")) return lockstep.issue(c);
       const problem = applyCommand(game, game.local, c);
       if (problem) complain(problem);
     };
     input.issue = issue;
+    let opponentGoneAt = null;
+    let owesCatchUp = null;
     if (lockstep && online) {
       lockstep.onError = complain;
       lockstep.onDesync = () => notify(game, "Warning: the two games have drifted out of sync.");
-      online.route((m) => lockstep.receive(m));
-      online.link.onClose(() => {
-        if (game.result) return;
-        game.result = online.local === 0 ? "victory" : "defeat";
-        game.resultReason = "Your opponent left the game.";
-      });
+      if (online.catchUp) lockstep.loadCatchUp(online.catchUp);
+      saveSession({ code: online.code, side: online.local, seed, hazards: settings.hazards, fog: settings.fog, speed: settings.speed, factions: online.factions, at: Date.now() });
+      const attach = (link) => {
+        online.link = link;
+        opponentGoneAt = null;
+        link.onMessage((m) => {
+          const msg = m;
+          if (msg.type === "turn" || msg.type === "hash") lockstep.receive(m);
+          else if (msg.type === "rejoin" && msg.fresh) owesCatchUp = link;
+          else if (msg.type === "rejoin") {
+            link.send({ type: "resume", turn: lockstep.turn });
+            lockstep.resendFrom(msg.turn ?? 0);
+          } else if (msg.type === "resume") lockstep.resendFrom(msg.turn ?? 0);
+        });
+        link.onClose(() => {
+          if (online.link !== link || game.result) return;
+          online.link = null;
+          opponentGoneAt = performance.now();
+          notify(game, "Your opponent disconnected.");
+          if (online.local === 1) void reconnect();
+        });
+      };
+      const reconnect = async () => {
+        while (!online.link && !game.result) {
+          try {
+            const link = await online.station.connect(stationId(online.code, 0));
+            if (online.link || game.result) return link.close();
+            attach(link);
+            link.send({ type: "rejoin", fresh: false, turn: lockstep.turn });
+            return;
+          } catch {
+            await new Promise((r) => setTimeout(r, 3e3));
+          }
+        }
+      };
+      online.station.onConnection = (link) => {
+        if (online.link || game.result) return link.close();
+        attach(link);
+      };
+      if (online.link) attach(online.link);
     }
     input.edgeScroll = settings.edgeScroll;
     const sellButton = el("sell");
@@ -10743,18 +10941,68 @@
     let lastInfo = "";
     let lastNotices = "";
     let waitingFor = 0;
+    const netWait = el("netwait");
+    const netWaitText = el("netwait-text");
+    const claimVictory = () => {
+      if (game.result) return;
+      game.result = game.local === 0 ? "victory" : "defeat";
+      game.resultReason = "Your opponent left the game.";
+      emit(game, { kind: game.result });
+    };
+    el("claim-btn").addEventListener("click", claimVictory);
+    const surrenderBtn = el("surrender");
+    let surrenderArmed = 0;
+    surrenderBtn.addEventListener("click", () => {
+      surrenderBtn.blur();
+      if (game.result) return;
+      if (performance.now() - surrenderArmed > 3e3) {
+        surrenderArmed = performance.now();
+        surrenderBtn.textContent = "Click again to surrender";
+        surrenderBtn.classList.add("armed");
+        setTimeout(() => {
+          surrenderBtn.textContent = "Surrender";
+          surrenderBtn.classList.remove("armed");
+        }, 3e3);
+        return;
+      }
+      issue({ t: "surrender" });
+    });
     const frame = (now) => {
       const dt = Math.min(0.1, (now - last) / 1e3);
       last = now;
       if (!paused) acc += dt * SPEEDS[speed];
       input.update(dt);
-      if (lockstep) {
+      if (lockstep && lockstep.catchingUp) {
+        const t0 = performance.now();
+        while (lockstep.catchingUp && performance.now() - t0 < 40) lockstep.advance(600);
+        game.events.length = 0;
+        game.notices.length = 0;
+        acc = 0;
+        pauseOverlay.textContent = `CATCHING UP\u2026 ${Math.round(lockstep.catchUpProgress * 100)}%`;
+        pauseOverlay.hidden = false;
+        if (!lockstep.catchingUp) {
+          pauseOverlay.hidden = true;
+          input.goHome();
+          notify(game, "Back in the game.");
+        }
+      } else if (lockstep) {
+        if (owesCatchUp && lockstep.step === 0) {
+          owesCatchUp.send({ type: "catchup", data: lockstep.catchUpData() });
+          owesCatchUp = null;
+        }
         const ran = lockstep.advance(Math.min(12, Math.floor(acc / STEP2)));
         acc = Math.min(acc - ran * STEP2, STEP2 * 12);
         waitingFor = lockstep.waiting && !game.result ? waitingFor + dt : 0;
-        const waitText = waitingFor > 0.6 ? "WAITING FOR OPPONENT\u2026" : "";
+        const waitText = waitingFor > 0.6 && opponentGoneAt === null ? "WAITING FOR OPPONENT\u2026" : "";
         if (pauseOverlay.textContent !== (waitText || "PAUSED")) pauseOverlay.textContent = waitText || "PAUSED";
         pauseOverlay.hidden = !waitText;
+        const left = opponentGoneAt === null || game.result ? -1 : REJOIN_WAIT - (performance.now() - opponentGoneAt) / 1e3;
+        netWait.hidden = left < 0;
+        if (left >= 0) {
+          const text2 = `Your opponent disconnected. Waiting for them to rejoin\u2026 ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}`;
+          if (netWaitText.textContent !== text2) netWaitText.textContent = text2;
+          if (left <= 0) claimVictory();
+        }
       } else {
         for (let steps = 0; acc >= STEP2 && steps < 12; steps++) {
           update(game, STEP2);
@@ -10814,7 +11062,12 @@
         if (online) {
           el("result-text").textContent = game.resultReason || (won ? `You broke your opponent's base after ${time}.` : "Your base has fallen.");
           again.hidden = true;
-          online.link.close();
+          netWait.hidden = true;
+          clearSession();
+          setTimeout(() => {
+            online.link?.close();
+            online.station.destroy();
+          }, 1500);
         } else if (mission) {
           if (game.result === "victory") saveCompleted(mission.id);
           const bonuses = mission.objectives.filter((o, i) => o.bonus && game.mission?.done[i]).length;
