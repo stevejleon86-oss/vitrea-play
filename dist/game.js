@@ -3991,6 +3991,252 @@
     return dl;
   }
 
+  // src/music.ts
+  var BPM = 96;
+  var EIGHTH = 60 / BPM / 2;
+  var CHORD_EIGHTHS = 16;
+  var PROGRESSION = [
+    { name: "Am", notes: [57, 60, 64] },
+    { name: "F", notes: [53, 57, 60] },
+    { name: "C", notes: [48, 52, 55] },
+    { name: "G", notes: [55, 59, 62] },
+    { name: "Am", notes: [57, 60, 64] },
+    { name: "F", notes: [53, 57, 60] },
+    { name: "Dm", notes: [50, 53, 57] },
+    { name: "E", notes: [52, 56, 59] }
+  ];
+  var CHIME_NOTES = [81, 84, 86, 88, 91, 93, 96];
+  var midiToHz = (n) => 440 * 2 ** ((n - 69) / 12);
+  function rand2(beat, salt) {
+    let h = beat * 374761393 + salt * 668265263 | 0;
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
+  var chimes = (beat) => rand2(beat, 1) < (beat % 2 === 0 ? 0.22 : 0.08);
+  var chordAt = (beat) => PROGRESSION[Math.floor(beat / CHORD_EIGHTHS) % PROGRESSION.length];
+  function composeBeat(beat) {
+    const chord = chordAt(beat);
+    const step = beat % CHORD_EIGHTHS;
+    const inBar = beat % 8;
+    const calm = [];
+    const battle = [];
+    if (step === 0) calm.push({ kind: "pad", notes: chord.notes, dur: CHORD_EIGHTHS * EIGHTH + 1.2 });
+    if (chimes(beat) && !chimes(beat - 1)) {
+      calm.push({ kind: "chime", note: CHIME_NOTES[Math.floor(rand2(beat, 2) * CHIME_NOTES.length)] });
+    }
+    const root = chord.notes[0] - 24;
+    battle.push({ kind: "bass", note: inBar === 6 ? root + 7 : root, accent: inBar === 0 || inBar === 3 });
+    if (inBar === 0 || inBar === 3 || inBar === 5) battle.push({ kind: "kick" });
+    if (inBar === 2 || inBar === 6) battle.push({ kind: "snare" });
+    battle.push({ kind: "hat", open: inBar === 7 });
+    return { calm, battle };
+  }
+  function heatStep(heat, hits, dt) {
+    return Math.min(1, Math.max(0, heat + hits * 0.035 - dt * 0.07));
+  }
+  var Player = class {
+    ctx;
+    out;
+    calm;
+    battle;
+    echo;
+    noise;
+    beat = 0;
+    nextAt = 0;
+    heat = 0;
+    level = 0;
+    stopped = false;
+    constructor(ctx, dest) {
+      this.ctx = ctx;
+      this.out = ctx.createGain();
+      this.out.gain.value = 0;
+      this.out.gain.setTargetAtTime(1, ctx.currentTime, 2);
+      this.out.connect(dest);
+      this.calm = ctx.createGain();
+      this.battle = ctx.createGain();
+      this.battle.gain.value = 0;
+      this.calm.connect(this.out);
+      this.battle.connect(this.out);
+      this.echo = ctx.createDelay(1);
+      this.echo.delayTime.value = EIGHTH * 3;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.38;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 3200;
+      this.echo.connect(tone).connect(feedback).connect(this.echo);
+      tone.connect(this.calm);
+      const len = ctx.sampleRate;
+      this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = this.noise.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this.nextAt = ctx.currentTime + 0.1;
+    }
+    /** Call every frame with how many shots and blasts the player saw this frame. */
+    update(dt, hits) {
+      if (this.stopped) return;
+      this.heat = heatStep(this.heat, hits, dt);
+      const target = this.heat > 0.12 ? Math.min(1, (this.heat - 0.12) * 1.6) : 0;
+      this.level += (target - this.level) * Math.min(1, dt * (target > this.level ? 1.5 : 0.35));
+      const t = this.ctx.currentTime;
+      this.battle.gain.setTargetAtTime(this.level * 0.9, t, 0.1);
+      this.calm.gain.setTargetAtTime(1 - this.level * 0.45, t, 0.2);
+      if (this.nextAt < t - 0.25) this.nextAt = t + 0.05;
+      while (this.nextAt < t + 0.25) {
+        const { calm, battle } = composeBeat(this.beat);
+        for (const e of calm) this.play(e, this.nextAt, this.calm);
+        if (this.level > 0.02) for (const e of battle) this.play(e, this.nextAt, this.battle);
+        this.beat++;
+        this.nextAt += EIGHTH;
+      }
+    }
+    /** Victory or defeat: let the loop go and play a short closing phrase. */
+    finish(won) {
+      if (this.stopped) return;
+      this.stopped = true;
+      const t = this.ctx.currentTime + 0.1;
+      this.calm.gain.setTargetAtTime(0, t, 0.6);
+      this.battle.gain.setTargetAtTime(0, t, 0.3);
+      const stinger = this.ctx.createGain();
+      stinger.connect(this.out);
+      const phrase = won ? [[57, 60, 64], [53, 57, 60], [55, 59, 62], [57, 61, 64, 69]] : [[57, 60, 64], [56, 59, 64], [53, 57, 60], [52, 57, 60, 64]];
+      phrase.forEach((notes, i) => this.pad(notes, t + i * 0.55, i === phrase.length - 1 ? 3.5 : 0.7, stinger, 0.09));
+      this.out.gain.setTargetAtTime(0, t + 4, 1.2);
+    }
+    play(e, at, bus) {
+      switch (e.kind) {
+        case "pad":
+          return this.pad(e.notes, at, e.dur, bus, 0.035);
+        case "chime":
+          return this.chime(e.note, at, bus);
+        case "bass":
+          return this.bass(e.note, at, e.accent, bus);
+        case "kick":
+          return this.kick(at, bus);
+        case "snare":
+          return this.snare(at, bus);
+        case "hat":
+          return this.hat(at, e.open, bus);
+      }
+    }
+    /** Warm pad: two slightly detuned saws per note, softened, swelling in and out. */
+    pad(notes, at, dur, bus, vol) {
+      const ctx = this.ctx;
+      const g = ctx.createGain();
+      const f = ctx.createBiquadFilter();
+      f.type = "lowpass";
+      f.frequency.setValueAtTime(700, at);
+      f.frequency.linearRampToValueAtTime(1100, at + dur * 0.5);
+      f.frequency.linearRampToValueAtTime(600, at + dur);
+      g.gain.setValueAtTime(1e-4, at);
+      g.gain.linearRampToValueAtTime(vol, at + Math.min(1.4, dur * 0.3));
+      g.gain.setValueAtTime(vol, at + dur - Math.min(1.2, dur * 0.3));
+      g.gain.linearRampToValueAtTime(1e-4, at + dur);
+      f.connect(g).connect(bus);
+      for (const n of notes) {
+        for (const detune of [-7, 7]) {
+          const o = ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.value = midiToHz(n - 12);
+          o.detune.value = detune;
+          o.connect(f);
+          o.start(at);
+          o.stop(at + dur + 0.05);
+        }
+      }
+    }
+    /** A glass chime: a sine with a faint metallic overtone, ringing into the echo. */
+    chime(note, at, bus) {
+      const ctx = this.ctx;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1e-4, at);
+      g.gain.exponentialRampToValueAtTime(0.05, at + 0.01);
+      g.gain.exponentialRampToValueAtTime(1e-4, at + 1.6);
+      g.connect(bus);
+      g.connect(this.echo);
+      for (const [mult, v] of [[1, 1], [2.76, 0.25]]) {
+        const o = ctx.createOscillator();
+        o.type = "sine";
+        o.frequency.value = midiToHz(note) * mult;
+        const og = ctx.createGain();
+        og.gain.value = v;
+        o.connect(og).connect(g);
+        o.start(at);
+        o.stop(at + 1.7);
+      }
+    }
+    bass(note, at, accent, bus) {
+      const ctx = this.ctx;
+      const o = ctx.createOscillator();
+      o.type = "square";
+      o.frequency.value = midiToHz(note);
+      const f = ctx.createBiquadFilter();
+      f.type = "lowpass";
+      f.frequency.setValueAtTime(accent ? 600 : 380, at);
+      f.frequency.exponentialRampToValueAtTime(140, at + EIGHTH * 0.9);
+      const g = ctx.createGain();
+      const v = accent ? 0.11 : 0.07;
+      g.gain.setValueAtTime(v, at);
+      g.gain.exponentialRampToValueAtTime(1e-4, at + EIGHTH * 0.95);
+      o.connect(f).connect(g).connect(bus);
+      o.start(at);
+      o.stop(at + EIGHTH);
+    }
+    kick(at, bus) {
+      const ctx = this.ctx;
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(130, at);
+      o.frequency.exponentialRampToValueAtTime(42, at + 0.14);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.45, at);
+      g.gain.exponentialRampToValueAtTime(1e-4, at + 0.3);
+      o.connect(g).connect(bus);
+      o.start(at);
+      o.stop(at + 0.32);
+    }
+    snare(at, bus) {
+      const ctx = this.ctx;
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 1900;
+      f.Q.value = 0.7;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.2, at);
+      g.gain.exponentialRampToValueAtTime(1e-4, at + 0.17);
+      n.connect(f).connect(g).connect(bus);
+      n.start(at, Math.random() * 0.5);
+      n.stop(at + 0.2);
+      const o = ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(220, at);
+      o.frequency.exponentialRampToValueAtTime(140, at + 0.08);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.12, at);
+      og.gain.exponentialRampToValueAtTime(1e-4, at + 0.1);
+      o.connect(og).connect(bus);
+      o.start(at);
+      o.stop(at + 0.12);
+    }
+    hat(at, open, bus) {
+      const ctx = this.ctx;
+      const n = ctx.createBufferSource();
+      n.buffer = this.noise;
+      const f = ctx.createBiquadFilter();
+      f.type = "highpass";
+      f.frequency.value = 7500;
+      const g = ctx.createGain();
+      const len = open ? 0.18 : 0.045;
+      g.gain.setValueAtTime(open ? 0.05 : 0.035, at);
+      g.gain.exponentialRampToValueAtTime(1e-4, at + len);
+      n.connect(f).connect(g).connect(bus);
+      n.start(at, Math.random() * 0.5);
+      n.stop(at + len + 0.02);
+    }
+  };
+
   // src/prefs.ts
   var ACTIONS = {
     stop: { label: "Stop", key: "KeyX" },
@@ -6889,10 +7135,10 @@
       edgeScroll: flag(query.get("edge")) ?? base.edgeScroll
     };
   }
-  function resolveFactions(s, rand2) {
-    const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand2() * FACTION_IDS.length)] : s.faction;
+  function resolveFactions(s, rand3) {
+    const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand3() * FACTION_IDS.length)] : s.faction;
     const others = FACTION_IDS.filter((f) => f !== player);
-    const enemy = s.enemyFaction === "random" ? others[Math.floor(rand2() * others.length)] : s.enemyFaction;
+    const enemy = s.enemyFaction === "random" ? others[Math.floor(rand3() * others.length)] : s.enemyFaction;
     return { player, enemy };
   }
   function settingsToQuery(s, play) {
@@ -6909,8 +7155,8 @@
     if (play) q.set("play", "1");
     return q;
   }
-  function randomSeed(rand2 = Math.random) {
-    return 1 + Math.floor(rand2() * MAX_SEED);
+  function randomSeed(rand3 = Math.random) {
+    return 1 + Math.floor(rand3() * MAX_SEED);
   }
   var STORAGE_KEY = "vitrea.settings";
   function loadSaved() {
@@ -11945,9 +12191,9 @@
   // src/net/peer.ts
   var PREFIX = "vitrea-mp-";
   var CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  function makeCode(rand2 = Math.random) {
+  function makeCode(rand3 = Math.random) {
     let code = "";
-    for (let i = 0; i < 5; i++) code += CODE_CHARS[Math.floor(rand2() * CODE_CHARS.length)];
+    for (let i = 0; i < 5; i++) code += CODE_CHARS[Math.floor(rand3() * CODE_CHARS.length)];
     return code;
   }
   function cleanCode(text) {
@@ -12939,6 +13185,7 @@
       }
       issue({ t: "surrender" });
     });
+    let music = null;
     const frame = (now) => {
       perf.start();
       if (benchRun && !benchRun.done) {
@@ -13002,6 +13249,17 @@
       renderer.draw(game, cam, input.drag, input.ghost, dt);
       perf.mark();
       sidebar.update();
+      if (!music && sound.ctx && sound.musicBus && sound.ctx.state === "running") music = new Player(sound.ctx, sound.musicBus);
+      if (music) {
+        const cx = cam.x + cam.w / 2;
+        const cy = cam.y + cam.h / 2;
+        const reach = Math.max(cam.w, cam.h) * 1.2;
+        let hits = 0;
+        for (const e of game.events) {
+          if ((e.kind === "shot" || e.kind === "impact" || e.kind === "explode") && Math.hypot(e.x - cx, e.y - cy) < reach && visibleAt(game, e.x, e.y)) hits += e.kind === "explode" ? 3 : 1;
+        }
+        music.update(dt, hits);
+      }
       sound.playEvents(game, cam);
       sound.updateWind(game, cam);
       sound.updateEngines(game, cam);
@@ -13032,6 +13290,7 @@
       showObjectives();
       if (game.result && result.hidden) {
         result.hidden = false;
+        music?.finish(game.result === "victory" === (game.local === 0));
         const time = `${Math.floor(game.time / 60)}m ${Math.floor(game.time % 60)}s`;
         const won = game.result === "victory" === (game.local === 0);
         el("result-title").textContent = won ? "Victory" : "Defeat";
