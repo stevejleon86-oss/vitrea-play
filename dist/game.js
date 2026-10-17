@@ -4167,7 +4167,7 @@
           const at = nearestPassable(g.map, want);
           if (at) ids.push(spawnUnit(g, kind, at.x, at.y, owner).id);
         });
-        applyCommand(g, owner, { t: "order", units: ids, x: this.x - side * 10 * TILE, y: this.y, attackMove: true });
+        applyCommand(g, owner, { t: "order", units: ids, x: this.centre.x - side * 10, y: this.centre.y, attackMove: true });
       }
     }
   };
