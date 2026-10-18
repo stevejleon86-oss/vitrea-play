@@ -14,6 +14,8 @@
   "announcer_silos_needed.wav",
   "announcer_storm_warning.wav",
   "announcer_structure_lost.wav",
+  "announcer_superweapon_detected.wav",
+  "announcer_superweapon_ready.wav",
   "announcer_training.wav",
   "announcer_unit_lost.wav",
   "announcer_unit_promoted.wav",

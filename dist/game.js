@@ -961,6 +961,10 @@
     seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" },
     silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null },
     // Defences: walls are laid by dragging a line (paid per segment); gates let your side through.
+    // Superweapons (superweapons.ts): one per faction.
+    uplink: { label: "Orbital Uplink", w: 3, h: 3, maxHp: 1500, cost: 3e3, power: -80, requires: "techCenter", weapon: null, faction: "concord" },
+    stormHeart: { label: "Storm Heart", w: 3, h: 3, maxHp: 1500, cost: 3e3, power: -80, requires: "techCenter", weapon: null, faction: "shardbound" },
+    scrapHive: { label: "Scrap Hive", w: 3, h: 3, maxHp: 1500, cost: 3e3, power: -80, requires: "techCenter", weapon: null, faction: "reclaimers" },
     airfield: { label: "Airfield", w: 3, h: 2, maxHp: 900, cost: 1e3, power: -30, requires: "radar", weapon: null },
     flakTurret: { label: "Flak Turret", w: 1, h: 1, maxHp: 600, cost: 800, power: -20, requires: "radar", weapon: "flak" },
     wall: { label: "Wall", w: 1, h: 1, maxHp: 500, cost: 25, power: 0, requires: "barracks", weapon: null },
@@ -971,7 +975,7 @@
   var WALL_RUN = 24;
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "silo", "wall", "gate", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "flakTurret", "airfield", "techCenter", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "wall", "gate", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "flakTurret", "airfield", "techCenter", "seedSpire", "uplink", "stormHeart", "scrapHive"];
   var STORAGE = {
     holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3 },
     slowFrom: 0.8
@@ -2682,7 +2686,286 @@
     return false;
   }
 
+  // src/crystals.ts
+  function canGrowAt(m, x, y) {
+    if (!inBounds(m, x, y)) return false;
+    const i = idx(m, x, y);
+    return m.terrain[i] === Terrain.Sand && m.blocked[i] === 0 && m.vein[i] !== Vein.Core;
+  }
+  function totalCrystal(m) {
+    let t = 0;
+    for (let i = 0; i < m.spice.length; i++) if (m.vein[i] !== Vein.Core) t += m.spice[i];
+    return t;
+  }
+  var NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  function updateCrystals(g, dt) {
+    g.crystalTimer -= dt;
+    if (g.crystalTimer > 0) return;
+    const step = CRYSTALS.interval;
+    g.crystalTimer += step;
+    const m = g.map;
+    g.crystalTotal = totalCrystal(m);
+    const canSpread = g.crystalTotal < g.crystalCap;
+    const seeds = [];
+    for (let y = 0; y < m.h; y++) {
+      for (let x = 0; x < m.w; x++) {
+        const i = idx(m, x, y);
+        const amt = m.spice[i];
+        const vein = m.vein[i];
+        if (vein === Vein.Core) {
+          m.spice[i] = Math.min(CORES.perTile, amt + CORES.regrow * step);
+          continue;
+        }
+        if (amt <= 0) continue;
+        m.spice[i] = Math.min(VEINS.max[vein], amt + CRYSTALS.regrowRate * VEINS.regrow[vein] * step);
+        if (vein === Vein.StormGlass) continue;
+        if (!canSpread || amt < CRYSTALS.spreadMin || g.crystalRng() >= CRYSTALS.spreadChance * step) continue;
+        const [dx, dy] = NEIGHBOURS[Math.floor(g.crystalRng() * 4)];
+        if (canGrowAt(m, x + dx, y + dy) && m.spice[idx(m, x + dx, y + dy)] === 0) seeds.push(idx(m, x + dx, y + dy));
+      }
+    }
+    for (const i of seeds) {
+      m.spice[i] = CRYSTALS.seedAmount;
+      m.vein[i] = Vein.Crystal;
+    }
+  }
+
+  // src/storm.ts
+  function stormRadius(s) {
+    const grow2 = Math.min(1, s.age / STORMS.buildUp);
+    const fade = Math.min(1, (s.life - s.age) / STORMS.fade);
+    return STORMS.radius * Math.max(0.15, Math.min(grow2, fade));
+  }
+  var raging = (s) => s.age >= STORMS.buildUp && s.life - s.age > STORMS.fade;
+  function stormSpot(g) {
+    const r = g.hazardRng;
+    const m = g.map;
+    let best = null;
+    let bestScore = Infinity;
+    for (let k = 0; k < 10; k++) {
+      const p = { x: Math.floor(6 + r() * (m.w - 12)), y: Math.floor(6 + r() * (m.h - 12)) };
+      if (!isPassable(m, p.x, p.y)) continue;
+      const d = g.sides.map((s) => Math.hypot(g.startOf[s].x + 1.5 - p.x, g.startOf[s].y + 1.5 - p.y)).sort((a, b) => a - b);
+      let score = Math.abs(d[0] - (d[1] ?? d[0]));
+      if (g.buildings.some((b) => Math.hypot(b.tx + b.w / 2 - p.x, b.ty + b.h / 2 - p.y) < STORMS.radius + 6)) score += 100;
+      if (score < bestScore) {
+        best = p;
+        bestScore = score;
+      }
+    }
+    return best ?? { x: m.w >> 1, y: m.h >> 1 };
+  }
+  function spawnStorm(g, at) {
+    const p = at ?? stormSpot(g);
+    const s = {
+      id: g.nextId++,
+      x: (p.x + 0.5) * TILE,
+      y: (p.y + 0.5) * TILE,
+      age: 0,
+      life: STORMS.buildUp + STORMS.rageMin + g.hazardRng() * (STORMS.rageMax - STORMS.rageMin) + STORMS.fade,
+      seedDebt: 0
+    };
+    g.storms.push(s);
+    notify(g, "Crystal storm building up! (Space to look)");
+    g.pings.push({ x: s.x, y: s.y, age: 0 });
+    emit(g, { kind: "stormWarning" });
+    return s;
+  }
+  function stormNear(g, x, y, margin) {
+    return g.storms.some((s) => Math.hypot(x - s.x, y - s.y) <= (stormRadius(s) + margin) * TILE);
+  }
+  function inStorm(s, x, y) {
+    return Math.hypot(x - s.x, y - s.y) <= stormRadius(s) * TILE;
+  }
+  function updateStorm(g, s, dt) {
+    s.age += dt;
+    const strength = Math.min(1, s.age / STORMS.buildUp);
+    for (const u of [...g.units]) {
+      if (inStorm(s, u.x, u.y)) damage(g, u.id, STORMS.damage[UNIT_STATS[u.kind].armor] * FACTIONS[g.factions[u.owner]].stormDamage * bonus(g, u.owner, "storm") * strength * dt);
+    }
+    for (const b of [...g.buildings]) {
+      const cx = (b.tx + b.w / 2) * TILE;
+      const cy = (b.ty + b.h / 2) * TILE;
+      if (inStorm(s, cx, cy)) damage(g, b.id, STORMS.damage.building * strength * dt * (BUILDING_STATS[b.kind].maxHp / 500));
+    }
+    if (raging(s)) {
+      s.seedDebt += STORMS.seedRate * dt;
+      while (s.seedDebt >= 1) {
+        s.seedDebt -= 1;
+        const a = g.hazardRng() * Math.PI * 2;
+        const r = Math.sqrt(g.hazardRng()) * stormRadius(s);
+        const tx = Math.floor(s.x / TILE + Math.cos(a) * r);
+        const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
+        if (!inBounds(g.map, tx, ty) || !canGrowAt(g.map, tx, ty)) continue;
+        const i = idx(g.map, tx, ty);
+        if (g.map.spice[i] <= 0) g.map.vein[i] = Vein.StormGlass;
+        g.crystalTotal += Math.max(0, STORMS.seedAmount - g.map.spice[i]);
+        g.map.spice[i] = Math.max(g.map.spice[i], STORMS.seedAmount);
+      }
+    }
+    return s.age < s.life;
+  }
+  function updateStorms(g, dt) {
+    if (g.result) return;
+    if (g.storms.length === 0) {
+      g.stormTimer -= dt;
+      if (g.stormTimer <= 0) {
+        spawnStorm(g);
+        g.stormTimer = Infinity;
+      }
+    }
+    const passed = g.storms.filter((s) => !updateStorm(g, s, dt));
+    if (passed.length > 0) {
+      g.storms = g.storms.filter((s) => !passed.includes(s));
+      if (g.storms.length === 0) {
+        const [lo, hi] = g.stormGap ?? [STORMS.gapMin, STORMS.gapMax];
+        g.stormTimer = lo + g.hazardRng() * (hi - lo);
+      }
+    }
+  }
+
+  // src/superweapons.ts
+  var SUPER = {
+    /** Seconds to charge (it pauses while its owner's power is low). */
+    charge: 300,
+    /** Orbital strike: warning time (s), radius (tiles), damage at the centre. */
+    orbitalDelay: 3,
+    orbitalRadius: 3.5,
+    orbitalDamage: 650,
+    /** Called storm: how long it rages (s). */
+    stormRage: 30,
+    /** Salvage swarm: how long (s), radius (tiles), damage per bite (every half second), share paid out. */
+    swarmLife: 12,
+    swarmRadius: 3.5,
+    swarmBite: 22,
+    swarmPay: 0.6
+  };
+  var SUPERWEAPONS = {
+    uplink: { kind: "orbital", name: "Orbital Strike" },
+    stormHeart: { kind: "storm", name: "Called Storm" },
+    scrapHive: { kind: "swarm", name: "Salvage Swarm" }
+  };
+  var isSuper = (kind) => !!SUPERWEAPONS[kind];
+  function superweaponBuilt(g, b) {
+    b.cooldown = SUPER.charge;
+    if (hostile(g, b.owner, g.local)) {
+      notify(g, `Warning: enemy superweapon detected (${SUPERWEAPONS[b.kind].name}).`);
+      announce(g, "superweapon_detected");
+    }
+  }
+  function fireSuperweapon(g, b, tx, ty) {
+    const sw = SUPERWEAPONS[b.kind];
+    if (!sw) return "That isn't a superweapon.";
+    if (b.cooldown > 0) return `${sw.name} isn't ready (${Math.ceil(b.cooldown)}s).`;
+    if (tx < 0 || ty < 0 || tx >= g.map.w || ty >= g.map.h) return "That's off the map.";
+    b.cooldown = SUPER.charge;
+    b.targetId = null;
+    const x = (tx + 0.5) * TILE;
+    const y = (ty + 0.5) * TILE;
+    if (sw.kind === "storm") {
+      const s = spawnStorm(g, { x: tx, y: ty });
+      s.age = STORMS.buildUp;
+      s.life = STORMS.buildUp + SUPER.stormRage + STORMS.fade;
+    } else {
+      g.strikes.push({ id: g.nextId++, kind: sw.kind, owner: b.owner, x, y, age: 0, life: sw.kind === "orbital" ? SUPER.orbitalDelay + 1 : SUPER.swarmLife, tick: 0 });
+    }
+    if (b.owner === g.local) notify(g, `${sw.name} away!`);
+    else {
+      notify(g, hostile(g, b.owner, g.local) ? `Enemy ${sw.name.toLowerCase()} incoming! (Space to look)` : `Our ally fired a ${sw.name.toLowerCase()}.`);
+      g.pings.push({ x, y, age: 0 });
+      if (hostile(g, b.owner, g.local)) emit(g, { kind: "alarm" });
+    }
+    return null;
+  }
+  function updateSuperweapons(g, dt) {
+    for (const b of g.buildings) {
+      const sw = SUPERWEAPONS[b.kind];
+      if (!sw || b.cooldown <= 0) continue;
+      if (powerInfo(g, b.owner).low) continue;
+      b.cooldown = Math.max(0, b.cooldown - dt);
+      if (b.cooldown === 0 && b.owner === g.local) {
+        notify(g, `${sw.name} ready: select it and press Q, then click a target.`);
+        announce(g, "superweapon_ready");
+      }
+    }
+    if (g.strikes.length === 0) return;
+    for (const s of g.strikes) {
+      s.age += dt;
+      if (s.kind === "orbital" && s.tick === 0 && s.age >= SUPER.orbitalDelay) {
+        s.tick = 1;
+        orbitalImpact(g, s);
+      } else if (s.kind === "swarm") {
+        s.tick -= dt;
+        if (s.tick <= 0) {
+          s.tick += 0.5;
+          swarmBite(g, s);
+        }
+      }
+    }
+    g.strikes = g.strikes.filter((s) => s.age < s.life);
+  }
+  function orbitalImpact(g, s) {
+    const r = SUPER.orbitalRadius * TILE;
+    for (const u of [...g.units]) {
+      const d = Math.hypot(u.x - s.x, u.y - s.y);
+      if (d <= r) damage(g, u.id, SUPER.orbitalDamage * (1 - 0.6 * (d / r)), void 0, s.owner);
+    }
+    for (const b of [...g.buildings]) {
+      const cx = (b.tx + b.w / 2) * TILE;
+      const cy = (b.ty + b.h / 2) * TILE;
+      const d = Math.max(0, Math.hypot(cx - s.x, cy - s.y) - Math.min(b.w, b.h) * TILE / 2);
+      if (d <= r) damage(g, b.id, SUPER.orbitalDamage * 1.2 * (1 - 0.6 * (d / r)), void 0, s.owner);
+    }
+    emit(g, { kind: "explode", big: true, x: s.x, y: s.y });
+    for (let k = 0; k < 6; k++) {
+      const a = k / 6 * Math.PI * 2;
+      g.effects.push({ kind: "bigBoom", x: s.x + Math.cos(a) * r * 0.45, y: s.y + Math.sin(a) * r * 0.45, x2: s.x, y2: s.y, age: 0, life: 0.9, size: 1.4 });
+    }
+    g.effects.push({ kind: "bigBoom", x: s.x, y: s.y, x2: s.x, y2: s.y, age: 0, life: 1.1, size: 2.4 });
+    g.effects.push({ kind: "scorch", x: s.x, y: s.y, x2: s.x, y2: s.y, age: 0, life: 90, size: 3 });
+    g.effects.push({ kind: "shake", x: s.x, y: s.y, x2: s.x, y2: s.y, age: 0, life: 0.8, size: 2.5 });
+  }
+  function swarmBite(g, s) {
+    const r = SUPER.swarmRadius * TILE;
+    let stripped = 0;
+    for (const u of [...g.units]) {
+      if (!hostile(g, u.owner, s.owner) || UNIT_STATS[u.kind].armor === "infantry" || isAir(u.kind)) continue;
+      if (Math.hypot(u.x - s.x, u.y - s.y) > r) continue;
+      const dealt = Math.min(u.hp, SUPER.swarmBite);
+      stripped += dealt;
+      damage(g, u.id, SUPER.swarmBite, void 0, s.owner);
+    }
+    for (const b of [...g.buildings]) {
+      if (!hostile(g, b.owner, s.owner)) continue;
+      const cx = (b.tx + b.w / 2) * TILE;
+      const cy = (b.ty + b.h / 2) * TILE;
+      if (Math.hypot(cx - s.x, cy - s.y) > r + Math.min(b.w, b.h) * TILE / 2) continue;
+      const bite = SUPER.swarmBite * 1.5;
+      const dealt = Math.min(b.hp, bite);
+      stripped += dealt * (BUILDING_STATS[b.kind].cost / Math.max(1, BUILDING_STATS[b.kind].maxHp));
+      damage(g, b.id, bite, void 0, s.owner);
+    }
+    if (stripped > 0) walletOf(g, s.owner).credits += stripped * SUPER.swarmPay;
+  }
+  function bestTarget(g, me) {
+    let best = null;
+    let bestScore = 0;
+    const targets = g.buildings.filter((b) => hostile(g, b.owner, me) && b.kind !== "wall" && b.kind !== "gate");
+    for (const b of targets) {
+      const cx = b.tx + b.w / 2;
+      const cy = b.ty + b.h / 2;
+      let score = 0;
+      for (const o of targets) if (Math.hypot(o.tx + o.w / 2 - cx, o.ty + o.h / 2 - cy) <= SUPER.orbitalRadius + 1) score += BUILDING_STATS[o.kind].cost + 200;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: Math.floor(cx), y: Math.floor(cy) };
+      }
+    }
+    return best;
+  }
+
   // src/ai.ts
+  var superFor = (faction) => Object.keys(SUPERWEAPONS).find((k) => BUILDING_STATS[k].faction === faction) ?? null;
   var AI_LEVELS = {
     easy: { startCredits: 1500, trickle: 1, buildSpeed: 0.7, firstWave: 330, waveGap: 210, waveStart: 3, waveGrow: 1, maxWave: 8, counter: 0, raidGap: 0, retreat: 0, flank: 0 },
     normal: { startCredits: 2500, trickle: 3, buildSpeed: 1, firstWave: 240, waveGap: 160, waveStart: 4, waveGrow: 2, maxWave: 12, counter: 1, raidGap: 140, retreat: 0.25, flank: 1 },
@@ -2777,6 +3060,8 @@
       [count(g, "turret", me) < MAX_TURRETS && g.time > 200, "turret"],
       [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
       [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
+      // The superweapon, late and only with money to spare (Normal and Hard).
+      [AI_LEVELS[ai.difficulty].raidGap > 0 && g.time > 900 && ai.credits > 3500 && !g.buildings.some((b) => b.owner === me && isSuper(b.kind)) && !!superFor(g.factions[me]), superFor(g.factions[me]) ?? "power"],
       // Air: an airfield on Normal and Hard, and flak once the enemy flies.
       [AI_LEVELS[ai.difficulty].raidGap > 0 && !hasBuilding(g, "airfield", me) && g.time > 480, "airfield"],
       [enemyAir(g, me) > 0 && count(g, "flakTurret", me) < Math.min(3, 1 + Math.floor(enemyAir(g, me) / 2)), "flakTurret"],
@@ -3010,6 +3295,11 @@
     }
     defendBase(g, me);
     mineCores(g, me);
+    for (const b of g.buildings) {
+      if (b.owner !== me || !isSuper(b.kind) || b.cooldown > 0) continue;
+      const at = bestTarget(g, me);
+      if (at) fireSuperweapon(g, b, at.x, at.y);
+    }
     driveDeployers(g, me);
     if (level.retreat > 0) pullBackWounded(g, me);
     if (level.raidGap > 0) runRaids(g, me);
@@ -3206,144 +3496,6 @@
       }
     }
     return best;
-  }
-
-  // src/crystals.ts
-  function canGrowAt(m, x, y) {
-    if (!inBounds(m, x, y)) return false;
-    const i = idx(m, x, y);
-    return m.terrain[i] === Terrain.Sand && m.blocked[i] === 0 && m.vein[i] !== Vein.Core;
-  }
-  function totalCrystal(m) {
-    let t = 0;
-    for (let i = 0; i < m.spice.length; i++) if (m.vein[i] !== Vein.Core) t += m.spice[i];
-    return t;
-  }
-  var NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  function updateCrystals(g, dt) {
-    g.crystalTimer -= dt;
-    if (g.crystalTimer > 0) return;
-    const step = CRYSTALS.interval;
-    g.crystalTimer += step;
-    const m = g.map;
-    g.crystalTotal = totalCrystal(m);
-    const canSpread = g.crystalTotal < g.crystalCap;
-    const seeds = [];
-    for (let y = 0; y < m.h; y++) {
-      for (let x = 0; x < m.w; x++) {
-        const i = idx(m, x, y);
-        const amt = m.spice[i];
-        const vein = m.vein[i];
-        if (vein === Vein.Core) {
-          m.spice[i] = Math.min(CORES.perTile, amt + CORES.regrow * step);
-          continue;
-        }
-        if (amt <= 0) continue;
-        m.spice[i] = Math.min(VEINS.max[vein], amt + CRYSTALS.regrowRate * VEINS.regrow[vein] * step);
-        if (vein === Vein.StormGlass) continue;
-        if (!canSpread || amt < CRYSTALS.spreadMin || g.crystalRng() >= CRYSTALS.spreadChance * step) continue;
-        const [dx, dy] = NEIGHBOURS[Math.floor(g.crystalRng() * 4)];
-        if (canGrowAt(m, x + dx, y + dy) && m.spice[idx(m, x + dx, y + dy)] === 0) seeds.push(idx(m, x + dx, y + dy));
-      }
-    }
-    for (const i of seeds) {
-      m.spice[i] = CRYSTALS.seedAmount;
-      m.vein[i] = Vein.Crystal;
-    }
-  }
-
-  // src/storm.ts
-  function stormRadius(s) {
-    const grow2 = Math.min(1, s.age / STORMS.buildUp);
-    const fade = Math.min(1, (s.life - s.age) / STORMS.fade);
-    return STORMS.radius * Math.max(0.15, Math.min(grow2, fade));
-  }
-  var raging = (s) => s.age >= STORMS.buildUp && s.life - s.age > STORMS.fade;
-  function stormSpot(g) {
-    const r = g.hazardRng;
-    const m = g.map;
-    let best = null;
-    let bestScore = Infinity;
-    for (let k = 0; k < 10; k++) {
-      const p = { x: Math.floor(6 + r() * (m.w - 12)), y: Math.floor(6 + r() * (m.h - 12)) };
-      if (!isPassable(m, p.x, p.y)) continue;
-      const d = g.sides.map((s) => Math.hypot(g.startOf[s].x + 1.5 - p.x, g.startOf[s].y + 1.5 - p.y)).sort((a, b) => a - b);
-      let score = Math.abs(d[0] - (d[1] ?? d[0]));
-      if (g.buildings.some((b) => Math.hypot(b.tx + b.w / 2 - p.x, b.ty + b.h / 2 - p.y) < STORMS.radius + 6)) score += 100;
-      if (score < bestScore) {
-        best = p;
-        bestScore = score;
-      }
-    }
-    return best ?? { x: m.w >> 1, y: m.h >> 1 };
-  }
-  function spawnStorm(g, at) {
-    const p = at ?? stormSpot(g);
-    const s = {
-      id: g.nextId++,
-      x: (p.x + 0.5) * TILE,
-      y: (p.y + 0.5) * TILE,
-      age: 0,
-      life: STORMS.buildUp + STORMS.rageMin + g.hazardRng() * (STORMS.rageMax - STORMS.rageMin) + STORMS.fade,
-      seedDebt: 0
-    };
-    g.storms.push(s);
-    notify(g, "Crystal storm building up! (Space to look)");
-    g.pings.push({ x: s.x, y: s.y, age: 0 });
-    emit(g, { kind: "stormWarning" });
-    return s;
-  }
-  function stormNear(g, x, y, margin) {
-    return g.storms.some((s) => Math.hypot(x - s.x, y - s.y) <= (stormRadius(s) + margin) * TILE);
-  }
-  function inStorm(s, x, y) {
-    return Math.hypot(x - s.x, y - s.y) <= stormRadius(s) * TILE;
-  }
-  function updateStorm(g, s, dt) {
-    s.age += dt;
-    const strength = Math.min(1, s.age / STORMS.buildUp);
-    for (const u of [...g.units]) {
-      if (inStorm(s, u.x, u.y)) damage(g, u.id, STORMS.damage[UNIT_STATS[u.kind].armor] * FACTIONS[g.factions[u.owner]].stormDamage * bonus(g, u.owner, "storm") * strength * dt);
-    }
-    for (const b of [...g.buildings]) {
-      const cx = (b.tx + b.w / 2) * TILE;
-      const cy = (b.ty + b.h / 2) * TILE;
-      if (inStorm(s, cx, cy)) damage(g, b.id, STORMS.damage.building * strength * dt * (BUILDING_STATS[b.kind].maxHp / 500));
-    }
-    if (raging(s)) {
-      s.seedDebt += STORMS.seedRate * dt;
-      while (s.seedDebt >= 1) {
-        s.seedDebt -= 1;
-        const a = g.hazardRng() * Math.PI * 2;
-        const r = Math.sqrt(g.hazardRng()) * stormRadius(s);
-        const tx = Math.floor(s.x / TILE + Math.cos(a) * r);
-        const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
-        if (!inBounds(g.map, tx, ty) || !canGrowAt(g.map, tx, ty)) continue;
-        const i = idx(g.map, tx, ty);
-        if (g.map.spice[i] <= 0) g.map.vein[i] = Vein.StormGlass;
-        g.crystalTotal += Math.max(0, STORMS.seedAmount - g.map.spice[i]);
-        g.map.spice[i] = Math.max(g.map.spice[i], STORMS.seedAmount);
-      }
-    }
-    return s.age < s.life;
-  }
-  function updateStorms(g, dt) {
-    if (g.result) return;
-    if (g.storms.length === 0) {
-      g.stormTimer -= dt;
-      if (g.stormTimer <= 0) {
-        spawnStorm(g);
-        g.stormTimer = Infinity;
-      }
-    }
-    const passed = g.storms.filter((s) => !updateStorm(g, s, dt));
-    if (passed.length > 0) {
-      g.storms = g.storms.filter((s) => !passed.includes(s));
-      if (g.storms.length === 0) {
-        const [lo, hi] = g.stormGap ?? [STORMS.gapMin, STORMS.gapMax];
-        g.stormTimer = lo + g.hazardRng() * (hi - lo);
-      }
-    }
   }
 
   // src/missions.ts
@@ -4116,6 +4268,7 @@
       eliminated: [],
       weather: createWeather(seed, options.weather, options.time),
       salvage: [],
+      strikes: [],
       storms: [],
       stormTimer: options.hazards === false ? Infinity : STORMS.firstSpawn,
       hazardRng: mulberry32(seed * 7919 + 17),
@@ -4248,6 +4401,7 @@
       }
     }
     g.buildings.push(b);
+    if (isSuper(kind)) superweaponBuilt(g, b);
     return b;
   }
   function spawnUnit(g, kind, tx, ty, owner = PLAYER) {
@@ -4797,6 +4951,7 @@
     updateStorms(g, dt);
     updateCrystals(g, dt);
     updateEconomy(g, dt);
+    updateSuperweapons(g, dt);
     updateMission(g);
     for (const p of g.pings) p.age += dt;
     g.pings = g.pings.filter((p) => p.age < PING_LIFE);
@@ -5334,6 +5489,9 @@
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
+    uplink: "Concord superweapon. Charges for five minutes, then calls an orbital strike down on any point (Q, then click).",
+    stormHeart: "Shardbound superweapon. Charges for five minutes, then calls a full-strength crystal storm anywhere (Q, then click).",
+    scrapHive: "Reclaimer superweapon. Charges for five minutes, then sends a drone swarm to strip enemy machines and pay you for the scrap (Q, then click).",
     airfield: "Builds aircraft, and patches up the ones parked on it.",
     flakTurret: "Anti-aircraft gun: shreds anything in the air, and can't touch anything on the ground.",
     wall: "A concrete barrier. Cheap, tough, and it stops anything on foot or wheels until it's knocked down.",
@@ -6434,6 +6592,10 @@
         const u = own(g, owner, [c.unit])[0];
         return u && HEROES[u.kind] ? useAbility(g, u) : null;
       }
+      case "super": {
+        const b = building(c.building);
+        return b ? fireSuperweapon(g, b, Math.floor(c.x), Math.floor(c.y)) : null;
+      }
       case "board": {
         const ship = own(g, owner, [c.ship])[0];
         return ship ? commandBoard(g, own(g, owner, c.units), ship) : null;
@@ -6569,6 +6731,8 @@
     placing = null;
     /** Sell / repair mode: the next left-clicks on your buildings sell or repair them. */
     mode = null;
+    /** Targeting mode: which superweapon is being aimed. */
+    aiming = null;
     /** Wall mode: where the drag started (tile). */
     wallFrom = null;
     /** Scroll when the mouse touches the screen edge (a start-menu option). */
@@ -6635,6 +6799,10 @@
         ty: Math.floor((this.mouseY + this.cam.y) / TILE) - Math.floor((h - 1) / 2)
       };
     }
+    /** The mouse in world pixels. */
+    get mouseWorld() {
+      return { x: this.mouseX + this.cam.x, y: this.mouseY + this.cam.y };
+    }
     mouseTile() {
       return { x: Math.floor((this.mouseX + this.cam.x) / TILE), y: Math.floor((this.mouseY + this.cam.y) / TILE) };
     }
@@ -6669,6 +6837,14 @@
     }
     onDown(e) {
       const p = this.screenPos(e);
+      if (this.mode === "target") {
+        if (e.button === 0 && this.aiming !== null) {
+          this.issue({ t: "super", building: this.aiming, x: Math.floor((p.x + this.cam.x) / TILE), y: Math.floor((p.y + this.cam.y) / TILE) });
+        }
+        this.mode = null;
+        this.aiming = null;
+        return;
+      }
       if (this.mode === "wall") {
         if (e.button === 2) {
           this.mode = null;
@@ -6929,6 +7105,17 @@
       const ships = selectedUnits(g).filter((u) => u.kind === "dropship" && (u.passengers?.length ?? 0) > 0);
       if (ships.length > 0) {
         this.issue({ t: "unload", units: ships.map((u) => u.id) });
+        return;
+      }
+      const sw = g.buildings.find((x) => x.id === g.selectedBuilding && x.owner === g.local && SUPERWEAPONS[x.kind]);
+      if (sw) {
+        if (sw.cooldown > 0) {
+          notify(g, `${SUPERWEAPONS[sw.kind].name} charging: ${Math.ceil(sw.cooldown)}s`);
+          emit(g, { kind: "error" });
+          return;
+        }
+        this.mode = "target";
+        this.aiming = sw.id;
         return;
       }
       const b = g.buildings.find((x) => x.id === g.selectedBuilding && x.owner === g.local && PACKS[x.kind]);
@@ -7285,6 +7472,8 @@
     }
     /** Health bars on every unit and building, not just damaged ones. */
     showAllHealth = false;
+    /** Aiming a superweapon: the ring under the mouse (world px). */
+    aimRing = null;
     /** Replays show the minimap whether or not the watched side has a radar. */
     radarAlways = false;
     /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
@@ -7641,6 +7830,8 @@
         drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
         drawRotor(ctx, u, g.time);
       }
+      for (const s of g.strikes) drawStrike(ctx, s, g.time);
+      if (this.aimRing) drawAimRing(ctx, this.aimRing, g.time);
       for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
       for (const e of g.effects) {
         if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
@@ -8302,6 +8493,71 @@
         ctx.fillRect(horizontal ? x + 2 : x + TILE / 2 - 2, horizontal ? y + 7 : y + 2, 4, 3);
       }
     }
+  }
+  function drawStrike(ctx, s, time) {
+    ctx.save();
+    if (s.kind === "orbital") {
+      const r = SUPER.orbitalRadius * TILE;
+      if (s.age < SUPER.orbitalDelay) {
+        const k = s.age / SUPER.orbitalDelay;
+        ctx.strokeStyle = `rgba(255,70,50,${0.5 + 0.4 * Math.sin(time * 14)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, r * (1.6 - 0.6 * k), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = `rgba(255,120,90,${0.15 + 0.3 * k})`;
+        ctx.fillRect(s.x - 2, s.y - 600, 4, 600);
+      } else {
+        const k = 1 - (s.age - SUPER.orbitalDelay);
+        if (k > 0) {
+          ctx.globalCompositeOperation = "lighter";
+          drawGlow(ctx, fireGlow(), s.x, s.y, r * 1.2 * k, r * 0.9 * k, k);
+          ctx.fillStyle = `rgba(255,240,220,${0.85 * k})`;
+          ctx.fillRect(s.x - 14 * k, s.y - 700, 28 * k, 700);
+        }
+      }
+    } else if (s.kind === "swarm") {
+      const r = SUPER.swarmRadius * TILE;
+      const fade = Math.min(1, s.age, s.life - s.age);
+      ctx.globalAlpha = fade;
+      ctx.strokeStyle = "rgba(255,150,80,0.35)";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < 26; k++) {
+        const a = time * (1.5 + k % 5 * 0.4) + k * 2.4;
+        const d = r * (0.2 + k * 37 % 80 / 100);
+        const x = s.x + Math.cos(a) * d;
+        const y = s.y + Math.sin(a * 1.3) * d * 0.8;
+        ctx.fillStyle = "#2b2824";
+        ctx.fillRect(x - 2.5, y - 1.5, 5, 3);
+        ctx.fillStyle = k % 3 === 0 ? "#ff7a3d" : "#c9c2b4";
+        ctx.fillRect(x - 1, y - 2.5, 2, 1.2);
+      }
+    }
+    ctx.restore();
+  }
+  function drawAimRing(ctx, ring, time) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,90,60,${0.6 + 0.3 * Math.sin(time * 8)})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(ring.x - 10, ring.y);
+    ctx.lineTo(ring.x + 10, ring.y);
+    ctx.moveTo(ring.x, ring.y - 10);
+    ctx.lineTo(ring.x, ring.y + 10);
+    ctx.stroke();
+    ctx.restore();
   }
   function drawRotor(ctx, u, time) {
     const rotors = u.kind === "gunship" ? [0] : u.kind === "dropship" ? [-14, 14] : [];
@@ -9044,6 +9300,9 @@
     mortarCrawler: "#a07848",
     outpost: "#c08a4a",
     airfield: "#8a9aa8",
+    uplink: "#4a7bc0",
+    stormHeart: "#5fd8f0",
+    scrapHive: "#e07a38",
     flakTurret: "#7a8a98",
     gunship: "#6a7a88",
     dropship: "#8a8f9a",
@@ -10092,6 +10351,8 @@
       ["announcer_insufficient_funds", "Insufficient funds."],
       ["announcer_low_power", "Low power."],
       ["announcer_silos_needed", "Silos needed."],
+      ["announcer_superweapon_detected", "Warning: enemy superweapon detected."],
+      ["announcer_superweapon_ready", "Superweapon ready."],
       ["announcer_cannot_deploy", "Cannot deploy here."],
       ["announcer_base_under_attack", "Our base is under attack."],
       ["announcer_units_under_attack", "Our units are under attack."],
@@ -16131,9 +16392,10 @@
       }
       if (input.placing && !structureOf(game, game.local)?.done) input.placing = null;
       renderer.showAllHealth = input.showAllHealth;
+      renderer.aimRing = input.mode === "target" ? { ...input.mouseWorld, r: SUPER.orbitalRadius * TILE } : null;
       sellButton.classList.toggle("on", input.mode === "sell");
       repairButton.classList.toggle("on", input.mode === "repair");
-      const modeText = input.mode === "sell" ? "SELL \u2014 click a building for half its price \xB7 right-click or Esc to stop" : input.mode === "repair" ? "REPAIR \u2014 click damaged buildings \xB7 right-click or Esc to stop" : input.mode === "wall" ? "WALLS \u2014 drag a line to lay wall (25 a segment) \xB7 right-click or Esc to stop" : "";
+      const modeText = input.mode === "sell" ? "SELL \u2014 click a building for half its price \xB7 right-click or Esc to stop" : input.mode === "repair" ? "REPAIR \u2014 click damaged buildings \xB7 right-click or Esc to stop" : input.mode === "wall" ? "WALLS \u2014 drag a line to lay wall (25 a segment) \xB7 right-click or Esc to stop" : input.mode === "target" ? "TARGET \u2014 click where to fire \xB7 right-click to cancel" : "";
       if (modeLabel.textContent !== modeText) {
         modeLabel.textContent = modeText;
         modeLabel.hidden = !modeText;
@@ -16175,7 +16437,8 @@
       const rig = chosen.find((u) => u && DEPLOYS[u.kind]);
       const packable = game.buildings.find((b) => b.id === game.selectedBuilding && b.owner === game.local && PACKS[b.kind]);
       const ship = chosen.find((u) => u && u.kind === "dropship" && (u.passengers?.length ?? 0) > 0);
-      const status = ship ? `Unload ${ship.passengers.length} soldier${ship.passengers.length === 1 ? "" : "s"}` : rig ? `Deploy ${BUILDING_STATS[DEPLOYS[rig.kind]].label}${deploySpot(game, rig)?.ok ? "" : " \u2014 not here"}` : packable ? `Pack up into ${UNIT_STATS[PACKS[packable.kind]].label}` : hero ? abilityStatus(hero) : "";
+      const superB = game.buildings.find((b) => b.id === game.selectedBuilding && b.owner === game.local && SUPERWEAPONS[b.kind]);
+      const status = superB ? `${SUPERWEAPONS[superB.kind].name} \u2014 ${superB.cooldown > 0 ? `${Math.floor(superB.cooldown / 60)}:${String(Math.ceil(superB.cooldown % 60) % 60).padStart(2, "0")}` : "ready"}` : ship ? `Unload ${ship.passengers.length} soldier${ship.passengers.length === 1 ? "" : "s"}` : rig ? `Deploy ${BUILDING_STATS[DEPLOYS[rig.kind]].label}${deploySpot(game, rig)?.ok ? "" : " \u2014 not here"}` : packable ? `Pack up into ${UNIT_STATS[PACKS[packable.kind]].label}` : hero ? abilityStatus(hero) : "";
       if (status !== lastAbility) {
         ability.hidden = !status;
         ability.innerHTML = status ? `<kbd>Q</kbd>${status}` : "";
