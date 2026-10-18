@@ -834,7 +834,7 @@
   };
   var HEALERS = {
     medic: { amount: 10, interval: 0.5, range: 2.5, seek: 6, treats: "infantry" },
-    mender: { amount: 6, interval: 0.5, range: 3, seek: 6, treats: "all" },
+    mender: { amount: 7, interval: 0.5, range: 3, seek: 6, treats: "infantry" },
     mechanic: { amount: 14, interval: 0.6, range: 2, seek: 6, treats: "vehicles" }
   };
   var FACTIONS = {
@@ -1020,16 +1020,22 @@
   ];
   var AIR = ["gunship", "dropship", "bomber"];
   var isAir = (kind) => AIR.includes(kind);
+  var AIR_LIFT = 30;
+  var AMMO = {
+    gunship: { shots: 8, reload: 1.5 },
+    bomber: { shots: 2, reload: 6 }
+  };
   var DROPSHIP_SEATS = 5;
   var STRIP = { frames: 32, size: 96, scale: 0.5 };
+  var AIR_STRIP = { ...STRIP, scale: STRIP.scale * 1.25 };
   var UNIT_SPRITES = {
     tank: STRIP,
     harvester: STRIP,
     outpostTruck: STRIP,
     drillRig: STRIP,
-    gunship: STRIP,
-    dropship: STRIP,
-    bomber: STRIP,
+    gunship: AIR_STRIP,
+    dropship: AIR_STRIP,
+    bomber: AIR_STRIP,
     quad: STRIP,
     infantry: STRIP,
     rocketInfantry: STRIP,
@@ -2064,8 +2070,14 @@
     notify(g, b.owner === g.local ? `${BUILDING_STATS[b.kind].label} destroyed` : `${whose(g, b.owner)} ${BUILDING_STATS[b.kind].label} destroyed`);
     if (b.owner === g.local) announce(g, "structure_lost", 3);
   }
-  function fire(g, owner, x, y, weapon2, t, source) {
+  function lift(g, id) {
+    const u = g.units.find((x) => x.id === id);
+    return u && isAir(u.kind) ? AIR_LIFT : 0;
+  }
+  function fire(g, owner, x, y0, weapon2, t0, source) {
     const w = weapon(weapon2);
+    const y = y0 - (source ? lift(g, source.id) : 0);
+    const t = { ...t0, y: t0.y - lift(g, t0.id) };
     emit(g, { kind: "shot", weapon: weapon2, x, y });
     muzzleFx(g, x, y, t.x, t.y, w.style, source ? UNIT_STATS[source.kind].radius + 2 : 12, !!source && UNIT_STATS[source.kind].armor === "infantry");
     if (w.speed === 0) {
@@ -2099,6 +2111,7 @@
     return { x: Math.floor(t.x / TILE), y: Math.floor(t.y / TILE) };
   }
   function treats(h, o) {
+    if (isAir(o.kind)) return false;
     const armor = UNIT_STATS[o.kind].armor;
     return h.treats === "all" || (h.treats === "infantry" ? armor === "infantry" : armor !== "infantry");
   }
@@ -2148,11 +2161,41 @@
       u.repath = 0.5;
     }
   }
+  function rearm(g, u, dt) {
+    const ammo = AMMO[u.kind];
+    const fields = g.buildings.filter((b) => b.owner === u.owner && b.kind === "airfield");
+    if (fields.length === 0) return;
+    const field = fields.reduce((a, b) => Math.hypot(a.tx - u.x / TILE, a.ty - u.y / TILE) < Math.hypot(b.tx - u.x / TILE, b.ty - u.y / TILE) ? a : b);
+    const tx = Math.floor(u.x / TILE);
+    const ty = Math.floor(u.y / TILE);
+    const over = tx >= field.tx && ty >= field.ty && tx < field.tx + field.w && ty < field.ty + field.h;
+    u.targetId = null;
+    if (!over) {
+      const spot = { x: field.tx + 1, y: field.ty };
+      if (u.path.length === 0 || u.goal?.x !== spot.x || u.goal?.y !== spot.y) setPath(g, u, spot);
+      return;
+    }
+    if (u.path.length > 0) return;
+    u.ammo = Math.min(ammo.shots, (u.ammo ?? 0) + dt / ammo.reload);
+    if (u.ammo >= ammo.shots) {
+      u.ammo = ammo.shots;
+      u.rearming = false;
+      u.order = "idle";
+      if (u.owner === g.local) notify(g, `${UNIT_STATS[u.kind].label} rearmed.`);
+    }
+  }
   function updateUnit(g, u, dt) {
     const healer = HEALERS[u.kind];
     if (healer) return updateHealer(g, u, healer, dt);
     const weapon2 = UNIT_STATS[u.kind].weapon;
     if (!weapon2) return;
+    if (AMMO[u.kind]) {
+      if (!u.rearming && (u.ammo ?? 0) < 1) {
+        u.rearming = true;
+        if (u.owner === g.local) notify(g, `${UNIT_STATS[u.kind].label} out of ammunition: returning to rearm.`);
+      }
+      if (u.rearming) return rearm(g, u, dt);
+    }
     const w = weapon(weapon2);
     const range = w.range * bonus(g, u.owner, "range") * rangeFactor(g.weather, w.range) * TILE;
     const minRange = (w.minRange ?? 0) * TILE;
@@ -2208,6 +2251,7 @@
       if (u.cooldown <= 0) {
         fire(g, u.owner, u.x, u.y, weapon2, target, u);
         u.cooldown = w.cooldown * rankCooldown(u);
+        if (u.ammo !== void 0) u.ammo = Math.max(0, u.ammo - 1);
       }
     } else if (u.repath <= 0 || u.path.length === 0) {
       setPath(g, u, tileOf(target));
@@ -2239,7 +2283,7 @@
       const t = targetInfo(g, p.targetId);
       if (t) {
         p.tx = t.x;
-        p.ty = t.y;
+        p.ty = t.y - lift(g, t.id);
       }
       const w = weapon(p.weapon);
       const step = w.speed * TILE * dt;
@@ -2539,6 +2583,11 @@
       return `${t.x},${t.y}`;
     }));
     if (isRemote(kind)) return remoteTiles(g, kind, tx, ty, owner, occupied);
+    if (kind === "seedSpire") {
+      const m = g.map;
+      const ok = inBounds(m, tx, ty) && nearBase(g, tx, ty, 1, 1, owner) && m.terrain[idx(m, tx, ty)] === Terrain.Sand && m.blocked[idx(m, tx, ty)] === 0 && m.spice[idx(m, tx, ty)] <= 0 && !occupied.has(`${tx},${ty}`);
+      return [{ x: tx, y: ty, ok }];
+    }
     if (isBarrier(kind)) {
       const m = g.map;
       const ok = inBounds(m, tx, ty) && nearBase(g, tx, ty, 1, 1, owner) && m.terrain[idx(m, tx, ty)] !== Terrain.Cliff && m.blocked[idx(m, tx, ty)] === 0 && m.spice[idx(m, tx, ty)] <= 0 && !occupied.has(`${tx},${ty}`);
@@ -2978,8 +3027,9 @@
   var MEND_TIMEOUT = 45;
   var THINK_INTERVAL = 1;
   var WAVE_PATIENCE = 90;
-  var MAX_TURRETS = 5;
-  var MAX_HARVESTERS = 4;
+  var MAX_TURRETS = 3;
+  var MAX_HARVESTERS = 6;
+  var HARVESTERS_PER_DOCK = 2;
   var MAX_ARMY = 24;
   var AIR_WING = 4;
   function createAiState(difficulty) {
@@ -3059,7 +3109,7 @@
       [count(g, "refinery", me) < 2 && g.time > 300, "refinery"],
       [count(g, "turret", me) < MAX_TURRETS && g.time > 200, "turret"],
       [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
-      [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
+      [count(g, "rocketTurret", me) < 2 && g.time > 420, "rocketTurret"],
       // The superweapon, late and only with money to spare (Normal and Hard).
       [AI_LEVELS[ai.difficulty].raidGap > 0 && g.time > 900 && ai.credits > 3500 && !g.buildings.some((b) => b.owner === me && isSuper(b.kind)) && !!superFor(g.factions[me]), superFor(g.factions[me]) ?? "power"],
       // Air: an airfield on Normal and Hard, and flak once the enemy flies.
@@ -3179,10 +3229,11 @@
       return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
     }
     const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
+    const docks = count(g, "refinery", me) + count(g, "outpost", me);
+    if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), docks * HARVESTERS_PER_DOCK + coreMiner)) return "harvester";
     const placed = (b) => count(g, b, me);
     if (canTrain(g.factions[me], "drillRig") && placed("deepDrill") + mine("drillRig") < 2 && g.time > 240) return "drillRig";
     if (placed("outpost") + mine("outpostTruck") < 1 && g.time > 360 && ai.credits > 2200) return "outpostTruck";
-    if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), count(g, "refinery", me) + count(g, "outpost", me) + coreMiner)) return "harvester";
     if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank") && ai.cores >= coreCost(F("bastion"))) return "bastion";
     const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
     if (!missingFor(g, F("artillery"), me) && mine("artillery") * guns < mine("tank")) return "artillery";
@@ -4440,6 +4491,8 @@
       refineryId: null,
       retries: 0
     };
+    const ammo = AMMO[kind];
+    if (ammo) u.ammo = ammo.shots;
     g.units.push(u);
     return u;
   }
@@ -4960,7 +5013,7 @@
     for (const n of g.notices) n.age += dt;
     g.notices = g.notices.filter((n) => n.age < 3);
   }
-  var AIR_LIFT_PX = 18;
+  var AIR_LIFT_PX = 30;
   function updateBoarding(g) {
     for (const u of [...g.units]) {
       if (u.boarding == null) continue;
@@ -5423,7 +5476,7 @@
       const y = Math.floor(cy + Math.sin(a) * d);
       if (!inBounds(m, x, y)) continue;
       const i = idx(m, x, y);
-      if (m.terrain[i] === Terrain.Cliff || m.blocked[i] !== 0 || m.vein[i] === Vein.Core) continue;
+      if (m.terrain[i] !== Terrain.Sand || m.blocked[i] !== 0 || m.vein[i] === Vein.Core) continue;
       if (m.spice[i] <= 0) m.vein[i] = Vein.Crystal;
       m.spice[i] = Math.min(VEINS.max[m.vein[i]], m.spice[i] + ECONOMY.spireGrow);
       return;
@@ -5465,7 +5518,7 @@
     wrecker: { role: "Scrap tank", bio: "Three dead tanks welded into one live one. The autocannon came off a fourth." },
     mortarCrawler: { role: "Mobile mortar", bio: "Crawls up behind the line and lobs scrap-packed shells over it." },
     medic: { role: "Field medic", bio: "Patched up half the colony after the company left. Still carries their kit." },
-    mender: { role: "Crystal mender", bio: "Coaxes the glass to close wounds and seal cracked hulls alike." },
+    mender: { role: "Crystal mender", bio: "Coaxes the glass to close a soldier's wounds. Machines are someone else's problem." },
     mechanic: { role: "Field mechanic", bio: "Can fix anything with a wrench, a hammer and a lot of shouting." },
     marksman: { role: "Sniper", bio: "Company marksman, top of her class. The class was long ago and far away." },
     lancer: { role: "Beam sniper", bio: "Threads a single shard of light through a gap no wider than a finger." },
@@ -5499,7 +5552,7 @@
     silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
     outpost: "A deployed Outpost Truck: a forward refinery with room to build around it. Pack it up (Q) to move on.",
     deepDrill: "A deployed Drill Rig. Mines the field it stands on straight into the account, no harvester. Pack it up (Q) to move on.",
-    seedSpire: "Shardbound only. Grows new crystal on the open ground around it."
+    seedSpire: "Shardbound only. Planted in the sand, it grows new crystal on the sand around it."
   };
   var WEAPON_LABELS = {
     rifle: "Service rifle",
@@ -7805,6 +7858,7 @@
       const aircraft = units.filter((u) => isAir(u.kind));
       for (const u of units) if (!isAir(u.kind)) drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
       for (const u of units) {
+        if (isAir(u.kind)) continue;
         if (g.selection.has(u.id)) {
           drawSelection(ctx, u);
           if (u.owner === g.local && u.waypoints.length > 0) drawWaypoints(ctx, u);
@@ -7827,8 +7881,18 @@
       if (!LOW) for (const u of units) drawDamageSmoke(ctx, u, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const u of aircraft) {
+        const r = UNIT_STATS[u.kind].radius;
+        const bob = Math.sin(g.time * 2.2 + u.id) * 2;
+        drawGlow(ctx, shadowGlow(), u.x + 5, u.y + 4, r * 1.25, r * 0.7, 0.55);
+        ctx.save();
+        ctx.translate(0, -AIR_LIFT - bob);
         drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
         drawRotor(ctx, u, g.time);
+        if (g.selection.has(u.id)) {
+          drawSelection(ctx, u);
+          if (u.ammo !== void 0) drawAmmo(ctx, u);
+        } else if (u.hp < UNIT_STATS[u.kind].maxHp || this.showAllHealth) drawHpBar(ctx, u.x - r, u.y - r - 6, r * 2, u.hp / UNIT_STATS[u.kind].maxHp);
+        ctx.restore();
       }
       for (const s of g.strikes) drawStrike(ctx, s, g.time);
       if (this.aimRing) drawAimRing(ctx, this.aimRing, g.time);
@@ -8564,7 +8628,7 @@
     const r = u.kind === "gunship" ? 20 : 16;
     for (const along of rotors) {
       const cx = u.x + Math.cos(u.angle) * along;
-      const cy = u.y + Math.sin(u.angle) * along - 18;
+      const cy = u.y + Math.sin(u.angle) * along - 10;
       ctx.save();
       ctx.globalAlpha = 0.16;
       ctx.fillStyle = "#d8d2c4";
@@ -8582,6 +8646,17 @@
       ctx.restore();
     }
   }
+  function drawAmmo(ctx, u) {
+    const max = AMMO[u.kind]?.shots ?? 0;
+    const r = UNIT_STATS[u.kind].radius;
+    const w = 4;
+    const x0 = u.x - max * (w + 1) / 2;
+    for (let k = 0; k < max; k++) {
+      ctx.fillStyle = k < Math.floor(u.ammo ?? 0) ? "#f2b33d" : "rgba(30,26,22,0.8)";
+      ctx.fillRect(x0 + k * (w + 1), u.y + r + 4, w, 3);
+    }
+  }
+  var shadowGlow = () => radialGlow("airShadow", [[0, "rgba(0,0,0,0.6)"], [0.6, "rgba(0,0,0,0.35)"], [1, "rgba(0,0,0,0)"]]);
   var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
   function makeDustTile() {
     const size = 256;
@@ -8887,14 +8962,14 @@
     if (p.style === "arc") {
       const total = Math.hypot(p.tx - p.sx, p.ty - p.sy) || 1;
       const done = Math.min(1, Math.hypot(p.x - p.sx, p.y - p.sy) / total);
-      const lift = Math.sin(done * Math.PI) * Math.min(90, total * 0.35);
+      const lift2 = Math.sin(done * Math.PI) * Math.min(90, total * 0.35);
       ctx.fillStyle = "rgba(0,0,0,0.3)";
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, 3, 2, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#3a3128";
       ctx.beginPath();
-      ctx.arc(p.x, p.y - lift, 3.5, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y - lift2, 3.5, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
