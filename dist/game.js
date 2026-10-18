@@ -660,22 +660,26 @@
   var MAX_QUEUE = 5;
   var WEAPONS = {
     rifle: { range: 3, damage: 10, cooldown: 0.9, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.5, heavy: 0.2, building: 0.25 } },
-    mg: { range: 3.5, damage: 9, cooldown: 0.35, speed: 0, style: "tracer", vs: { infantry: 1.2, light: 0.8, heavy: 0.25, building: 0.3 } },
-    raiderGun: { range: 3, damage: 6, cooldown: 0.3, speed: 0, style: "tracer", vs: { infantry: 1.1, light: 0.6, heavy: 0.2, building: 0.2 } },
+    mg: { range: 3.5, damage: 9, cooldown: 0.35, speed: 0, style: "tracer", vs: { infantry: 1.2, light: 0.8, heavy: 0.25, building: 0.3 }, hits: "both" },
+    raiderGun: { range: 3, damage: 6, cooldown: 0.3, speed: 0, style: "tracer", vs: { infantry: 1.1, light: 0.6, heavy: 0.2, building: 0.2 }, hits: "both" },
     cannon: { range: 4.5, damage: 50, cooldown: 1.8, speed: 10, style: "shell", vs: { infantry: 0.35, light: 1, heavy: 1, building: 0.8 } },
-    rocket: { range: 4, damage: 32, cooldown: 2.2, speed: 8, style: "rocket", vs: { infantry: 0.3, light: 1.1, heavy: 1, building: 0.8 } },
+    rocket: { range: 4, damage: 32, cooldown: 2.2, speed: 8, style: "rocket", vs: { infantry: 0.3, light: 1.1, heavy: 1, building: 0.8 }, hits: "both" },
     artilleryShell: { range: 8.5, minRange: 2.5, damage: 70, cooldown: 3.5, speed: 6, style: "arc", splash: 1.3, vs: { infantry: 1.2, light: 0.8, heavy: 0.5, building: 1 } },
     turretGun: { range: 5.5, damage: 40, cooldown: 1.5, speed: 12, style: "shell", vs: { infantry: 0.5, light: 1, heavy: 1, building: 0.5 } },
-    turretRocket: { range: 7.5, damage: 55, cooldown: 2.4, speed: 10, style: "rocket", vs: { infantry: 0.4, light: 1.1, heavy: 1.1, building: 0.5 } },
+    turretRocket: { range: 7.5, damage: 55, cooldown: 2.4, speed: 10, style: "rocket", vs: { infantry: 0.4, light: 1.1, heavy: 1.1, building: 0.5 }, hits: "both" },
+    // Air war: gunship rockets (ground only), bombs (ground only, big splash), flak (aircraft only).
+    gunRockets: { range: 4, damage: 26, cooldown: 1.2, speed: 12, style: "rocket", vs: { infantry: 0.7, light: 1, heavy: 0.8, building: 0.5 } },
+    bombs: { range: 1.4, damage: 150, cooldown: 4.5, speed: 5, style: "arc", splash: 1.6, vs: { infantry: 1, light: 1, heavy: 0.9, building: 1.4 } },
+    flak: { range: 7, damage: 24, cooldown: 0.55, speed: 14, style: "shell", vs: { infantry: 0, light: 1.2, heavy: 1, building: 0 }, hits: "air" },
     // Shardbound crystal weapons.
     shardRifle: { range: 3.5, damage: 9, cooldown: 0.85, speed: 0, style: "beam", vs: { infantry: 1, light: 0.5, heavy: 0.25, building: 0.25 } },
-    shardRepeater: { range: 3.5, damage: 8, cooldown: 0.3, speed: 0, style: "beam", vs: { infantry: 1.1, light: 0.9, heavy: 0.3, building: 0.3 } },
+    shardRepeater: { range: 3.5, damage: 8, cooldown: 0.3, speed: 0, style: "beam", vs: { infantry: 1.1, light: 0.9, heavy: 0.3, building: 0.3 }, hits: "both" },
     prismBeam: { range: 5, damage: 40, cooldown: 1.7, speed: 0, style: "beam", vs: { infantry: 0.4, light: 1, heavy: 1.1, building: 0.8 } },
     resonance: { range: 7.5, minRange: 2, damage: 60, cooldown: 3.2, speed: 7, style: "arc", splash: 1.6, vs: { infantry: 1.6, light: 0.7, heavy: 0.4, building: 0.8 } },
     // Reclaimer scrap weapons.
     scattergun: { range: 2.5, damage: 18, cooldown: 1.1, speed: 0, style: "tracer", vs: { infantry: 1.3, light: 0.6, heavy: 0.2, building: 0.3 } },
     flamer: { range: 2.5, damage: 6, cooldown: 0.15, speed: 0, style: "flame", vs: { infantry: 1.4, light: 0.7, heavy: 0.3, building: 1 } },
-    autocannon: { range: 4, damage: 22, cooldown: 0.8, speed: 11, style: "shell", vs: { infantry: 0.6, light: 1, heavy: 0.8, building: 0.6 } },
+    autocannon: { range: 4, damage: 22, cooldown: 0.8, speed: 11, style: "shell", vs: { infantry: 0.6, light: 1, heavy: 0.8, building: 0.6 }, hits: "both" },
     mortar: { range: 6.5, minRange: 2, damage: 45, cooldown: 2.6, speed: 6, style: "arc", splash: 1.2, vs: { infantry: 1.3, light: 0.7, heavy: 0.4, building: 0.9 } },
     // Snipers: long reach, deadly to infantry, next to useless against armour.
     marksmanRifle: { range: 7, damage: 75, cooldown: 3, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.12, heavy: 0.04, building: 0.04 } },
@@ -686,7 +690,7 @@
     monolithBeam: { range: 6.5, damage: 120, cooldown: 2.6, speed: 0, style: "beam", vs: { infantry: 0.5, light: 1, heavy: 1.2, building: 1 } },
     // Hero weapons.
     vancePistols: { range: 4.5, damage: 30, cooldown: 0.55, speed: 0, style: "tracer", vs: { infantry: 1.6, light: 0.6, heavy: 0.25, building: 0.3 } },
-    seerBeam: { range: 5, damage: 32, cooldown: 0.7, speed: 0, style: "beam", vs: { infantry: 1.2, light: 1, heavy: 0.7, building: 0.4 } },
+    seerBeam: { range: 5, damage: 32, cooldown: 0.7, speed: 0, style: "beam", vs: { infantry: 1.2, light: 1, heavy: 0.7, building: 0.4 }, hits: "both" },
     rookCannon: { range: 3.5, damage: 40, cooldown: 0.8, speed: 0, style: "tracer", vs: { infantry: 1.3, light: 1.1, heavy: 0.6, building: 0.6 } },
     scrapCannon: { range: 4.5, damage: 50, cooldown: 1, speed: 10, style: "shell", splash: 0.9, vs: { infantry: 0.8, light: 1, heavy: 0.9, building: 0.8 } }
   };
@@ -760,6 +764,10 @@
     harvester: 4,
     outpostTruck: 5,
     drillRig: 5,
+    gunship: 6,
+    dropship: 5,
+    bomber: 5,
+    flakTurret: 7.5,
     building: 5,
     turret: 6.5,
     rocketTurret: 8
@@ -774,6 +782,10 @@
     tank: { label: "Tank", speed: 2, maxHp: 450, radius: 11, cost: 700, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "cannon", faction: "concord" },
     artillery: { label: "Artillery", speed: 1.5, maxHp: 160, radius: 11, cost: 800, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "artilleryShell", faction: "concord" },
     harvester: { label: "Harvester", speed: 1.6, maxHp: 400, radius: 13, cost: 1100, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
+    // Aircraft (AIR): fly straight over anything; only some weapons can hit them.
+    gunship: { label: "Gunship", speed: 4.2, maxHp: 220, radius: 12, cost: 900, producer: "airfield", needs: null, armor: "light", weapon: "gunRockets", faction: "any" },
+    dropship: { label: "Dropship", speed: 3.6, maxHp: 380, radius: 14, cost: 700, producer: "airfield", needs: null, armor: "heavy", weapon: null, faction: "any" },
+    bomber: { label: "Bomber", speed: 2.6, maxHp: 420, radius: 15, cost: 1800, producer: "airfield", needs: "techCenter", armor: "heavy", weapon: "bombs", faction: "any" },
     // Deployable vehicles: drive to a field, deploy (Q) into a building (economy.ts).
     outpostTruck: { label: "Outpost Truck", speed: 1.5, maxHp: 500, radius: 13, cost: 1600, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
     drillRig: { label: "Drill Rig", speed: 1.6, maxHp: 450, radius: 12, cost: 900, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "concord" },
@@ -949,6 +961,8 @@
     seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" },
     silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null },
     // Defences: walls are laid by dragging a line (paid per segment); gates let your side through.
+    airfield: { label: "Airfield", w: 3, h: 2, maxHp: 900, cost: 1e3, power: -30, requires: "radar", weapon: null },
+    flakTurret: { label: "Flak Turret", w: 1, h: 1, maxHp: 600, cost: 800, power: -20, requires: "radar", weapon: "flak" },
     wall: { label: "Wall", w: 1, h: 1, maxHp: 500, cost: 25, power: 0, requires: "barracks", weapon: null },
     gate: { label: "Gate", w: 1, h: 1, maxHp: 700, cost: 150, power: 0, requires: "barracks", weapon: null }
   };
@@ -957,7 +971,7 @@
   var WALL_RUN = 24;
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "silo", "wall", "gate", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "wall", "gate", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "flakTurret", "airfield", "techCenter", "seedSpire"];
   var STORAGE = {
     holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3 },
     slowFrom: 0.8
@@ -995,14 +1009,23 @@
     "titan",
     "harvester",
     "drillRig",
-    "outpostTruck"
+    "outpostTruck",
+    "gunship",
+    "dropship",
+    "bomber"
   ];
+  var AIR = ["gunship", "dropship", "bomber"];
+  var isAir = (kind) => AIR.includes(kind);
+  var DROPSHIP_SEATS = 5;
   var STRIP = { frames: 32, size: 96, scale: 0.5 };
   var UNIT_SPRITES = {
     tank: STRIP,
     harvester: STRIP,
     outpostTruck: STRIP,
     drillRig: STRIP,
+    gunship: STRIP,
+    dropship: STRIP,
+    bomber: STRIP,
     quad: STRIP,
     infantry: STRIP,
     rocketInfantry: STRIP,
@@ -1040,7 +1063,8 @@
   };
   var TURRET_SPRITES = {
     turret: STRIP,
-    rocketTurret: STRIP
+    rocketTurret: STRIP,
+    flakTurret: STRIP
   };
   var BUILDING_SPRITE = { marginX: 16, marginY: 48, scale: 0.5 };
   function buildTime(cost) {
@@ -1923,12 +1947,19 @@
   function edgeDist(x, y, t) {
     return Math.max(0, Math.hypot(t.x - x, t.y - y) - t.r);
   }
-  function nearestHostile(g, owner, x, y, maxDist, minDist = 0) {
+  function canHit(weapon2, kind) {
+    if (!weapon2) return false;
+    const hits = weapon(weapon2).hits ?? "ground";
+    return isAir(kind) ? hits !== "ground" : hits !== "air";
+  }
+  function nearestHostile(g, owner, x, y, maxDist, minDist = 0, weapon2) {
+    const air = weapon2 ? weapon(weapon2).hits ?? "ground" : "both";
     let best = null;
     let bestD = Infinity;
     const blind = g.humans.includes(owner) && g.fogs[owner].enabled;
     for (const u of g.units) {
       if (!hostile(g, u.owner, owner)) continue;
+      if (air !== "both" && isAir(u.kind) !== (air === "air")) continue;
       const r = UNIT_STATS[u.kind].radius;
       if (Math.abs(u.x - x) - r > maxDist || Math.abs(u.y - y) - r > maxDist) continue;
       if (blind && !visibleAt(g, u.x, u.y, owner)) continue;
@@ -1941,6 +1972,7 @@
       }
     }
     if (best) return targetInfo(g, best.id);
+    if (air === "air") return null;
     for (const b of g.buildings) {
       if (!hostile(g, b.owner, owner)) continue;
       const cx = (b.tx + b.w / 2) * TILE;
@@ -2046,12 +2078,12 @@
     const r = (w.splash ?? 0) * TILE;
     const hits = [];
     for (const u of g.units) {
-      if (u.owner === owner) continue;
+      if (!hostile(g, u.owner, owner) || isAir(u.kind)) continue;
       const d = Math.hypot(u.x - x, u.y - y);
       if (d <= r) hits.push({ id: u.id, d, armor: UNIT_STATS[u.kind].armor });
     }
     for (const b of g.buildings) {
-      if (b.owner === owner) continue;
+      if (!hostile(g, b.owner, owner)) continue;
       const c = buildingCentre(b);
       const d = Math.max(0, Math.hypot(c.x - x, c.y - y) - Math.min(b.w, b.h) * TILE / 2);
       if (d <= r) hits.push({ id: b.id, d, armor: "building" });
@@ -2123,6 +2155,10 @@
     u.cooldown = Math.max(0, u.cooldown - dt);
     u.repath -= dt;
     let target = u.targetId !== null ? targetInfo(g, u.targetId) : null;
+    if (target) {
+      const tu = g.units.find((x) => x.id === target.id);
+      if (tu && !canHit(weapon2, tu.kind)) target = null;
+    }
     if (u.targetId !== null && !target) {
       u.targetId = null;
       u.explicitTarget = false;
@@ -2138,7 +2174,7 @@
       }
     }
     if (!target && u.order !== "move") {
-      target = u.post ? nearestHostile(g, u.owner, (u.post.x + 0.5) * TILE, (u.post.y + 0.5) * TILE, GUARD_RADIUS * TILE) : nearestHostile(g, u.owner, u.x, u.y, range + ALERT_MARGIN * TILE, minRange);
+      target = u.post ? nearestHostile(g, u.owner, (u.post.x + 0.5) * TILE, (u.post.y + 0.5) * TILE, GUARD_RADIUS * TILE, 0, weapon2) : nearestHostile(g, u.owner, u.x, u.y, range + ALERT_MARGIN * TILE, minRange, weapon2);
       if (target) {
         u.targetId = target.id;
         u.explicitTarget = false;
@@ -2183,7 +2219,7 @@
     b.cooldown = Math.max(0, b.cooldown - dt);
     let target = b.targetId !== null ? targetInfo(g, b.targetId) : null;
     if (!target || edgeDist(c.x, c.y, target) > range) {
-      target = nearestHostile(g, b.owner, c.x, c.y, range);
+      target = nearestHostile(g, b.owner, c.x, c.y, range, 0, weapon2);
       b.targetId = target?.id ?? null;
     }
     if (!target) return;
@@ -2384,6 +2420,20 @@
     return hasBuilding(g, "radar", owner) && !powerInfo(g, owner).low;
   }
   function updateRepairs(g, dt) {
+    for (const field of g.buildings) {
+      if (field.kind !== "airfield") continue;
+      const wallet = walletOf(g, field.owner);
+      for (const u of g.units) {
+        if (u.owner !== field.owner || !isAir(u.kind) || u.path.length > 0 || u.hp >= UNIT_STATS[u.kind].maxHp) continue;
+        const tx = Math.floor(u.x / 32);
+        const ty = Math.floor(u.y / 32);
+        if (tx < field.tx || ty < field.ty || tx >= field.tx + field.w || ty >= field.ty + field.h) continue;
+        const hp = Math.min(REPAIR.rate * dt, UNIT_STATS[u.kind].maxHp - u.hp, wallet.credits / REPAIR.costPerHp);
+        if (hp <= 0) continue;
+        u.hp += hp;
+        wallet.credits -= hp * REPAIR.costPerHp;
+      }
+    }
     for (const pad of g.buildings) {
       if (pad.kind !== "repairPad") continue;
       const wallet = walletOf(g, pad.owner);
@@ -2648,6 +2698,7 @@
   var MAX_TURRETS = 5;
   var MAX_HARVESTERS = 4;
   var MAX_ARMY = 24;
+  var AIR_WING = 4;
   function createAiState(difficulty) {
     const level = AI_LEVELS[difficulty];
     return {
@@ -2658,7 +2709,8 @@
       lines: {
         barracks: { current: null, queue: [] },
         lightFactory: { current: null, queue: [] },
-        heavyFactory: { current: null, queue: [] }
+        heavyFactory: { current: null, queue: [] },
+        airfield: { current: null, queue: [] }
       },
       think: 0,
       nextWave: level.firstWave,
@@ -2725,6 +2777,9 @@
       [count(g, "turret", me) < MAX_TURRETS && g.time > 200, "turret"],
       [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
       [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
+      // Air: an airfield on Normal and Hard, and flak once the enemy flies.
+      [AI_LEVELS[ai.difficulty].raidGap > 0 && !hasBuilding(g, "airfield", me) && g.time > 480, "airfield"],
+      [enemyAir(g, me) > 0 && count(g, "flakTurret", me) < Math.min(3, 1 + Math.floor(enemyAir(g, me) / 2)), "flakTurret"],
       [!hasBuilding(g, "techCenter", me) && g.time > 540, "techCenter"],
       // The faction economies, then expansion to a field of its own.
       [canBuild(g.factions[me], "seedSpire") && count(g, "seedSpire", me) < 2 && g.time > 200, "seedSpire"],
@@ -2763,6 +2818,9 @@
       if (best) return { x: best.x, y: best.y };
     }
     return null;
+  }
+  function enemyAir(g, me) {
+    return g.units.filter((u) => hostile(g, u.owner, me) && isAir(u.kind)).length;
   }
   function hasClearance(g, tx, ty, w, h) {
     for (let y = ty - 1; y <= ty + h; y++) {
@@ -2826,6 +2884,10 @@
       if (mix && !missingFor(g, F("marksman"), me) && mine("marksman") * snipers < mine("infantry")) return "marksman";
       if (facing === "vehicles") return mine("rocketInfantry") <= mine("infantry") * 2 ? "rocketInfantry" : "infantry";
       return mix && mine("rocketInfantry") * 2 < mine("infantry") ? "rocketInfantry" : "infantry";
+    }
+    if (producer === "airfield") {
+      if (!missingFor(g, "bomber", me) && mine("bomber") * 3 < mine("gunship")) return "bomber";
+      return "gunship";
     }
     if (producer === "lightFactory") {
       if (facing === "infantry") return mine("raider") < mine("quad") ? "raider" : "quad";
@@ -2901,11 +2963,13 @@
     const inProduction = lines2.filter((l) => l.current && l.current.kind !== "harvester" && !DEPLOYS[l.current.kind]).length;
     let wanted = ai.waveSize - ai.army.length - inProduction;
     const infantry = () => alive(g, ai.army).filter((u) => u.kind === "infantry" || u.kind === "rocketInfantry").length + (ai.lines.barracks.current ? 1 : 0);
-    for (const producer of ["heavyFactory", "lightFactory", "barracks"]) {
+    for (const producer of ["airfield", "heavyFactory", "lightFactory", "barracks"]) {
       const line = ai.lines[producer];
       if (line.current || !hasBuilding(g, producer, me)) continue;
       const kind = chooseUnit(g, producer, me);
-      const fighter = kind !== "harvester" && !DEPLOYS[kind];
+      const flyer = isAir(kind);
+      if (flyer && g.units.filter((u) => u.owner === me && isAir(u.kind)).length >= AIR_WING) continue;
+      const fighter = kind !== "harvester" && !DEPLOYS[kind] && !flyer;
       if (fighter) {
         if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
         const footShare = kind === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
@@ -4030,7 +4094,8 @@
       lines: {
         barracks: { current: null, queue: [] },
         lightFactory: { current: null, queue: [] },
-        heavyFactory: { current: null, queue: [] }
+        heavyFactory: { current: null, queue: [] },
+        airfield: { current: null, queue: [] }
       },
       notices: [],
       projectiles: [],
@@ -4240,7 +4305,7 @@
     let best;
     let bestD = Infinity;
     for (const u of g.units) {
-      const d = Math.hypot(u.x - wx, u.y - wy);
+      const d = Math.hypot(u.x - wx, u.y - (isAir(u.kind) ? AIR_LIFT_PX : 0) - wy);
       if (d <= UNIT_STATS[u.kind].radius + 4 && d < bestD) {
         best = u;
         bestD = d;
@@ -4271,6 +4336,10 @@
   function setPath(g, u, goal, opts = {}) {
     u.goal = goal;
     u.blocked = 0;
+    if (isAir(u.kind)) {
+      u.path = inBounds(g.map, goal.x, goal.y) ? [goal] : [];
+      return;
+    }
     const me = u.id + 1;
     const cost = (i) => {
       if (i === opts.avoid) return 1e3;
@@ -4298,10 +4367,12 @@
   function rebuildOccupancy(g) {
     g.occupant.fill(0);
     for (const u of g.units) {
+      if (isAir(u.kind)) continue;
       const next = u.path[0];
       if (next && inBounds(g.map, next.x, next.y) && u.kind !== "infantry") g.occupant[idx(g.map, next.x, next.y)] = u.id + 1;
     }
     for (const u of g.units) {
+      if (isAir(u.kind)) continue;
       const t = unitTile(u);
       if (inBounds(g.map, t.x, t.y)) g.occupant[idx(g.map, t.x, t.y)] = u.id + 1;
     }
@@ -4550,8 +4621,27 @@
       }
     }
   }
+  function fly(g, u, dt) {
+    const n = u.path[0];
+    const tx = (n.x + 0.5) * TILE;
+    const ty = (n.y + 0.5) * TILE;
+    const dx = tx - u.x;
+    const dy = ty - u.y;
+    const d = Math.hypot(dx, dy);
+    const step = UNIT_STATS[u.kind].speed * bonus(g, u.owner, "speed") * TILE * dt;
+    if (d > 1e-3) u.angle = Math.atan2(dy, dx);
+    if (d <= step) {
+      u.x = tx;
+      u.y = ty;
+      u.path.shift();
+    } else {
+      u.x += dx / d * step;
+      u.y += dy / d * step;
+    }
+  }
   function moveAlongPath(g, u, dt) {
     if (u.path.length === 0) return;
+    if (isAir(u.kind)) return fly(g, u, dt);
     const next = u.path[0];
     if (inBounds(g.map, next.x, next.y) && g.map.blocked[idx(g.map, next.x, next.y)] === 3 && gateBars(g, idx(g.map, next.x, next.y), u.owner)) {
       const gate = g.buildings.find((b) => b.kind === "gate" && b.tx === next.x && b.ty === next.y);
@@ -4628,7 +4718,7 @@
   }
   function standingIn(g, u, tx, ty) {
     for (const o of g.units) {
-      if (o === u || passesThrough(u, o)) continue;
+      if (o === u || passesThrough(u, o) || isAir(o.kind)) continue;
       if (Math.floor(o.x / TILE) === tx && Math.floor(o.y / TILE) === ty) return o;
     }
     return void 0;
@@ -4643,6 +4733,7 @@
       for (let j = i + 1; j < us.length; j++) {
         const a = us[i];
         const b = us[j];
+        if (isAir(a.kind) !== isAir(b.kind)) continue;
         const pa = isPushable(a);
         const pb = isPushable(b);
         if (!pa && !pb) continue;
@@ -4666,6 +4757,11 @@
   function nudge(g, u, dx, dy) {
     const nx = u.x + dx;
     const ny = u.y + dy;
+    if (isAir(u.kind)) {
+      u.x = Math.max(0, Math.min(g.map.w * TILE - 1, nx));
+      u.y = Math.max(0, Math.min(g.map.h * TILE - 1, ny));
+      return;
+    }
     if (isPassable(g.map, Math.floor(nx / TILE), Math.floor(ny / TILE))) {
       u.x = nx;
       u.y = ny;
@@ -4675,6 +4771,7 @@
     g.time += dt;
     g.tick++;
     tickWeather(g);
+    updateBoarding(g);
     rebuildOccupancy(g);
     for (const u of g.units) {
       moveAlongPath(g, u, dt);
@@ -4707,6 +4804,56 @@
     g.markers = g.markers.filter((mk) => mk.age < 0.6);
     for (const n of g.notices) n.age += dt;
     g.notices = g.notices.filter((n) => n.age < 3);
+  }
+  var AIR_LIFT_PX = 18;
+  function updateBoarding(g) {
+    for (const u of [...g.units]) {
+      if (u.boarding == null) continue;
+      const ship = g.units.find((s) => s.id === u.boarding && s.kind === "dropship" && s.owner === u.owner);
+      if (!ship || (ship.passengers?.length ?? 0) >= DROPSHIP_SEATS) {
+        u.boarding = null;
+        continue;
+      }
+      if (Math.hypot(ship.x - u.x, ship.y - u.y) > TILE * 1.6) {
+        if (u.path.length === 0) setPath(g, u, unitTile(ship));
+        continue;
+      }
+      g.units = g.units.filter((o) => o !== u);
+      g.selection.delete(u.id);
+      u.boarding = null;
+      u.path = [];
+      u.order = "idle";
+      u.targetId = null;
+      (ship.passengers ??= []).push(u);
+    }
+  }
+  function commandBoard(g, units, ship) {
+    if (ship.kind !== "dropship") return null;
+    const room = DROPSHIP_SEATS - (ship.passengers?.length ?? 0);
+    const soldiers = units.filter((u) => UNIT_STATS[u.kind].armor === "infantry" && u.owner === ship.owner).slice(0, room);
+    if (soldiers.length === 0) return room <= 0 ? "The dropship is full." : "Only infantry can board a dropship.";
+    for (const u of soldiers) {
+      clearCombat(u);
+      u.order = "move";
+      u.boarding = ship.id;
+      setPath(g, u, unitTile(ship));
+    }
+    return null;
+  }
+  function unloadShip(g, ship) {
+    const aboard = ship.passengers ?? [];
+    if (aboard.length === 0) return "The dropship is empty.";
+    const here = unitTile(ship);
+    if (!isPassable(g.map, here.x, here.y)) return "Can't land here: find open ground.";
+    const spots = formationTiles(g.map, here, aboard.length);
+    aboard.splice(0, spots.length).forEach((u, k) => {
+      u.x = (spots[k].x + 0.5) * TILE;
+      u.y = (spots[k].y + 0.5) * TILE;
+      u.path = [];
+      u.order = "idle";
+      g.units.push(u);
+    });
+    return null;
   }
   function tickWeather(g) {
     const w = g.weather;
@@ -4812,8 +4959,10 @@
     return g.units.filter((u) => u.owner === g.local && u.kind !== "harvester");
   }
   function commandAttack(g, units, targetId) {
+    const target = g.units.find((t) => t.id === targetId);
     for (const u of units) {
       if (!UNIT_STATS[u.kind].weapon) continue;
+      if (target && !canHit(UNIT_STATS[u.kind].weapon, target.kind)) continue;
       clearCombat(u);
       u.order = "attack";
       u.targetId = targetId;
@@ -5146,6 +5295,9 @@
     raider: { role: "Fast raider", bio: "Stripped to the frame for speed. Hits the harvesters, gone before the turrets turn." },
     tank: { role: "Main battle tank", bio: "Pre-storm company stock, kept running on spare parts and stubbornness." },
     artillery: { role: "Long-range artillery", bio: "Needs radar to see what it's hitting. Doesn't need to see it twice." },
+    gunship: { role: "Attack helicopter", bio: "Fast, rocket-armed and nobody's friend. Flies over walls and cliffs to hunt harvesters; keep it away from flak." },
+    dropship: { role: "Troop transport", bio: "Right-click it with soldiers selected and they climb aboard (five seats). Fly them anywhere and press Q to set them down." },
+    bomber: { role: "Heavy bomber", bio: "Slow and armoured, with a bomb bay that flattens buildings. It has to fly right over the target: escort it." },
     outpostTruck: { role: "Mobile outpost", bio: "A forward refinery folded onto six wheels. Drive it to a field you've scouted and deploy it (Q): it brings a harvester and a place to build." },
     drillRig: { role: "Mobile drill", bio: "Concord's answer to harvesting: park it on a field, deploy (Q), and the crystal flows straight into the account. Pack it up when the field runs thin." },
     harvester: { role: `${RESOURCE_NAME[0].toUpperCase()}${RESOURCE_NAME.slice(1)} harvester`, bio: "The whole war runs on what this slow, ugly machine scoops out of the sand." },
@@ -5182,6 +5334,8 @@
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
+    airfield: "Builds aircraft, and patches up the ones parked on it.",
+    flakTurret: "Anti-aircraft gun: shreds anything in the air, and can't touch anything on the ground.",
     wall: "A concrete barrier. Cheap, tough, and it stops anything on foot or wheels until it's knocked down.",
     gate: "Opens for your side and your allies; enemies have to break it down to get through.",
     silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
@@ -5193,6 +5347,9 @@
     rifle: "Service rifle",
     mg: "Machine gun",
     raiderGun: "Twin SMGs",
+    gunRockets: "Rocket pods",
+    bombs: "Bomb bay",
+    flak: "Quad flak cannon",
     cannon: "105mm cannon",
     rocket: "Rocket launcher",
     artilleryShell: "Howitzer",
@@ -6277,6 +6434,15 @@
         const u = own(g, owner, [c.unit])[0];
         return u && HEROES[u.kind] ? useAbility(g, u) : null;
       }
+      case "board": {
+        const ship = own(g, owner, [c.ship])[0];
+        return ship ? commandBoard(g, own(g, owner, c.units), ship) : null;
+      }
+      case "unload": {
+        let problem = null;
+        for (const ship of own(g, owner, c.units)) if (ship.kind === "dropship") problem = unloadShip(g, ship) ?? problem;
+        return problem;
+      }
       case "wall": {
         const tiles = Array.isArray(c.tiles) ? c.tiles.filter((t) => Number.isInteger(t?.x) && Number.isInteger(t?.y)) : [];
         if (layWall(g, tiles, owner) > 0) return null;
@@ -6382,7 +6548,7 @@
 
   // src/input.ts
   var EDGE = 14;
-  var FACTORIES = ["barracks", "lightFactory", "heavyFactory"];
+  var FACTORIES = ["barracks", "lightFactory", "heavyFactory", "airfield"];
   var SCROLL_SPEED = 900;
   var DRAG_THRESHOLD = 5;
   var SIDEBAR_WIDTH = 240;
@@ -6569,6 +6735,12 @@
           emit(this.game, { kind: "command" });
           return;
         }
+        if (enemy && enemy.owner === me && enemy.kind === "dropship" && selected.some((u) => u.id !== enemy.id)) {
+          this.issue({ t: "board", units: selected.map((u) => u.id), ship: enemy.id });
+          this.game.markers.push({ x: enemy.x, y: enemy.y, age: 0, kind: "move" });
+          emit(this.game, { kind: "command" });
+          return;
+        }
         if (enemy && hostile(this.game, enemy.owner, me) && visibleAt(this.game, enemy.x, enemy.y)) {
           if (selected.length > 0) emit(this.game, { kind: "command", attack: true });
           this.issue({ t: "attack", units: selected.map((u) => u.id), target: enemy.id });
@@ -6752,6 +6924,11 @@
       const rigs = selectedUnits(g).filter((u) => DEPLOYS[u.kind]);
       if (rigs.length > 0) {
         this.issue({ t: "deploy", units: rigs.map((u) => u.id) });
+        return;
+      }
+      const ships = selectedUnits(g).filter((u) => u.kind === "dropship" && (u.passengers?.length ?? 0) > 0);
+      if (ships.length > 0) {
+        this.issue({ t: "unload", units: ships.map((u) => u.id) });
         return;
       }
       const b = g.buildings.find((x) => x.id === g.selectedBuilding && x.owner === g.local && PACKS[x.kind]);
@@ -7436,7 +7613,8 @@
       for (const b of g.buildings) if (b.repairing && b.owner === g.local) drawRepairing(ctx, b, g.time);
       this.updatePoses(g, dt);
       const units = g.units.filter((u) => onScreen(u.x, u.y) && seen(u));
-      for (const u of units) drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
+      const aircraft = units.filter((u) => isAir(u.kind));
+      for (const u of units) if (!isAir(u.kind)) drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
       for (const u of units) {
         if (g.selection.has(u.id)) {
           drawSelection(ctx, u);
@@ -7459,6 +7637,10 @@
       for (const b of shown) drawBurning(ctx, b, g.time);
       if (!LOW) for (const u of units) drawDamageSmoke(ctx, u, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
+      for (const u of aircraft) {
+        drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
+        drawRotor(ctx, u, g.time);
+      }
       for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
       for (const e of g.effects) {
         if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
@@ -7895,7 +8077,7 @@
   var TRACK_LIFE = 16;
   var MAX_TRACKS = 2400;
   function leavesTracks(kind) {
-    return UNIT_STATS[kind].armor !== "infantry" && kind !== "skimmer" && kind !== "monolith";
+    return UNIT_STATS[kind].armor !== "infantry" && kind !== "skimmer" && kind !== "monolith" && !isAir(kind);
   }
   function drawTracks(ctx, tracks, time, cam) {
     ctx.lineWidth = 2.2;
@@ -8119,6 +8301,29 @@
         ctx.fillStyle = "#f2b33d";
         ctx.fillRect(horizontal ? x + 2 : x + TILE / 2 - 2, horizontal ? y + 7 : y + 2, 4, 3);
       }
+    }
+  }
+  function drawRotor(ctx, u, time) {
+    const rotors = u.kind === "gunship" ? [0] : u.kind === "dropship" ? [-14, 14] : [];
+    const r = u.kind === "gunship" ? 20 : 16;
+    for (const along of rotors) {
+      const cx = u.x + Math.cos(u.angle) * along;
+      const cy = u.y + Math.sin(u.angle) * along - 18;
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = "#d8d2c4";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * 0.64, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = "#2b2824";
+      ctx.lineWidth = 1.5;
+      const a = time * 31 + u.id;
+      ctx.beginPath();
+      ctx.moveTo(cx - Math.cos(a) * r, cy - Math.sin(a) * r * 0.64);
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.64);
+      ctx.stroke();
+      ctx.restore();
     }
   }
   var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
@@ -8838,6 +9043,11 @@
     wrecker: "#8a7058",
     mortarCrawler: "#a07848",
     outpost: "#c08a4a",
+    airfield: "#8a9aa8",
+    flakTurret: "#7a8a98",
+    gunship: "#6a7a88",
+    dropship: "#8a8f9a",
+    bomber: "#5a6470",
     wall: "#8f887b",
     gate: "#a59d8d",
     outpostTruck: "#c08a4a",
@@ -8864,9 +9074,10 @@
     { id: "barracks", label: "Troops", title: "Barracks \xB7 infantry", needs: "barracks" },
     { id: "lightFactory", label: "Light", title: "Light Factory \xB7 vehicles", needs: "lightFactory" },
     { id: "heavyFactory", label: "Heavy", title: "Heavy Factory \xB7 armour", needs: "heavyFactory" },
+    { id: "airfield", label: "Air", title: "Airfield \xB7 aircraft", needs: "airfield" },
     { id: "research", label: "Tech", title: "Tech Center \xB7 research", needs: "techCenter" }
   ];
-  var TAB_FOR = { yard: "build", barracks: "barracks", lightFactory: "lightFactory", heavyFactory: "heavyFactory", techCenter: "research" };
+  var TAB_FOR = { yard: "build", barracks: "barracks", lightFactory: "lightFactory", heavyFactory: "heavyFactory", airfield: "airfield", techCenter: "research" };
   var Sidebar = class {
     buttons = [];
     structureKeys = /* @__PURE__ */ new Map();
@@ -8885,7 +9096,7 @@
       this.game = game;
       this.panes.set("build", structures);
       this.panes.set("research", research);
-      for (const p of ["barracks", "lightFactory", "heavyFactory"]) {
+      for (const p of ["barracks", "lightFactory", "heavyFactory", "airfield"]) {
         const pane = document.createElement("div");
         pane.className = "grid2";
         units.append(pane);
@@ -9221,6 +9432,9 @@
     scattergun: "shotgun",
     mg: "mg",
     raiderGun: "mg",
+    gunRockets: "rocket",
+    bombs: "artillery",
+    flak: "cannon",
     shardRepeater: "laser",
     cannon: "cannon",
     turretGun: "cannon",
@@ -9599,6 +9813,17 @@
         case "monolithBeam":
           this.tone({ freq: 900, freqEnd: 160, type: "sawtooth", dur: 0.45, vol: 0.2 * vol, pan });
           this.tone({ freq: 2700, freqEnd: 700, type: "sine", dur: 0.35, vol: 0.12 * vol, pan });
+          break;
+        case "gunRockets":
+          this.burst({ dur: 0.3, type: "bandpass", freq: 700, freqEnd: 2600, q: 2, vol: 0.3 * vol, pan });
+          break;
+        case "bombs":
+          this.burst({ dur: 0.7, type: "lowpass", freq: 500, freqEnd: 70, vol: 0.8 * vol, pan });
+          this.tone({ freq: 70, freqEnd: 28, type: "sine", dur: 0.6, vol: 0.7 * vol, pan });
+          break;
+        case "flak":
+          this.burst({ dur: 0.1, type: "lowpass", freq: 1600, freqEnd: 500, vol: 0.4 * vol, pan });
+          this.tone({ freq: 220, freqEnd: 110, type: "square", dur: 0.06, vol: 0.12 * vol, pan });
           break;
         case "scrapCannon":
           this.burst({ dur: 0.3, type: "lowpass", freq: 1e3, freqEnd: 200, vol: 0.6 * vol, pan });
@@ -15949,7 +16174,8 @@
       const hero = chosen.find((u) => u && isHero(u.kind));
       const rig = chosen.find((u) => u && DEPLOYS[u.kind]);
       const packable = game.buildings.find((b) => b.id === game.selectedBuilding && b.owner === game.local && PACKS[b.kind]);
-      const status = rig ? `Deploy ${BUILDING_STATS[DEPLOYS[rig.kind]].label}${deploySpot(game, rig)?.ok ? "" : " \u2014 not here"}` : packable ? `Pack up into ${UNIT_STATS[PACKS[packable.kind]].label}` : hero ? abilityStatus(hero) : "";
+      const ship = chosen.find((u) => u && u.kind === "dropship" && (u.passengers?.length ?? 0) > 0);
+      const status = ship ? `Unload ${ship.passengers.length} soldier${ship.passengers.length === 1 ? "" : "s"}` : rig ? `Deploy ${BUILDING_STATS[DEPLOYS[rig.kind]].label}${deploySpot(game, rig)?.ok ? "" : " \u2014 not here"}` : packable ? `Pack up into ${UNIT_STATS[PACKS[packable.kind]].label}` : hero ? abilityStatus(hero) : "";
       if (status !== lastAbility) {
         ability.hidden = !status;
         ability.innerHTML = status ? `<kbd>Q</kbd>${status}` : "";
