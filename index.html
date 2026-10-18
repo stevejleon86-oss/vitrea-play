@@ -271,6 +271,27 @@
       font-family: var(--stencil); font-size: 44px; letter-spacing: 0.2em; color: var(--text); text-shadow: 0 2px 10px #000;
     }
     #paused[hidden] { display: none; }
+    /* Replays */
+    #result .replay-buttons { margin-top: 12px; }
+    #result .replay-buttons .btn { font-size: 13px; padding: 6px 12px; }
+    #result .replay-buttons .btn:first-child { margin-left: 0; }
+    #replay-bar {
+      position: fixed; z-index: 6; bottom: 14px; left: calc(50% - 110px); transform: translateX(-50%);
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px; width: min(660px, calc(100vw - 280px));
+      background: linear-gradient(180deg, var(--plate-hi), var(--plate-lo)); border: 1px solid var(--edge); border-top: 4px solid var(--crystal);
+    }
+    #replay-bar[hidden] { display: none; }
+    #replay-bar .rp-tag { font-family: var(--cond); font-weight: 700; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--crystal); }
+    #replay-bar button:not(.btn) {
+      width: 30px; height: 28px; padding: 0; font-size: 15px; line-height: 1; cursor: pointer;
+      color: var(--text); background: #2b2823; border: 1px solid var(--edge);
+    }
+    #replay-bar button:not(.btn):hover { border-color: var(--amber); }
+    #replay-bar select { background: #1b1916; color: var(--text); border: 1px solid var(--edge); font: 600 13px var(--cond); padding: 4px; }
+    #rp-seek { flex: 1; min-width: 60px; accent-color: var(--crystal); }
+    #rp-time { font-family: var(--cond); font-size: 13px; font-variant-numeric: tabular-nums; color: #cfc5b3; white-space: nowrap; }
+    #replay-bar .btn { font-size: 13px; padding: 5px 12px; margin-left: 0; }
+    body.replaying .side-pane, body.replaying #side-tabs, body.replaying .tools, body.replaying #surrender, body.replaying #ability { display: none !important; }
     /* The controls card (? key) */
     #controls {
       position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6;
@@ -452,6 +473,20 @@
     #online-status .err { color: var(--bad); }
     #online .btn.rejoin { margin-top: 10px; background: var(--crystal); }
 
+    /* Replays on the menu */
+    #replays { margin-top: 24px; }
+    #replays h2 { margin-bottom: 6px; }
+    #replay-list { display: grid; gap: 6px; margin-bottom: 10px; }
+    .replay-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: #1b1916; border: 1px solid var(--edge); }
+    .replay-row > div { flex: 1; min-width: 0; }
+    .replay-row b { display: block; font-family: var(--cond); font-size: 14px; letter-spacing: 0.03em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .replay-row span { font-size: 12px; color: var(--muted); }
+    .replay-row span.won { color: var(--good); }
+    .replay-row span.lost { color: var(--bad); }
+    .replay-row .btn { font-size: 13px; padding: 5px 10px; margin-left: 0; }
+    .replay-row .btn.icon { padding: 5px 8px; min-width: 32px; }
+    #replays .file-btn { display: inline-block; margin-left: 0; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+    #replay-status { margin-top: 8px; font-size: 14px; color: var(--bad); min-height: 1.2em; }
     /* Campaign */
     #campaign { margin-top: 24px; }
     #campaign h2 { margin-bottom: 8px; }
@@ -508,6 +543,7 @@
       <div id="result-title"></div>
       <div id="result-text"></div>
       <button id="again" class="btn">Play a new map</button><button id="to-menu" class="btn ghost">Main menu</button>
+      <div class="replay-buttons"><button id="watch-replay" class="btn ghost" type="button" hidden>Watch replay</button><button id="save-replay" class="btn ghost" type="button" hidden>Save replay file</button></div>
     </div>
   </div>
   <div id="controls" hidden role="dialog" aria-label="Controls">
@@ -584,6 +620,16 @@
     </div>
   </div>
   <div id="paused" hidden>PAUSED</div>
+  <div id="replay-bar" hidden role="toolbar" aria-label="Replay controls">
+    <span class="rp-tag">Replay</span>
+    <button id="rp-restart" type="button" title="Back to the start">&#9198;</button>
+    <button id="rp-play" type="button" title="Pause (P)">&#9208;</button>
+    <select id="rp-speed" title="Speed (+ / -)" aria-label="Replay speed"></select>
+    <input id="rp-seek" type="range" min="0" max="1" step="60" value="0" aria-label="Replay position">
+    <span id="rp-time">0:00 / 0:00</span>
+    <select id="rp-view" title="Whose view to watch" aria-label="Whose view"></select>
+    <button id="rp-exit" type="button" class="btn ghost">Exit</button>
+  </div>
   <div id="netwait" hidden>
     <div id="netwait-text"></div>
     <button id="claim-btn" class="btn" type="button">Claim victory</button>
@@ -639,6 +685,13 @@
         <section id="campaign">
           <h2>Campaign</h2>
           <div id="campaign-list"></div>
+        </section>
+        <section id="replays">
+          <h2>Replays</h2>
+          <p class="online-hint">Your last games are kept here. Watch them from the whole map or one player's eyes, at up to 8&times; speed.</p>
+          <div id="replay-list"></div>
+          <label class="btn ghost file-btn">Open a replay file<input id="replay-file" type="file" accept=".json,application/json" hidden></label>
+          <div id="replay-status" role="status"></div>
         </section>
       </div>
       <form id="menu-form">

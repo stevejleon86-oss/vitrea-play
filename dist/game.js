@@ -1366,19 +1366,21 @@
     }
   }
   function updateFog(g, dt) {
-    if (!g.fog.enabled) return;
-    g.fog.timer -= dt;
-    if (g.fog.timer > 0) return;
-    g.fog.timer = FOG_INTERVAL;
+    const fog = g.fogs[g.humans[0]];
+    if (!fog?.enabled) return;
+    fog.timer -= dt;
+    if (fog.timer > 0) return;
+    fog.timer = FOG_INTERVAL;
     refreshFog(g);
   }
-  function visibleAt(g, wx, wy, owner = g.local) {
+  var fogFor = (g, owner) => owner === void 0 ? g.fog : g.fogs[owner];
+  function visibleAt(g, wx, wy, owner) {
     const tx = Math.floor(wx / TILE);
     const ty = Math.floor(wy / TILE);
-    return inBounds(g.map, tx, ty) && g.fogs[owner].visible[idx(g.map, tx, ty)] === 1;
+    return inBounds(g.map, tx, ty) && fogFor(g, owner).visible[idx(g.map, tx, ty)] === 1;
   }
-  function exploredRect(g, tx, ty, w, h, owner = g.local) {
-    const fog = g.fogs[owner];
+  function exploredRect(g, tx, ty, w, h, owner) {
+    const fog = fogFor(g, owner);
     for (let y = ty; y < ty + h; y++) {
       for (let x = tx; x < tx + w; x++) {
         if (inBounds(g.map, x, y) && fog.explored[idx(g.map, x, y)]) return true;
@@ -1386,8 +1388,8 @@
     }
     return false;
   }
-  function visibleRect(g, tx, ty, w, h, owner = g.local) {
-    const fog = g.fogs[owner];
+  function visibleRect(g, tx, ty, w, h, owner) {
+    const fog = fogFor(g, owner);
     for (let y = ty; y < ty + h; y++) {
       for (let x = tx; x < tx + w; x++) {
         if (inBounds(g.map, x, y) && fog.visible[idx(g.map, x, y)]) return true;
@@ -2950,7 +2952,8 @@
       resultReason: "",
       stormGap: null,
       nextId: 1,
-      time: 0
+      time: 0,
+      tick: 0
     };
     spawnStartingBase(g, PLAYER);
     if (options.pvp) {
@@ -3454,6 +3457,7 @@
   }
   function update(g, dt) {
     g.time += dt;
+    g.tick++;
     rebuildOccupancy(g);
     for (const u of g.units) {
       moveAlongPath(g, u, dt);
@@ -5584,6 +5588,8 @@
     }
     /** Health bars on every unit and building, not just damaged ones. */
     showAllHealth = false;
+    /** Replays show the minimap whether or not the watched side has a radar. */
+    radarAlways = false;
     /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
     fogPixels = null;
     /**
@@ -5904,7 +5910,7 @@
       }
       mini.imageSmoothingEnabled = false;
       mini.drawImage(this.miniTiles, 0, 0, size, size);
-      if (!hasRadar(g, g.local)) {
+      if (!this.radarAlways && !hasRadar(g, g.local)) {
         mini.fillStyle = "#14110e";
         mini.fillRect(0, 0, size, size);
         for (let k = 0; k < 140; k++) {
@@ -8110,6 +8116,9 @@
     /** Called with the commanding side's error text when one of the local player's commands fails. */
     onError = () => {
     };
+    /** Called for every command as it is applied (both sides), e.g. to record a replay. */
+    onApply = () => {
+    };
     /** Called once if the two games drift apart. */
     onDesync = () => {
     };
@@ -8188,8 +8197,14 @@
       while (ran < steps) {
         if (this.catchingUp && this.step === 0) {
           const [first, second] = this.replay[this.replayIndex++];
-          for (const c of first) applyCommand(this.g, 0, c);
-          for (const c of second) applyCommand(this.g, 1, c);
+          for (const c of first) {
+            this.onApply(0, c, this.g.tick);
+            applyCommand(this.g, 0, c);
+          }
+          for (const c of second) {
+            this.onApply(1, c, this.g.tick);
+            applyCommand(this.g, 1, c);
+          }
           this.history[this.turn] = [first, second];
         } else if (this.step === 0) {
           const theirs = this.incoming.get(this.turn);
@@ -8223,6 +8238,7 @@
       return ran;
     }
     apply(owner, c) {
+      this.onApply(owner, c, this.g.tick);
       const problem = applyCommand(this.g, owner, c);
       if (problem && owner === this.local) this.onError(problem);
     }
@@ -12670,9 +12686,149 @@
     };
   }
 
+  // src/replay.ts
+  var REPLAY_VERSION = 1;
+  var STEP2 = 1 / 60;
+  function createReplayGame(setup) {
+    const mission = setup.mission ? missionById(setup.mission) : void 0;
+    if (mission) return createMissionGame(mission);
+    return createGame(setup.seed, setup.difficulty, {
+      hazards: setup.hazards,
+      fog: setup.fog,
+      playerFaction: setup.factions[0],
+      enemyFaction: setup.factions[1],
+      pvp: setup.pvp
+    });
+  }
+  var ReplayRecorder = class {
+    cmds = [];
+    setup;
+    local;
+    title;
+    at;
+    id;
+    constructor(setup, local, title, at = Date.now()) {
+      this.setup = setup;
+      this.local = local;
+      this.title = title;
+      this.at = at;
+      this.id = `${at.toString(36)}-${setup.seed}`;
+    }
+    record(tick, owner, c) {
+      this.cmds.push([tick, owner, JSON.parse(JSON.stringify(c))]);
+    }
+    /** The replay so far (call again later for a longer one: same id). */
+    finish(g) {
+      return {
+        v: REPLAY_VERSION,
+        id: this.id,
+        at: this.at,
+        setup: this.setup,
+        local: this.local,
+        title: this.title,
+        cmds: this.cmds.slice(),
+        ticks: g.tick,
+        hash: stateHash(g),
+        result: g.result,
+        resultReason: g.resultReason
+      };
+    }
+  };
+  var ReplayPlayer = class {
+    g;
+    next = 0;
+    replay;
+    constructor(replay) {
+      this.replay = replay;
+      this.g = createReplayGame(replay.setup);
+    }
+    get tick() {
+      return this.g.tick;
+    }
+    get done() {
+      return this.g.tick >= this.replay.ticks;
+    }
+    /** Run up to `steps` steps, stopping at the end of the recording. Returns how many ran. */
+    advance(steps) {
+      let ran = 0;
+      const cmds = this.replay.cmds;
+      const applyDue = () => {
+        while (this.next < cmds.length && cmds[this.next][0] <= this.g.tick) {
+          const [, owner, c] = cmds[this.next++];
+          applyCommand(this.g, owner, c);
+        }
+      };
+      while (ran < steps && !this.done) {
+        applyDue();
+        update(this.g, STEP2);
+        ran++;
+      }
+      if (this.done) applyDue();
+      if (this.done && !this.g.result && this.replay.result) {
+        this.g.result = this.replay.result;
+        this.g.resultReason = this.replay.resultReason;
+      }
+      return ran;
+    }
+    /** Start again from step 0 (a new Game object: callers must pick up `g`). */
+    restart() {
+      this.g = createReplayGame(this.replay.setup);
+      this.next = 0;
+    }
+    /** True once the end state matches the recording. */
+    verify() {
+      return this.done && stateHash(this.g) === this.replay.hash;
+    }
+  };
+  function parseReplay(text) {
+    try {
+      const r = JSON.parse(text);
+      if (!r || r.v !== REPLAY_VERSION || !r.setup || !Array.isArray(r.cmds) || typeof r.ticks !== "number") return null;
+      if (!Number.isFinite(r.setup.seed) || !Array.isArray(r.setup.factions)) return null;
+      if (!r.cmds.every((e) => Array.isArray(e) && typeof e[0] === "number" && (e[1] === 0 || e[1] === 1) && e[2] && typeof e[2].t === "string")) return null;
+      return r;
+    } catch {
+      return null;
+    }
+  }
+  var REPLAY_KEY = "vitrea.replays";
+  var MAX_REPLAYS = 12;
+  function loadReplays(store) {
+    try {
+      const list = JSON.parse(store?.getItem(REPLAY_KEY) ?? "[]");
+      return Array.isArray(list) ? list.map((r) => parseReplay(JSON.stringify(r))).filter((r) => !!r) : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveReplay(store, r) {
+    if (!store) return false;
+    let list = [r, ...loadReplays(store).filter((x) => x.id !== r.id)].slice(0, MAX_REPLAYS);
+    while (list.length > 0) {
+      try {
+        store.setItem(REPLAY_KEY, JSON.stringify(list));
+        return list.includes(r);
+      } catch {
+        list = list.slice(0, -1);
+      }
+    }
+    return false;
+  }
+  function deleteReplay(store, id) {
+    if (!store) return;
+    try {
+      store.setItem(REPLAY_KEY, JSON.stringify(loadReplays(store).filter((r) => r.id !== id)));
+    } catch {
+    }
+  }
+  function clock(ticks) {
+    const s = Math.floor(ticks * STEP2);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
   // src/main.ts
   var stopTitle = null;
-  var STEP2 = 1 / 60;
+  var STEP3 = 1 / 60;
   function el(id) {
     return document.getElementById(id);
   }
@@ -12718,6 +12874,7 @@
     enemy.value = settings.enemyFaction;
     buildFactionCards(settings.faction);
     buildCampaign(settings);
+    buildReplays();
     buildOnline(() => {
       const faction = document.querySelector('input[name="faction"]:checked')?.value ?? "concord";
       return { ...settings, seed: Number(seed.value) || settings.seed, hazards: storms.checked, fog: fog.checked, faction, speed: speed.value, edgeScroll: edge.checked };
@@ -13076,19 +13233,141 @@
     el("menu-settings").addEventListener("click", () => openSettings());
     const params = launchQuery();
     const settings = parseSettings(params, loadSaved());
+    const replayId = params.get("replay");
+    if (replayId) {
+      const r = findReplay(replayId);
+      if (r) return start(settings, r.setup.mission ? missionById(r.setup.mission) : void 0, void 0, false, { replay: r, from: Math.max(0, Number(params.get("t")) || 0) });
+      showMenu(settings);
+      el("replay-status").textContent = "That replay isn't here any more.";
+      return;
+    }
     if (params.get("bench") === "1") {
       start({ ...settings, seed: BENCH.seed, difficulty: "normal", faction: "concord", enemyFaction: "shardbound", hazards: true, fog: false, speed: "normal" }, void 0, void 0, true);
     } else if (params.get("play") === "1") start(settings, missionById(params.get("mission")));
     else showMenu(settings);
   }
-  function start(settings, mission, online, bench = false) {
+  function storage() {
+    try {
+      return localStorage;
+    } catch {
+      return void 0;
+    }
+  }
+  var REPLAY_FILE_KEY = "vitrea.replayFile";
+  function findReplay(id) {
+    if (id === "file") {
+      try {
+        return parseReplay(sessionStorage.getItem(REPLAY_FILE_KEY) ?? "");
+      } catch {
+        return null;
+      }
+    }
+    return loadReplays(storage()).find((r) => r.id === id) ?? null;
+  }
+  function watchReplay(r, from = 0) {
+    const t = from > 0 ? `&t=${from}` : "";
+    if (loadReplays(storage()).some((x) => x.id === r.id)) return navigate(`replay=${encodeURIComponent(r.id)}${t}`);
+    try {
+      sessionStorage.setItem(REPLAY_FILE_KEY, JSON.stringify(r));
+      navigate(`replay=file${t}`);
+    } catch {
+    }
+  }
+  function downloadReplay(r) {
+    const blob = new Blob([JSON.stringify(r)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const d = new Date(r.at);
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+    a.download = `vitrea-replay-${stamp}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5e3);
+  }
+  function replayWon(r) {
+    return r.result ? r.result === "victory" === (r.local === 0) : null;
+  }
+  function buildReplays() {
+    const list = el("replay-list");
+    const status = el("replay-status");
+    const render2 = () => {
+      const replays = loadReplays(storage());
+      list.replaceChildren();
+      if (replays.length === 0) {
+        const p = document.createElement("p");
+        p.className = "online-hint";
+        p.textContent = "No replays yet. Every game you play is recorded here.";
+        list.append(p);
+        return;
+      }
+      for (const r of replays) {
+        const row = document.createElement("div");
+        row.className = "replay-row";
+        const text = document.createElement("div");
+        const title = document.createElement("b");
+        title.textContent = r.title;
+        const meta = document.createElement("span");
+        const won = replayWon(r);
+        const when = new Date(r.at).toLocaleString(void 0, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+        meta.textContent = `${when} \xB7 ${clock(r.ticks)} \xB7 ${won === null ? "Unfinished" : won ? "Won" : "Lost"}`;
+        meta.className = won === null ? "" : won ? "won" : "lost";
+        text.append(title, meta);
+        const watch = document.createElement("button");
+        watch.type = "button";
+        watch.className = "btn";
+        watch.textContent = "Watch";
+        watch.addEventListener("click", () => watchReplay(r));
+        const save2 = document.createElement("button");
+        save2.type = "button";
+        save2.className = "btn ghost icon";
+        save2.title = "Save as a file";
+        save2.textContent = "\u2913";
+        save2.addEventListener("click", () => downloadReplay(r));
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "btn ghost icon";
+        del.title = "Delete";
+        del.textContent = "\u2715";
+        let armed = 0;
+        del.addEventListener("click", () => {
+          if (performance.now() - armed > 3e3) {
+            armed = performance.now();
+            del.textContent = "Sure?";
+            setTimeout(() => del.textContent = "\u2715", 3e3);
+            return;
+          }
+          deleteReplay(storage(), r.id);
+          render2();
+        });
+        row.append(text, watch, save2, del);
+        list.append(row);
+      }
+    };
+    render2();
+    el("replay-file").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const r = parseReplay(await file.text());
+      if (!r) {
+        status.textContent = "That file isn't a Vitrea replay (or it's from a different version).";
+        return;
+      }
+      saveReplay(storage(), r);
+      watchReplay(r);
+    });
+  }
+  var REPLAY_SPEEDS = [0.5, 1, 2, 4, 8];
+  function start(settings, mission, online, bench = false, replayView) {
     el("menu").hidden = true;
     stopTitle?.();
     stopTitle = null;
-    const sides = online ? { player: online.factions[0], enemy: online.factions[1] } : mission ? { player: mission.faction, enemy: mission.enemyFaction } : resolveFactions(settings, mulberry32(settings.seed * 31 + 7));
-    const seed = mission?.seed ?? settings.seed;
-    const difficulty = mission?.difficulty ?? settings.difficulty;
-    const game = mission ? createMissionGame(mission) : createGame(seed, difficulty, {
+    const watching = replayView?.replay ?? null;
+    const playback = watching ? new ReplayPlayer(watching) : null;
+    const sides = watching ? { player: watching.setup.factions[0], enemy: watching.setup.factions[1] } : online ? { player: online.factions[0], enemy: online.factions[1] } : mission ? { player: mission.faction, enemy: mission.enemyFaction } : resolveFactions(settings, mulberry32(settings.seed * 31 + 7));
+    const seed = watching?.setup.seed ?? mission?.seed ?? settings.seed;
+    const difficulty = watching?.setup.difficulty ?? mission?.difficulty ?? settings.difficulty;
+    const game = playback ? playback.g : mission ? createMissionGame(mission) : createGame(seed, difficulty, {
       hazards: settings.hazards,
       fog: settings.fog,
       playerFaction: sides.player,
@@ -13099,8 +13378,35 @@
       game.local = online.local;
       game.fog = game.fogs[online.local];
     }
+    if (watching) game.local = watching.local;
+    const recorder = bench || watching || mission?.sequential ? null : new ReplayRecorder(
+      {
+        seed,
+        difficulty,
+        hazards: settings.hazards,
+        fog: settings.fog,
+        factions: [sides.player, sides.enemy],
+        pvp: !!online,
+        mission: mission?.id
+      },
+      game.local,
+      `${online ? "Online \xB7 " : ""}${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label} \xB7 ${mission ? mission.title : mapName(seed)}`
+    );
+    let savedReplay = null;
+    const keepReplay = () => {
+      if (!recorder || savedReplay?.result) return savedReplay;
+      if (!savedReplay || savedReplay.ticks !== game.tick || savedReplay.result !== game.result) {
+        savedReplay = recorder.finish(game);
+        saveReplay(storage(), savedReplay);
+      }
+      return savedReplay;
+    };
+    window.addEventListener("pagehide", () => {
+      if (recorder && game.tick > 60 * 30) keepReplay();
+    });
+    if (watching) document.body.classList.add("replaying");
     if (mission) document.title = `${mission.title.replace(/^\d+\. /, "")} \u2014 Vitrea`;
-    el("difficulty").textContent = online ? "Online" : LEVEL_LABELS[difficulty];
+    el("difficulty").textContent = watching?.setup.pvp || online ? "Online" : LEVEL_LABELS[difficulty];
     el("factions").textContent = `${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label}`;
     el("map-seed").textContent = mapName(seed).replace(/^Map /, "");
     el("map-seed").title = `Map ${seed}`;
@@ -13159,6 +13465,11 @@
       }
       const faster = e.code === "Equal" || e.code === "NumpadAdd";
       const slower = e.code === "Minus" || e.code === "NumpadSubtract";
+      if ((faster || slower) && watching) {
+        const i = REPLAY_SPEEDS.indexOf(replaySpeed) + (faster ? 1 : -1);
+        setReplaySpeed(REPLAY_SPEEDS[Math.max(0, Math.min(REPLAY_SPEEDS.length - 1, i))]);
+        return;
+      }
       if ((faster || slower) && !online) {
         const i = SPEED_ORDER.indexOf(speed) + (faster ? 1 : -1);
         speed = SPEED_ORDER[Math.max(0, Math.min(SPEED_ORDER.length - 1, i))];
@@ -13166,9 +13477,71 @@
         return;
       }
       if (e.code !== keyFor("pause") || game.result || online) return;
-      paused = !paused;
-      pauseOverlay.hidden = !paused;
+      setPaused(!paused);
     });
+    const setPaused = (on2) => {
+      paused = on2;
+      pauseOverlay.hidden = !paused;
+      rpPlay.textContent = paused ? "\u25B6" : "\u23F8";
+      rpPlay.title = paused ? "Play (P)" : "Pause (P)";
+    };
+    const rpPlay = el("rp-play");
+    const rpSpeed = el("rp-speed");
+    const rpSeek = el("rp-seek");
+    const rpTime = el("rp-time");
+    const rpView = el("rp-view");
+    let replaySpeed = 1;
+    let seekTarget = replayView?.from ? replayView.from : null;
+    let seeking = false;
+    const setReplaySpeed = (s) => {
+      replaySpeed = s;
+      rpSpeed.value = String(s);
+      speedLabel.textContent = `Replay ${s}\xD7`;
+    };
+    if (watching && playback) {
+      el("replay-bar").hidden = false;
+      for (const s of REPLAY_SPEEDS) rpSpeed.append(new Option(`${s === 0.5 ? "\xBD" : s}\xD7`, String(s)));
+      setReplaySpeed(1);
+      rpSeek.max = String(watching.ticks);
+      rpSpeed.addEventListener("change", () => {
+        setReplaySpeed(Number(rpSpeed.value));
+        rpSpeed.blur();
+      });
+      rpPlay.addEventListener("click", () => {
+        if (!game.result) setPaused(!paused);
+        rpPlay.blur();
+      });
+      el("rp-restart").addEventListener("click", () => watchReplay(watching));
+      el("rp-exit").addEventListener("click", () => navigate(settingsToQuery(settings, false).toString()));
+      rpSeek.addEventListener("input", () => {
+        seeking = true;
+        rpTime.textContent = `${clock(Number(rpSeek.value))} / ${clock(watching.ticks)}`;
+      });
+      rpSeek.addEventListener("change", () => {
+        seeking = false;
+        const to = Number(rpSeek.value);
+        rpSeek.blur();
+        if (to < game.tick - 30) watchReplay(watching, to);
+        else seekTarget = to;
+      });
+      const allVisible = createFog(game.map.w, game.map.h, false);
+      rpView.append(new Option("Whole map", "all"));
+      for (const side of game.humans) {
+        rpView.append(new Option(`${FACTIONS[game.factions[side]].label}'s view${watching.setup.pvp && side === watching.local ? " (yours)" : ""}`, String(side)));
+      }
+      const setView = (v) => {
+        if (v === "all") game.fog = allVisible;
+        else {
+          game.local = Number(v);
+          game.fog = game.fogs[game.local];
+        }
+      };
+      setView("all");
+      rpView.addEventListener("change", () => {
+        setView(rpView.value);
+        rpView.blur();
+      });
+    }
     const view = el("view");
     const minimap = el("minimap");
     const credits = el("credits");
@@ -13181,7 +13554,8 @@
     const again = el("again");
     const next = mission ? MISSIONS[MISSIONS.indexOf(mission) + 1] : void 0;
     again.addEventListener("click", () => {
-      if (!mission) navigate(settingsToQuery({ ...settings, seed: seed % 99999 + 1 }, true).toString());
+      if (watching) watchReplay(watching);
+      else if (!mission) navigate(settingsToQuery({ ...settings, seed: seed % 99999 + 1 }, true).toString());
       else if (game.result === "victory" && next) navigate(missionQuery(next.id, settings));
       else navigate(missionQuery(mission.id, settings));
     });
@@ -13236,14 +13610,18 @@
     });
     const cam = { x: 0, y: 0, w: 0, h: 0 };
     const renderer = new Renderer(view, minimap, game.map, game.factions);
+    renderer.radarAlways = !!watching;
     const input = new Input(game, cam, view, minimap);
     const lockstep = online ? new Lockstep(game, online.local, (m) => online.link?.send(m)) : null;
+    if (lockstep && recorder) lockstep.onApply = (owner, c, tick) => recorder.record(tick, owner, c);
     const complain = (text) => {
       notify(game, text);
       emit(game, { kind: "error" });
     };
     const issue = (c) => {
+      if (watching) return;
       if (lockstep && (online?.link || c.t !== "surrender")) return lockstep.issue(c);
+      recorder?.record(game.tick, game.local, c);
       const problem = applyCommand(game, game.local, c);
       if (problem) complain(problem);
     };
@@ -13423,7 +13801,7 @@
       }
       const dt = Math.min(0.1, (now - last) / 1e3);
       last = now;
-      if (!paused) acc += dt * SPEEDS[speed];
+      if (!paused) acc += dt * (watching ? replaySpeed : SPEEDS[speed]);
       input.update(dt);
       if (lockstep && lockstep.catchingUp) {
         const t0 = performance.now();
@@ -13443,8 +13821,8 @@
           owesCatchUp.send({ type: "catchup", data: lockstep.catchUpData() });
           owesCatchUp = null;
         }
-        const ran = lockstep.advance(Math.min(12, Math.floor(acc / STEP2)));
-        acc = Math.min(acc - ran * STEP2, STEP2 * 12);
+        const ran = lockstep.advance(Math.min(12, Math.floor(acc / STEP3)));
+        acc = Math.min(acc - ran * STEP3, STEP3 * 12);
         waitingFor = lockstep.waiting && !game.result ? waitingFor + dt : 0;
         const waitText = waitingFor > 0.6 && opponentGoneAt === null ? "WAITING FOR OPPONENT\u2026" : "";
         if (pauseOverlay.textContent !== (waitText || "PAUSED")) pauseOverlay.textContent = waitText || "PAUSED";
@@ -13456,12 +13834,39 @@
           if (netWaitText.textContent !== text) netWaitText.textContent = text;
           if (left <= 0) claimVictory();
         }
-      } else {
-        for (let steps = 0; acc >= STEP2 && steps < 12; steps++) {
-          update(game, STEP2);
-          acc -= STEP2;
+      } else if (playback && watching) {
+        if (seekTarget !== null) {
+          const t0 = performance.now();
+          while (game.tick < seekTarget && !playback.done && performance.now() - t0 < 35) playback.advance(Math.min(240, seekTarget - game.tick));
+          game.events.length = 0;
+          game.notices.length = 0;
+          acc = 0;
+          pauseOverlay.textContent = `SKIPPING AHEAD\u2026 ${clock(game.tick)}`;
+          pauseOverlay.hidden = false;
+          if (game.tick >= seekTarget || playback.done) {
+            seekTarget = null;
+            pauseOverlay.textContent = "PAUSED";
+            pauseOverlay.hidden = !paused;
+          }
+        } else {
+          const cap = 12 * Math.max(1, replaySpeed);
+          for (let steps = 0; acc >= STEP3 && steps < cap; steps++) {
+            playback.advance(1);
+            acc -= STEP3;
+          }
+          if (acc > STEP3 * cap) acc = 0;
         }
-        if (acc > STEP2 * 12) acc = 0;
+        if (!seeking) {
+          rpSeek.value = String(game.tick);
+          const t = `${clock(game.tick)} / ${clock(watching.ticks)}`;
+          if (rpTime.textContent !== t) rpTime.textContent = t;
+        }
+      } else {
+        for (let steps = 0; acc >= STEP3 && steps < 12; steps++) {
+          update(game, STEP3);
+          acc -= STEP3;
+        }
+        if (acc > STEP3 * 12) acc = 0;
       }
       if (input.placing && !structureOf(game, game.local)?.done) input.placing = null;
       renderer.showAllHealth = input.showAllHealth;
@@ -13521,7 +13926,18 @@
         const time = `${Math.floor(game.time / 60)}m ${Math.floor(game.time % 60)}s`;
         const won = game.result === "victory" === (game.local === 0);
         el("result-title").textContent = won ? "Victory" : "Defeat";
-        if (online) {
+        const kept = keepReplay();
+        el("watch-replay").hidden = !kept;
+        el("save-replay").hidden = !kept && !watching;
+        if (watching) {
+          const winner = FACTIONS[game.factions[game.result === "victory" ? 0 : 1]].label;
+          el("result-title").textContent = "Replay over";
+          const loser = FACTIONS[game.factions[game.result === "victory" ? 1 : 0]].label;
+          const reason = game.resultReason.replace(/^You surrendered./, `${loser} surrendered.`).replace(/^Your opponent (surrendered|left the game)./, `${loser} $1.`);
+          el("result-text").textContent = `${winner} won after ${time}.${reason ? ` ${reason}` : ""}`;
+          again.textContent = "Watch again";
+          again.hidden = false;
+        } else if (online) {
           el("result-text").textContent = game.resultReason || (won ? `You broke your opponent's base after ${time}.` : "Your base has fallen.");
           again.hidden = true;
           netWait.hidden = true;
@@ -13573,6 +13989,15 @@
       el("bench-text").textContent = text;
       el("bench").hidden = false;
     };
+    el("watch-replay").addEventListener("click", () => {
+      const r = keepReplay();
+      if (r) watchReplay(r);
+    });
+    el("save-replay").addEventListener("click", (e) => {
+      e.currentTarget.blur();
+      const r = watching ?? keepReplay();
+      if (r) downloadReplay(r);
+    });
     el("bench-copy").addEventListener("click", async () => {
       const text = el("bench-text").textContent ?? "";
       const button = el("bench-copy");
@@ -13596,8 +14021,8 @@
         const now = performance.now();
         acc += Math.min(1.5, (now - last) / 1e3) * SPEEDS[speed];
         last = now;
-        const ran = lockstep.advance(Math.min(90, Math.floor(acc / STEP2)));
-        acc = Math.min(acc - ran * STEP2, STEP2 * 90);
+        const ran = lockstep.advance(Math.min(90, Math.floor(acc / STEP3)));
+        acc = Math.min(acc - ran * STEP3, STEP3 * 90);
         game.events.length = 0;
       }, 100);
     }
@@ -13606,8 +14031,8 @@
       issue,
       sound,
       skip: (seconds) => {
-        if (online) return;
-        for (let t = 0; t < seconds; t += STEP2) update(game, STEP2);
+        if (online || watching) return;
+        for (let t = 0; t < seconds; t += STEP3) update(game, STEP3);
       }
     });
   }
