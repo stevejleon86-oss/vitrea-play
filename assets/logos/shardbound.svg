@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Shardbound">
+  <!-- Shardbound: settlers who live with the crystal. Three shards rising from a hexagon. -->
+  <path d="M32 3 L57 17.5 V46.5 L32 61 L7 46.5 V17.5 Z" fill="#12343c" stroke="#9feef7" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M32 9 L52 20.5 V43.5 L32 55 L12 43.5 V20.5 Z" fill="#1c4d58"/>
+  <path d="M32 11 L38 30 L32 50 L26 30 Z" fill="#6fe3f0"/>
+  <path d="M32 11 L38 30 L32 50 Z" fill="#3fb8d8"/>
+  <path d="M20 23 L25 34 L22 48 L17 36 Z" fill="#5fd8f0"/>
+  <path d="M20 23 L25 34 L22 48 Z" fill="#2f9fbf"/>
+  <path d="M44 23 L47 36 L42 48 L39 34 Z" fill="#5fd8f0"/>
+  <path d="M44 23 L47 36 L42 48 Z" fill="#2f9fbf"/>
+  <path d="M32 11 L29 26 L32 24 Z" fill="#e6ffff" opacity="0.85"/>
+</svg>

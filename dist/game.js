@@ -5019,6 +5019,7 @@
   };
   var serialOf = (faction, id) => `${SERIAL_PREFIX[faction]}-${String(id).padStart(4, "0")}`;
   var portraitOf = (kind, team) => `assets/portraits/${kind}_${team}.png`;
+  var logoOf = (faction) => `assets/logos/${faction}.svg`;
   var fmt = (n) => (Math.round(n * 10) / 10).toString();
   function unitStatus(g, u) {
     if (u.kind === "harvester") return `${HARVEST_STATUS[u.harvest]} \xB7 ${Math.floor(u.cargo)}/${HARVESTER.capacity} ${RESOURCE_NAME}`;
@@ -5051,6 +5052,7 @@
       kind: u.kind,
       name: s.label,
       faction: FACTIONS[faction].label,
+      factionId: faction,
       serial: serialOf(faction, u.id),
       role: UNIT_DOSSIER[u.kind].role,
       bio: UNIT_DOSSIER[u.kind].bio,
@@ -5084,6 +5086,7 @@
       kind: b.kind,
       name: s.label,
       faction: FACTIONS[faction].label,
+      factionId: faction,
       serial: serialOf(faction, b.id),
       role: BUILDING_ROLE[b.kind],
       enemy,
@@ -5135,9 +5138,11 @@
       }
       this.live?.();
     }
-    head(faction, serial, enemy) {
+    head(faction, serial, enemy, factionId) {
       const head = div("card-head");
-      head.append(span("card-faction", enemy ? `Hostile \xB7 ${faction}` : faction), span("card-serial", serial));
+      const name = span("card-faction", enemy ? `Hostile \xB7 ${faction}` : faction);
+      if (factionId) name.prepend(emblem(factionId));
+      head.append(name, span("card-serial", serial));
       return head;
     }
     picture(src, cls, fallback) {
@@ -5174,7 +5179,7 @@
       body.append(pic, main);
       const bio = div("card-bio", c.bio);
       const status = div("card-status", "");
-      this.el.append(this.head(c.faction, c.serial, c.enemy), body, bio, status);
+      this.el.append(this.head(c.faction, c.serial, c.enemy, c.factionId), body, bio, status);
       let lastRank = -1;
       this.live = () => {
         const now = g.units.find((x) => x.id === id);
@@ -5202,7 +5207,7 @@
       const body = div("card-body");
       body.append(pic, main);
       const status = div("card-status", "");
-      this.el.append(this.head(c.faction, c.serial, c.enemy), body, status);
+      this.el.append(this.head(c.faction, c.serial, c.enemy, c.factionId), body, status);
       this.live = () => {
         const now = g.buildings.find((x) => x.id === id);
         if (!now) return;
@@ -5292,6 +5297,14 @@
       dl.append(dt, dd);
     }
     return dl;
+  }
+  function emblem(faction) {
+    const img = document.createElement("img");
+    img.className = "emblem";
+    img.src = logoOf(faction);
+    img.alt = "";
+    img.draggable = false;
+    return img;
   }
 
   // src/maps.ts
@@ -14568,6 +14581,7 @@
         li.textContent = perk;
         ul.append(li);
       }
+      if (value !== "random") label.append(Object.assign(emblem(value), { className: "emblem big" }));
       label.append(input, h, p, ul);
       box2.append(label);
     };
@@ -14758,6 +14772,7 @@
       const status = document.createElement("span");
       status.className = "status";
       status.textContent = won ? "Complete" : training ? "Start here" : unlocked ? FACTIONS[m.faction].label : "Locked";
+      if (unlocked && !won && !training) status.prepend(emblem(m.faction));
       button.append(title, status);
       list.append(button);
       button.addEventListener("click", () => {
@@ -14939,6 +14954,18 @@
       watchReplay(r);
     });
   }
+  function lineupNodes(g) {
+    const side = (s) => {
+      const span2 = document.createElement("span");
+      span2.className = "side";
+      span2.append(emblem(g.factions[s]), FACTIONS[g.factions[s]].label);
+      return span2;
+    };
+    const word = (t) => document.createTextNode(` ${t} `);
+    if (g.mode === "1v1") return [side(0), word("vs"), side(1)];
+    if (g.mode === "2v2") return [side(0), word("+"), side(2), word("vs"), side(1), word("+"), side(3)];
+    return g.sides.flatMap((s, i) => i ? [word("\xB7"), side(s)] : [side(s)]);
+  }
   function matchup(g) {
     const name = (s) => FACTIONS[g.factions[s]].label;
     if (g.mode === "1v1") return `${name(0)} vs ${name(1)}`;
@@ -14951,7 +14978,7 @@
     s.textContent = ` ${text}`;
     return s;
   }
-  function playScene(lines2) {
+  function playScene(lines2, factions) {
     const box2 = el("scene");
     const pic = box2.querySelector(".scene-pic");
     const name = box2.querySelector(".scene-name");
@@ -14981,7 +15008,7 @@
         pic.src = portraitOf(l.who, l.side);
         pic.alt = l.name;
         box2.dataset.side = String(l.side);
-        name.textContent = l.name;
+        name.replaceChildren(emblem(factions[l.side]), l.name);
         shown = 0;
         text.textContent = "";
         clearInterval(timer);
@@ -15064,7 +15091,8 @@
     if (watching) document.body.classList.add("replaying");
     if (mission) document.title = `${mission.title.replace(/^\d+\. /, "")} \u2014 Vitrea`;
     el("difficulty").textContent = watching?.setup.pvp || online ? "Online" : LEVEL_LABELS[difficulty];
-    el("factions").textContent = matchup(game);
+    el("factions").replaceChildren(...lineupNodes(game));
+    el("factions").title = matchup(game);
     el("map-seed").textContent = mapName(seed).replace(/^Map /, "");
     el("map-seed").title = `Map ${seed}`;
     let paused = false;
@@ -15269,7 +15297,7 @@
     if (mission?.scene && !watching && !bench) {
       inScene = true;
       paused = true;
-      void playScene(mission.scene).then(() => {
+      void playScene(mission.scene, game.factions).then(() => {
         inScene = false;
         paused = false;
       });

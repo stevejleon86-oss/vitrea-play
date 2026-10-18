@@ -240,6 +240,14 @@
     #objectives b { display: block; color: var(--amber); font-family: var(--cond); font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
     #objectives div::before { content: "\25A2  "; }
     #objectives div.done { color: var(--good); }
+    /* Faction emblems (assets/logos) */
+    .emblem { width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 0.35em; flex: none; }
+    #menu .faction { position: relative; padding-right: 58px; }
+    #menu .faction .emblem.big { position: absolute; right: 10px; top: 10px; width: 40px; height: 40px; margin: 0; opacity: 0.95; }
+    #factions .side { white-space: nowrap; }
+    #factions .emblem { width: 14px; height: 14px; margin-right: 3px; vertical-align: -2px; }
+    .mission .status .emblem { width: 14px; height: 14px; vertical-align: -3px; }
+    #scene .scene-name .emblem { width: 18px; height: 18px; vertical-align: -4px; }
     #objectives .progress { color: var(--amber); font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; white-space: nowrap; }
     /* Story scenes: letterbox bars and a speaker card. */
     #scene-bars { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
