@@ -947,11 +947,17 @@
     outpost: { label: "Forward Outpost", w: 2, h: 2, maxHp: 700, cost: 1600, power: -10, requires: "refinery", weapon: null },
     deepDrill: { label: "Deep Drill", w: 2, h: 2, maxHp: 600, cost: 900, power: -25, requires: "refinery", weapon: null, faction: "concord" },
     seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" },
-    silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null }
+    silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null },
+    // Defences: walls are laid by dragging a line (paid per segment); gates let your side through.
+    wall: { label: "Wall", w: 1, h: 1, maxHp: 500, cost: 25, power: 0, requires: "barracks", weapon: null },
+    gate: { label: "Gate", w: 1, h: 1, maxHp: 700, cost: 150, power: 0, requires: "barracks", weapon: null }
   };
+  var BARRIERS = ["wall", "gate"];
+  var isBarrier = (kind) => BARRIERS.includes(kind);
+  var WALL_RUN = 24;
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "silo", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "wall", "gate", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
   var STORAGE = {
     holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3 },
     slowFrom: 0.8
@@ -2245,7 +2251,7 @@
           emit(g, { kind: "defeat" });
         }
       } else {
-        const standing = (s) => g.buildings.some((b) => b.owner === s);
+        const standing = (s) => g.buildings.some((b) => b.owner === s && !isBarrier(b.kind));
         if (g.sides.length > 2) noteEliminations(g, standing);
         const mine = g.teams[PLAYER];
         if (!g.sides.some((s) => g.teams[s] !== mine && standing(s))) g.result = "victory";
@@ -2479,6 +2485,11 @@
       return `${t.x},${t.y}`;
     }));
     if (isRemote(kind)) return remoteTiles(g, kind, tx, ty, owner, occupied);
+    if (isBarrier(kind)) {
+      const m = g.map;
+      const ok = inBounds(m, tx, ty) && nearBase(g, tx, ty, 1, 1, owner) && m.terrain[idx(m, tx, ty)] !== Terrain.Cliff && m.blocked[idx(m, tx, ty)] === 0 && m.spice[idx(m, tx, ty)] <= 0 && !occupied.has(`${tx},${ty}`);
+      return [{ x: tx, y: ty, ok }];
+    }
     const near = nearBase(g, tx, ty, w, h, owner);
     const tiles = [];
     for (let y = ty; y < ty + h; y++) {
@@ -2492,7 +2503,7 @@
     const cx = tx + w / 2;
     const cy = ty + h / 2;
     return g.buildings.some(
-      (b) => b.owner === owner && ((b.kind === "yard" || b.kind === "outpost") && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) <= BUILD_RADIUS || tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP)
+      (b) => b.owner === owner && !isBarrier(b.kind) && ((b.kind === "yard" || b.kind === "outpost") && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) <= BUILD_RADIUS || tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP)
     );
   }
   function canPlace(g, kind, tx, ty, owner = PLAYER) {
@@ -2541,6 +2552,31 @@
       announce(g, "training", 1);
     }
     return true;
+  }
+  function layWall(g, tiles, owner = PLAYER) {
+    if (missingFor(g, "wall", owner)) return 0;
+    const wallet = walletOf(g, owner);
+    const cost = BUILDING_STATS.wall.cost;
+    let laid = 0;
+    for (const t of tiles.slice(0, WALL_RUN)) {
+      if (wallet.credits < cost || !canPlace(g, "wall", t.x, t.y, owner)) continue;
+      wallet.credits -= cost;
+      placeBuilding(g, "wall", t.x, t.y, owner);
+      laid++;
+    }
+    if (laid > 0 && owner === g.local) emit(g, { kind: "place" });
+    return laid;
+  }
+  function wallLine(a, b) {
+    const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    const out = [{ x: a.x, y: a.y }];
+    for (let i = 1; i <= n && out.length < WALL_RUN; i++) {
+      const p = { x: Math.round(a.x + (b.x - a.x) * i / n), y: Math.round(a.y + (b.y - a.y) * i / n) };
+      const last = out[out.length - 1];
+      if (p.x !== last.x && p.y !== last.y) out.push({ x: p.x, y: last.y });
+      out.push(p);
+    }
+    return out.slice(0, WALL_RUN);
   }
   var SELL_REFUND = 0.5;
   var BUILDING_REPAIR = { rate: 25, costShare: 0.5 };
@@ -3097,7 +3133,7 @@
     let best = null;
     let bestD = Infinity;
     for (const b of g.buildings) {
-      if (!hostile(g, b.owner, me) || only !== null && b.owner !== only) continue;
+      if (!hostile(g, b.owner, me) || only !== null && b.owner !== only || isBarrier(b.kind)) continue;
       const c = { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h };
       const d = Math.hypot(c.x * TILE - x, c.y * TILE - y);
       if (d < bestD) {
@@ -4140,7 +4176,7 @@
   function placeBuilding(g, kind, tx, ty, owner = PLAYER) {
     const { w, h, maxHp } = BUILDING_STATS[kind];
     const b = { id: g.nextId++, kind, owner, tx, ty, w, h, hp: maxHp, rally: null, repairing: false, angle: Math.PI / 2, cooldown: 0, targetId: null };
-    const mark = DRIVABLE_BUILDINGS.includes(kind) ? 2 : 1;
+    const mark = kind === "gate" ? 3 : DRIVABLE_BUILDINGS.includes(kind) ? 2 : 1;
     for (let y = ty; y < ty + h; y++) {
       for (let x = tx; x < tx + w; x++) {
         if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = mark;
@@ -4238,6 +4274,7 @@
     const me = u.id + 1;
     const cost = (i) => {
       if (i === opts.avoid) return 1e3;
+      if (g.map.blocked[i] === 3 && gateBars(g, i, u.owner)) return 1e3;
       let c = opts.flow ? opts.flow[i] * FLOW_COST : 0;
       const who = g.occupant[i];
       if (who === 0 || who === me) return c;
@@ -4248,6 +4285,12 @@
       return c;
     };
     u.path = findPath(g.map, unitTile(u), goal, 2e4, cost);
+  }
+  function gateBars(g, i, owner) {
+    const x = i % g.map.w;
+    const y = (i - x) / g.map.w;
+    const gate = g.buildings.find((b) => b.kind === "gate" && b.tx === x && b.ty === y);
+    return !!gate && hostile(g, gate.owner, owner);
   }
   function passesThrough(mover, other) {
     return mover.kind === "infantry" && other.kind === "infantry";
@@ -4510,6 +4553,19 @@
   function moveAlongPath(g, u, dt) {
     if (u.path.length === 0) return;
     const next = u.path[0];
+    if (inBounds(g.map, next.x, next.y) && g.map.blocked[idx(g.map, next.x, next.y)] === 3 && gateBars(g, idx(g.map, next.x, next.y), u.owner)) {
+      const gate = g.buildings.find((b) => b.kind === "gate" && b.tx === next.x && b.ty === next.y);
+      if (gate && UNIT_STATS[u.kind].weapon && u.targetId === null) {
+        u.targetId = gate.id;
+        u.repath = 0;
+        if (u.order !== "attackMove") {
+          u.order = "attack";
+          u.explicitTarget = true;
+          u.path = [];
+        }
+      }
+      return;
+    }
     if (!isPassable(g.map, next.x, next.y) && u.goal) {
       setPath(g, u, u.goal);
       if (u.path.length === 0) return;
@@ -5126,6 +5182,8 @@
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
+    wall: "A concrete barrier. Cheap, tough, and it stops anything on foot or wheels until it's knocked down.",
+    gate: "Opens for your side and your allies; enemies have to break it down to get through.",
     silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
     outpost: "A deployed Outpost Truck: a forward refinery with room to build around it. Pack it up (Q) to move on.",
     deepDrill: "A deployed Drill Rig. Mines the field it stands on straight into the account, no harvester. Pack it up (Q) to move on.",
@@ -6219,6 +6277,12 @@
         const u = own(g, owner, [c.unit])[0];
         return u && HEROES[u.kind] ? useAbility(g, u) : null;
       }
+      case "wall": {
+        const tiles = Array.isArray(c.tiles) ? c.tiles.filter((t) => Number.isInteger(t?.x) && Number.isInteger(t?.y)) : [];
+        if (layWall(g, tiles, owner) > 0) return null;
+        if (missingFor(g, "wall", owner)) return "Walls need a Barracks.";
+        return walletOf(g, owner).credits < 25 ? "Not enough credits for a wall." : "Can't build a wall there: open ground inside your base area.";
+      }
       case "deploy": {
         let problem = null;
         for (const u of own(g, owner, c.units)) problem = deployUnit(g, u) ?? problem;
@@ -6339,6 +6403,8 @@
     placing = null;
     /** Sell / repair mode: the next left-clicks on your buildings sell or repair them. */
     mode = null;
+    /** Wall mode: where the drag started (tile). */
+    wallFrom = null;
     /** Scroll when the mouse touches the screen edge (a start-menu option). */
     edgeScroll = true;
     /** Health bars on everything: toggled with ` and shown while Alt is held. */
@@ -6403,8 +6469,15 @@
         ty: Math.floor((this.mouseY + this.cam.y) / TILE) - Math.floor((h - 1) / 2)
       };
     }
+    mouseTile() {
+      return { x: Math.floor((this.mouseX + this.cam.x) / TILE), y: Math.floor((this.mouseY + this.cam.y) / TILE) };
+    }
     /** Footprint preview for the renderer while placing. */
     get ghost() {
+      if (this.mode === "wall") {
+        const tiles = this.wallFrom ? wallLine(this.wallFrom, this.mouseTile()) : [this.mouseTile()];
+        return tiles.map((t) => ({ x: t.x, y: t.y, ok: canPlace(this.game, "wall", t.x, t.y, this.game.local) }));
+      }
       if (!this.placing) {
         const rig = selectedUnits(this.game).find((u) => DEPLOYS[u.kind]);
         return rig ? deploySpot(this.game, rig)?.tiles ?? null : null;
@@ -6430,6 +6503,15 @@
     }
     onDown(e) {
       const p = this.screenPos(e);
+      if (this.mode === "wall") {
+        if (e.button === 2) {
+          this.mode = null;
+          this.wallFrom = null;
+          return;
+        }
+        if (e.button === 0) this.wallFrom = { x: Math.floor((p.x + this.cam.x) / TILE), y: Math.floor((p.y + this.cam.y) / TILE) };
+        return;
+      }
       if (this.mode) {
         if (e.button === 2) {
           this.mode = null;
@@ -6506,6 +6588,11 @@
       this.updateCursor();
     }
     onUp(e) {
+      if (this.mode === "wall" && this.wallFrom && e.button === 0) {
+        this.issue({ t: "wall", tiles: wallLine(this.wallFrom, this.mouseTile()) });
+        this.wallFrom = null;
+        return;
+      }
       if (e.button !== 0 || !this.dragStart) return;
       const g = this.game;
       const additive = e.shiftKey;
@@ -6632,6 +6719,7 @@
       return this.alwaysHealth || this.keys.has("alt");
     }
     toggleMode(mode) {
+      this.wallFrom = null;
       this.mode = this.mode === mode ? null : mode;
       this.placing = null;
     }
@@ -7341,6 +7429,7 @@
       for (const p of g.salvage) if (onScreen((p.x + 0.5) * TILE, (p.y + 0.5) * TILE) && exploredRect(g, p.x, p.y, 1, 1)) drawSalvage(ctx, p);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
       for (const b of shown) drawBuilding(ctx, b, this.sprites);
+      drawBarriers(ctx, g, shown);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
       if (sel) drawBuildingSelection(ctx, sel);
       if (sel?.rally && sel.owner === g.local) drawRally(ctx, sel);
@@ -7644,6 +7733,7 @@
     [255, 200, 90]
   ];
   function drawBuilding(ctx, b, sprites) {
+    if (b.kind === "wall" || b.kind === "gate") return;
     const team = TEAM[b.owner];
     const x = b.tx * TILE;
     const y = b.ty * TILE;
@@ -7969,6 +8059,67 @@
       ctx.restore();
     }
     ctx.restore();
+  }
+  function drawBarriers(ctx, g, shown) {
+    const at = /* @__PURE__ */ new Map();
+    for (const b of shown) if (b.kind === "wall" || b.kind === "gate") at.set(b.ty * g.map.w + b.tx, b);
+    if (at.size === 0) return;
+    const linked = (b, dx, dy) => {
+      const o = at.get((b.ty + dy) * g.map.w + b.tx + dx);
+      return !!o && o.owner === b.owner;
+    };
+    for (const b of at.values()) {
+      const x = b.tx * TILE;
+      const y = b.ty * TILE;
+      const hurt = 1 - b.hp / BUILDING_STATS[b.kind].maxHp;
+      if (b.kind === "wall") {
+        const c = TILE / 2;
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillRect(x + 6, y + 10, TILE - 6, TILE - 6);
+        const top = "#b9b1a2";
+        const face = "#8b8476";
+        const block = (bx, by, bw, bh) => {
+          ctx.fillStyle = face;
+          ctx.fillRect(bx, by + 6, bw, bh);
+          ctx.fillStyle = top;
+          ctx.fillRect(bx, by, bw, bh);
+        };
+        block(x + 7, y + 4, TILE - 14, TILE - 14);
+        if (linked(b, 1, 0)) block(x + c, y + 6, c, TILE - 18);
+        if (linked(b, -1, 0)) block(x, y + 6, c, TILE - 18);
+        if (linked(b, 0, 1)) block(x + 9, y + c, TILE - 18, c);
+        if (linked(b, 0, -1)) block(x + 9, y, TILE - 18, c);
+        ctx.fillStyle = TEAM[b.owner].main;
+        ctx.fillRect(x + 10, y + 7, TILE - 20, 3);
+        if (hurt > 0.4) {
+          ctx.strokeStyle = "rgba(40,30,20,0.7)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + 10, y + 8);
+          ctx.lineTo(x + 16, y + 15);
+          ctx.lineTo(x + 13, y + 20);
+          ctx.stroke();
+        }
+      } else {
+        const open = g.units.some((u) => !hostile(g, u.owner, b.owner) && Math.hypot(u.x - (x + TILE / 2), u.y - (y + TILE / 2)) < TILE * 1.6);
+        const horizontal = linked(b, 1, 0) || linked(b, -1, 0) || !(linked(b, 0, 1) || linked(b, 0, -1));
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillRect(x + 4, y + 8, TILE - 4, TILE - 6);
+        ctx.fillStyle = "#6e6a62";
+        if (horizontal) {
+          ctx.fillRect(x + 1, y + 6, 7, TILE - 10);
+          ctx.fillRect(x + TILE - 8, y + 6, 7, TILE - 10);
+        } else {
+          ctx.fillRect(x + 6, y + 1, TILE - 12, 7);
+          ctx.fillRect(x + 6, y + TILE - 8, TILE - 12, 7);
+        }
+        ctx.fillStyle = TEAM[b.owner].main;
+        if (horizontal) ctx.fillRect(x + 8, y + TILE / 2 - 3, open ? 5 : TILE - 16, 6);
+        else ctx.fillRect(x + TILE / 2 - 3, y + 8, 6, open ? 5 : TILE - 16);
+        ctx.fillStyle = "#f2b33d";
+        ctx.fillRect(horizontal ? x + 2 : x + TILE / 2 - 2, horizontal ? y + 7 : y + 2, 4, 3);
+      }
+    }
   }
   var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
   function makeDustTile() {
@@ -8687,6 +8838,8 @@
     wrecker: "#8a7058",
     mortarCrawler: "#a07848",
     outpost: "#c08a4a",
+    wall: "#8f887b",
+    gate: "#a59d8d",
     outpostTruck: "#c08a4a",
     drillRig: "#8a8f9a",
     silo: "#b8b0a0",
@@ -8761,6 +8914,7 @@
         const art = BUILDING_STATS[kind].weapon ? portraitOf(kind, me) : `assets/buildings/${game.factions[me]}/${kind}_${me}.png`;
         const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i], art, BUILDING_STATS[kind].weapon ? "unit" : "building");
         b.press = () => {
+          if (kind === "wall") return hooks.layWalls?.();
           const job = structureOf(game, me);
           if (job?.kind === kind && job.done) hooks.beginPlacing(kind);
           else if (!job) issue({ t: "build", kind });
@@ -15579,6 +15733,7 @@
         game.selectedBuilding = null;
       },
       cancelPlacing: () => input.placing = null,
+      layWalls: () => input.toggleMode("wall"),
       issue
     });
     const resize = () => {
@@ -15753,7 +15908,7 @@
       renderer.showAllHealth = input.showAllHealth;
       sellButton.classList.toggle("on", input.mode === "sell");
       repairButton.classList.toggle("on", input.mode === "repair");
-      const modeText = input.mode === "sell" ? "SELL \u2014 click a building for half its price \xB7 right-click or Esc to stop" : input.mode === "repair" ? "REPAIR \u2014 click damaged buildings \xB7 right-click or Esc to stop" : "";
+      const modeText = input.mode === "sell" ? "SELL \u2014 click a building for half its price \xB7 right-click or Esc to stop" : input.mode === "repair" ? "REPAIR \u2014 click damaged buildings \xB7 right-click or Esc to stop" : input.mode === "wall" ? "WALLS \u2014 drag a line to lay wall (25 a segment) \xB7 right-click or Esc to stop" : "";
       if (modeLabel.textContent !== modeText) {
         modeLabel.textContent = modeText;
         modeLabel.hidden = !modeText;
