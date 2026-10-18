@@ -655,7 +655,8 @@
   var BUILD_RATE = 60;
   var MIN_BUILD_TIME = 2;
   var LOW_POWER_FACTOR = 0.5;
-  var PLACE_GAP = 2;
+  var PLACE_GAP = 3;
+  var BUILD_RADIUS = 10;
   var MAX_QUEUE = 5;
   var WEAPONS = {
     rifle: { range: 3, damage: 10, cooldown: 0.9, speed: 0, style: "tracer", vs: { infantry: 1, light: 0.5, heavy: 0.2, building: 0.25 } },
@@ -752,6 +753,8 @@
     tank: 5,
     artillery: 5,
     harvester: 4,
+    outpostTruck: 5,
+    drillRig: 5,
     building: 5,
     turret: 6.5,
     rocketTurret: 8
@@ -766,6 +769,9 @@
     tank: { label: "Tank", speed: 2, maxHp: 450, radius: 11, cost: 700, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "cannon", faction: "concord" },
     artillery: { label: "Artillery", speed: 1.5, maxHp: 160, radius: 11, cost: 800, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "artilleryShell", faction: "concord" },
     harvester: { label: "Harvester", speed: 1.6, maxHp: 400, radius: 13, cost: 1100, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
+    // Deployable vehicles: drive to a field, deploy (Q) into a building (economy.ts).
+    outpostTruck: { label: "Outpost Truck", speed: 1.5, maxHp: 500, radius: 13, cost: 1600, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
+    drillRig: { label: "Drill Rig", speed: 1.6, maxHp: 450, radius: 12, cost: 900, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "concord" },
     glasswalker: { label: "Glasswalker", speed: 1.3, maxHp: 55, radius: 5, cost: 70, producer: "barracks", needs: null, armor: "infantry", weapon: "shardRifle", faction: "shardbound" },
     skimmer: { label: "Skimmer", speed: 4.2, maxHp: 100, radius: 9, cost: 280, producer: "lightFactory", needs: null, armor: "light", weapon: "shardRepeater", faction: "shardbound" },
     prismTank: { label: "Prism Tank", speed: 2.3, maxHp: 380, radius: 11, cost: 750, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "prismBeam", faction: "shardbound" },
@@ -941,7 +947,7 @@
   };
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "silo", "holdingYard", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "outpost", "deepDrill", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "holdingYard", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
   var STORAGE = {
     holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3, holdingYard: 6e3 },
     slowFrom: 0.8
@@ -977,12 +983,16 @@
     "bastion",
     "monolith",
     "titan",
-    "harvester"
+    "harvester",
+    "drillRig",
+    "outpostTruck"
   ];
   var STRIP = { frames: 32, size: 96, scale: 0.5 };
   var UNIT_SPRITES = {
     tank: STRIP,
     harvester: STRIP,
+    outpostTruck: STRIP,
+    drillRig: STRIP,
     quad: STRIP,
     infantry: STRIP,
     rocketInfantry: STRIP,
@@ -2448,8 +2458,10 @@
     return tiles;
   }
   function nearBase(g, tx, ty, w, h, owner) {
+    const cx = tx + w / 2;
+    const cy = ty + h / 2;
     return g.buildings.some(
-      (b) => b.owner === owner && tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP
+      (b) => b.owner === owner && ((b.kind === "yard" || b.kind === "outpost") && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) <= BUILD_RADIUS || tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP)
     );
   }
   function canPlace(g, kind, tx, ty, owner = PLAYER) {
@@ -2592,6 +2604,7 @@
       raid: [],
       nextRaid: level.firstWave + level.raidGap,
       mending: {},
+      deployers: [],
       flank: null
     };
   }
@@ -2650,8 +2663,6 @@
       [!hasBuilding(g, "techCenter", me) && g.time > 540, "techCenter"],
       // The faction economies, then expansion to a field of its own.
       [canBuild(g.factions[me], "seedSpire") && count(g, "seedSpire", me) < 2 && g.time > 200, "seedSpire"],
-      [canBuild(g.factions[me], "deepDrill") && count(g, "deepDrill", me) < 2 && g.time > 240, "deepDrill"],
-      [count(g, "outpost", me) < 1 && g.time > 360 && ai.credits > 2200, "outpost"],
       // Somewhere for pulled-back vehicles to get patched up.
       [AI_LEVELS[ai.difficulty].retreat > 0 && !hasBuilding(g, "repairPad", me) && g.time > 400, "repairPad"],
       [headroom < 50, "power"]
@@ -2756,6 +2767,9 @@
       return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
     }
     const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
+    const placed = (b) => count(g, b, me);
+    if (canTrain(g.factions[me], "drillRig") && placed("deepDrill") + mine("drillRig") < 2 && g.time > 240) return "drillRig";
+    if (placed("outpost") + mine("outpostTruck") < 1 && g.time > 360 && ai.credits > 2200) return "outpostTruck";
     if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), count(g, "refinery", me) + count(g, "outpost", me) + coreMiner)) return "harvester";
     if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank") && ai.cores >= coreCost(F("bastion"))) return "bastion";
     const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
@@ -2795,6 +2809,7 @@
         const t = exitTile(g, factory);
         const u = spawnUnit(g, line.current.kind, t.x, t.y, me);
         if (u.kind === "harvester") autoHarvest(g, u, t);
+        else if (DEPLOYS[u.kind]) ai.deployers.push({ id: u.id, spot: null });
         else {
           ai.army.push(u.id);
           commandMove(g, [u], rallyPoint(g, me));
@@ -2818,14 +2833,15 @@
     ai.raiders = alive(g, ai.raiders).map((u) => u.id);
     const reserve = ai.structure ? Math.min(600, BUILDING_STATS[ai.structure.kind].cost - ai.structure.spent) : 0;
     const lines2 = Object.values(ai.lines);
-    const inProduction = lines2.filter((l) => l.current && l.current.kind !== "harvester").length;
+    const inProduction = lines2.filter((l) => l.current && l.current.kind !== "harvester" && !DEPLOYS[l.current.kind]).length;
     let wanted = ai.waveSize - ai.army.length - inProduction;
     const infantry = () => alive(g, ai.army).filter((u) => u.kind === "infantry" || u.kind === "rocketInfantry").length + (ai.lines.barracks.current ? 1 : 0);
     for (const producer of ["heavyFactory", "lightFactory", "barracks"]) {
       const line = ai.lines[producer];
       if (line.current || !hasBuilding(g, producer, me)) continue;
       const kind = chooseUnit(g, producer, me);
-      if (kind !== "harvester") {
+      const fighter = kind !== "harvester" && !DEPLOYS[kind];
+      if (fighter) {
         if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
         const footShare = kind === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
         if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
@@ -2834,7 +2850,7 @@
       if (ai.cores < coreCost(kind)) continue;
       ai.cores -= coreCost(kind);
       line.current = { kind, spent: 0 };
-      if (kind !== "harvester") wanted--;
+      if (fighter) wanted--;
     }
     const army = alive(g, ai.army);
     const due = g.time >= ai.nextWave;
@@ -2865,6 +2881,7 @@
     }
     defendBase(g, me);
     mineCores(g, me);
+    driveDeployers(g, me);
     if (level.retreat > 0) pullBackWounded(g, me);
     if (level.raidGap > 0) runRaids(g, me);
     runFlank(g, me);
@@ -2873,6 +2890,21 @@
       const target = nearestEnemyBuilding2(g, me, u.x, u.y);
       if (target) commandAttackMove(g, [u], target.at);
     }
+  }
+  function driveDeployers(g, me) {
+    const ai = aiOf(g, me);
+    ai.deployers = ai.deployers.filter((d) => g.units.some((u) => u.id === d.id));
+    for (const d of ai.deployers) {
+      const u = g.units.find((x) => x.id === d.id);
+      const kind = DEPLOYS[u.kind];
+      d.spot ??= findFieldSpot(g, kind, me);
+      if (!d.spot) continue;
+      const here = { x: Math.floor(u.x / TILE), y: Math.floor(u.y / TILE) };
+      if (Math.hypot(here.x - d.spot.x, here.y - d.spot.y) <= 1.5 && u.path.length === 0) {
+        if (deployUnit(g, u)) d.spot = null;
+      } else if (u.path.length === 0) commandMove(g, [u], d.spot);
+    }
+    ai.deployers = ai.deployers.filter((d) => g.units.some((u) => u.id === d.id));
   }
   var CORES_WANTED = 50;
   var CORES_PLENTY = 90;
@@ -4787,6 +4819,7 @@
   }
 
   // src/economy.ts
+  var UNIT_STATS_HP = (kind) => UNIT_STATS[kind].maxHp;
   var ECONOMY = {
     /** Outposts and drills: crystal (or core) tiles needed this close (tiles) to the spot. */
     outpostReach: 6,
@@ -4807,6 +4840,57 @@
     salvageLife: 240,
     salvageRate: 90
   };
+  var DEPLOYS = { outpostTruck: "outpost", drillRig: "deepDrill" };
+  var PACKS = { outpost: "outpostTruck", deepDrill: "drillRig" };
+  function deploySpot(g, u) {
+    const kind = DEPLOYS[u.kind];
+    if (!kind) return null;
+    const { w, h } = BUILDING_STATS[kind];
+    const t = unitTile(u);
+    const occupied = new Set(g.units.filter((o) => o !== u).map((o) => `${Math.floor(o.x / 32)},${Math.floor(o.y / 32)}`));
+    let first = null;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const x = t.x - dx;
+        const y = t.y - dy;
+        const tiles = remoteTiles(g, kind, x, y, u.owner, occupied);
+        const spot = { x, y, tiles, ok: tiles.every((k) => k.ok) };
+        if (spot.ok) return spot;
+        first ??= spot;
+      }
+    }
+    return first;
+  }
+  function deployUnit(g, u) {
+    const kind = DEPLOYS[u.kind];
+    if (!kind) return null;
+    const spot = deploySpot(g, u);
+    if (!spot?.ok) {
+      return kind === "outpost" ? "Can't deploy here: an outpost needs clear ground beside crystal you've explored, away from enemy bases." : "Can't deploy here: a drill needs to stand on a crystal field you've explored, away from enemy bases.";
+    }
+    g.units = g.units.filter((o) => o !== u);
+    g.selection.delete(u.id);
+    const b = placeBuilding(g, kind, spot.x, spot.y, u.owner);
+    b.hp = BUILDING_STATS[kind].maxHp * (u.hp / UNIT_STATS_HP(u.kind));
+    clearUnder(g, b);
+    if (kind === "outpost" && !u.giftUsed) spawnFreeHarvester(g, b);
+    b.giftUsed = true;
+    if (u.owner === g.local) g.selectedBuilding = b.id;
+    return null;
+  }
+  function packUp(g, b) {
+    const kind = PACKS[b.kind];
+    if (!kind) return "That can't be packed up.";
+    for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = 0;
+    g.buildings = g.buildings.filter((o) => o !== b);
+    if (g.selectedBuilding === b.id) g.selectedBuilding = null;
+    const t = nearestPassable(g.map, { x: b.tx + Math.floor(b.w / 2), y: b.ty + Math.floor(b.h / 2) }) ?? { x: b.tx, y: b.ty };
+    const u = spawnUnit(g, kind, t.x, t.y, b.owner);
+    u.hp = UNIT_STATS_HP(kind) * (b.hp / BUILDING_STATS[b.kind].maxHp);
+    u.giftUsed = true;
+    if (b.owner === g.local) g.selection = /* @__PURE__ */ new Set([u.id]);
+    return null;
+  }
   var REMOTE = ["outpost", "deepDrill"];
   var isRemote = (kind) => REMOTE.includes(kind);
   var isDock = (kind) => kind === "refinery" || kind === "outpost";
@@ -4970,6 +5054,8 @@
     raider: { role: "Fast raider", bio: "Stripped to the frame for speed. Hits the harvesters, gone before the turrets turn." },
     tank: { role: "Main battle tank", bio: "Pre-storm company stock, kept running on spare parts and stubbornness." },
     artillery: { role: "Long-range artillery", bio: "Needs radar to see what it's hitting. Doesn't need to see it twice." },
+    outpostTruck: { role: "Mobile outpost", bio: "A forward refinery folded onto six wheels. Drive it to a field you've scouted and deploy it (Q): it brings a harvester and a place to build." },
+    drillRig: { role: "Mobile drill", bio: "Concord's answer to harvesting: park it on a field, deploy (Q), and the crystal flows straight into the account. Pack it up when the field runs thin." },
     harvester: { role: `${RESOURCE_NAME[0].toUpperCase()}${RESOURCE_NAME.slice(1)} harvester`, bio: "The whole war runs on what this slow, ugly machine scoops out of the sand." },
     glasswalker: { role: "Crystal infantry", bio: "Born after the first storm. They hear the crystal hum and fire with it." },
     skimmer: { role: "Hover raider", bio: "Rides a cushion of resonance a hand's width above the dunes. Leaves no tracks." },
@@ -5006,8 +5092,8 @@
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
     holdingYard: "Stores 6,000 credits: three silos' worth in one compound. Room to bank a big harvest.",
     silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
-    outpost: "A forward refinery for a distant field. Comes with a harvester, and you can build around it.",
-    deepDrill: "Concord only. Mines the field it stands on, straight into the account, with no harvester.",
+    outpost: "A deployed Outpost Truck: a forward refinery with room to build around it. Pack it up (Q) to move on.",
+    deepDrill: "A deployed Drill Rig. Mines the field it stands on straight into the account, no harvester. Pack it up (Q) to move on.",
     seedSpire: "Shardbound only. Grows new crystal on the open ground around it."
   };
   var WEAPON_LABELS = {
@@ -6098,6 +6184,15 @@
         const u = own(g, owner, [c.unit])[0];
         return u && HEROES[u.kind] ? useAbility(g, u) : null;
       }
+      case "deploy": {
+        let problem = null;
+        for (const u of own(g, owner, c.units)) problem = deployUnit(g, u) ?? problem;
+        return problem;
+      }
+      case "pack": {
+        const b = building(c.building);
+        return b ? packUp(g, b) : null;
+      }
       case "surrender":
         g.result = owner === 0 ? "defeat" : "victory";
         g.resultReason = owner === g.local ? "You surrendered." : "Your opponent surrendered.";
@@ -6275,9 +6370,13 @@
     }
     /** Footprint preview for the renderer while placing. */
     get ghost() {
-      if (!this.placing || !this.inside) return null;
+      if (!this.placing) {
+        const rig = selectedUnits(this.game).find((u) => DEPLOYS[u.kind]);
+        return rig ? deploySpot(this.game, rig)?.tiles ?? null : null;
+      }
+      if (!this.inside) return null;
       const { tx, ty } = this.placementOrigin(this.placing);
-      return placementTiles(this.game, this.placing, tx, ty);
+      return placementTiles(this.game, this.placing, tx, ty, this.game.local);
     }
     screenPos(e) {
       const r = this.view.getBoundingClientRect();
@@ -6527,6 +6626,16 @@
     /** Q (or the ability button): the selected hero uses its ability. */
     heroAbility() {
       const g = this.game;
+      const rigs = selectedUnits(g).filter((u) => DEPLOYS[u.kind]);
+      if (rigs.length > 0) {
+        this.issue({ t: "deploy", units: rigs.map((u) => u.id) });
+        return;
+      }
+      const b = g.buildings.find((x) => x.id === g.selectedBuilding && x.owner === g.local && PACKS[x.kind]);
+      if (b) {
+        this.issue({ t: "pack", building: b.id });
+        return;
+      }
       const hero = selectedUnits(g).find((u) => isHero(u.kind));
       if (!hero) return;
       if (hero.abilityCd > 0) {
@@ -8543,6 +8652,8 @@
     wrecker: "#8a7058",
     mortarCrawler: "#a07848",
     outpost: "#c08a4a",
+    outpostTruck: "#c08a4a",
+    drillRig: "#8a8f9a",
     silo: "#b8b0a0",
     holdingYard: "#9a8f78",
     deepDrill: "#8a8f9a",
@@ -8845,6 +8956,7 @@
       if (WEATHER_MODES.includes(saved.weather)) base.weather = saved.weather;
       if (TIME_MODES.includes(saved.time)) base.time = saved.time;
     }
+    const link = query.get("play") === "1";
     const speed = query.get("speed");
     const faction = query.get("faction");
     const enemy = query.get("enemy");
@@ -8857,9 +8969,11 @@
       enemyFaction: isChoice(enemy) ? enemy : base.enemyFaction,
       speed: SPEED_ORDER.includes(speed) ? speed : base.speed,
       edgeScroll: flag(query.get("edge")) ?? base.edgeScroll,
-      mode: MODE_IDS.find((m) => m === query.get("mode")) ?? base.mode,
-      weather: WEATHER_MODES.find((m) => m === query.get("weather")) ?? base.weather,
-      time: TIME_MODES.find((m) => m === query.get("time")) ?? base.time
+      // A game link says everything it means: no mode, weather or time there means the defaults,
+      // not whatever was last picked on the menu.
+      mode: MODE_IDS.find((m) => m === query.get("mode")) ?? (link ? DEFAULT_SETTINGS.mode : base.mode),
+      weather: WEATHER_MODES.find((m) => m === query.get("weather")) ?? (link ? DEFAULT_SETTINGS.weather : base.weather),
+      time: TIME_MODES.find((m) => m === query.get("time")) ?? (link ? DEFAULT_SETTINGS.time : base.time)
     };
   }
   function resolveFactions(s, rand3) {
@@ -15642,12 +15756,15 @@
       const p = powerInfo(game, game.local);
       power2.textContent = `${p.produced} / ${p.used}`;
       power2.classList.toggle("low", p.low);
-      const hero = [...game.selection].map((id) => game.units.find((u) => u.id === id)).find((u) => u && isHero(u.kind));
-      const status = hero ? abilityStatus(hero) : "";
+      const chosen = [...game.selection].map((id) => game.units.find((u) => u.id === id)).filter((u) => u && u.owner === game.local);
+      const hero = chosen.find((u) => u && isHero(u.kind));
+      const rig = chosen.find((u) => u && DEPLOYS[u.kind]);
+      const packable = game.buildings.find((b) => b.id === game.selectedBuilding && b.owner === game.local && PACKS[b.kind]);
+      const status = rig ? `Deploy ${BUILDING_STATS[DEPLOYS[rig.kind]].label}${deploySpot(game, rig)?.ok ? "" : " \u2014 not here"}` : packable ? `Pack up into ${UNIT_STATS[PACKS[packable.kind]].label}` : hero ? abilityStatus(hero) : "";
       if (status !== lastAbility) {
-        ability.hidden = !hero;
-        ability.innerHTML = hero ? `<kbd>Q</kbd>${status}` : "";
-        ability.classList.toggle("cooling", !!hero && hero.abilityCd > 0);
+        ability.hidden = !status;
+        ability.innerHTML = status ? `<kbd>Q</kbd>${status}` : "";
+        ability.classList.toggle("cooling", !!hero && !rig && !packable && hero.abilityCd > 0 || !!rig && !deploySpot(game, rig)?.ok);
         lastAbility = status;
       }
       infoCard.update(game);
