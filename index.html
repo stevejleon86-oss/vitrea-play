@@ -237,6 +237,28 @@
     #objectives b { display: block; color: var(--amber); font-family: var(--cond); font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
     #objectives div::before { content: "\25A2  "; }
     #objectives div.done { color: var(--good); }
+    #objectives .progress { color: var(--amber); font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; white-space: nowrap; }
+    /* Story scenes: letterbox bars and a speaker card. */
+    #scene-bars { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+    #scene-bars::before, #scene-bars::after { content: ""; position: fixed; left: 0; right: 0; height: 9vh; background: #000; }
+    #scene-bars::before { top: 0; }
+    #scene-bars::after { bottom: 0; }
+    #scene-bars[hidden] { display: none; }
+    #scene {
+      position: fixed; z-index: 8; left: 50%; bottom: calc(9vh + 18px); transform: translateX(-50%);
+      width: min(760px, calc(100vw - 32px)); display: flex; gap: 16px; align-items: stretch; cursor: pointer;
+      background: linear-gradient(180deg, var(--plate-hi), var(--plate-lo)); border: 1px solid var(--edge); border-top: 4px solid #4a7bc0;
+      padding: 12px; user-select: none;
+    }
+    #scene[hidden] { display: none; }
+    #scene[data-side="1"] { border-top-color: #c0392b; }
+    #scene[data-side="2"] { border-top-color: #2e9a6e; }
+    #scene .scene-pic { flex: none; width: 120px; height: 120px; object-fit: cover; background: #14110e; border: 1px solid var(--edge); }
+    #scene .scene-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    #scene .scene-name { font-family: var(--cond); font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); }
+    #scene .scene-line { flex: 1; margin: 6px 0; font-size: 17px; line-height: 1.5; color: var(--text); min-height: 3em; }
+    #scene .scene-hint { font-family: var(--cond); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    @media (max-width: 560px) { #scene .scene-pic { width: 72px; height: 72px; } #scene .scene-line { font-size: 15px; } }
     #objectives div.done::before { content: "\2714  "; }
     #objectives div.bonus:not(.done) { color: var(--muted); font-style: italic; }
     #objectives div.current { color: var(--text); font-weight: 600; }
@@ -621,6 +643,15 @@
     </div>
   </div>
   <div id="paused" hidden>PAUSED</div>
+  <div id="scene-bars" hidden aria-hidden="true"></div>
+  <div id="scene" hidden role="dialog" aria-label="Story">
+    <img class="scene-pic" alt="">
+    <div class="scene-text">
+      <b class="scene-name"></b>
+      <p class="scene-line" aria-live="polite"></p>
+      <span class="scene-hint">Click or Enter to continue &middot; Esc to skip</span>
+    </div>
+  </div>
   <div id="replay-bar" hidden role="toolbar" aria-label="Replay controls">
     <span class="rp-tag">Replay</span>
     <button id="rp-restart" type="button" title="Back to the start">&#9198;</button>

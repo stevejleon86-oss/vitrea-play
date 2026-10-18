@@ -2937,6 +2937,7 @@
   }
 
   // src/missions.ts
+  var CAPTURE_TIME = 8;
   var has = (g, owner, kind) => g.buildings.some((b) => b.owner === owner && b.kind === kind);
   var playerHarvesters = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind === "harvester").length;
   var mins = (n) => n * 60;
@@ -2965,6 +2966,48 @@
   function spawnGroup(g, owner, kinds, near) {
     formationTiles(g.map, near, kinds.length).forEach((t, i) => spawnUnit(g, kinds[i], t.x, t.y, owner));
   }
+  function addZone(g, x, y, r, label, capturable = true) {
+    const z = { x, y, r, label, owner: null, claimant: null, hold: 0, capturable };
+    g.mission.zones.push(z);
+    return z;
+  }
+  function sidesIn(g, z) {
+    const out = /* @__PURE__ */ new Set();
+    for (const u of g.units) {
+      if (u.kind === "harvester") continue;
+      if (Math.hypot(u.x / TILE - (z.x + 0.5), u.y / TILE - (z.y + 0.5)) <= z.r) out.add(u.owner);
+    }
+    return [...out];
+  }
+  function updateZones(g, zones, dt) {
+    for (const z of zones) {
+      if (!z.capturable) continue;
+      const here = sidesIn(g, z);
+      const teams = new Set(here.map((s) => g.teams[s]));
+      if (teams.size !== 1) continue;
+      const side = here.includes(PLAYER) ? PLAYER : here[0];
+      if (z.owner !== null && g.teams[z.owner] === g.teams[side]) {
+        z.claimant = null;
+        z.hold = 0;
+        continue;
+      }
+      if (z.claimant === null || g.teams[z.claimant] !== g.teams[side]) {
+        z.claimant = side;
+        z.hold = 0;
+      }
+      z.hold += dt;
+      if (z.hold >= CAPTURE_TIME) {
+        z.owner = side;
+        z.claimant = null;
+        z.hold = 0;
+        if (side === g.local) notify(g, `${z.label} captured!`);
+        else if (z.owner !== null && hostile(g, side, g.local)) notify(g, `The enemy has taken ${z.label}!`);
+      }
+    }
+  }
+  var clockText = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  var convoys = /* @__PURE__ */ new WeakMap();
+  var relays = /* @__PURE__ */ new WeakMap();
   var drill = /* @__PURE__ */ new WeakMap();
   var combatUnits = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind !== "harvester");
   var TUTORIAL = {
@@ -3051,6 +3094,11 @@
         "Commander, welcome to Vitrea. The colony company left this plateau in a hurry \u2014 the yard, a power plant and a refinery are still standing.",
         "Get the colony working again: raise a Barracks, put a Radar Outpost up so we can see the land, and get the crystal flowing. Reclaimer scouts are watching from the far side of the map, but they won't move on us yet."
       ],
+      scene: [
+        { who: "vance", side: 0, name: "Captain Vance", text: "So this is what the company left us. A yard, a power plant, and a lot of glass." },
+        { who: "infantry", side: 0, name: "Lt. Hale", text: "Refinery's still warm, Captain. Somebody was running it until a week ago." },
+        { who: "vance", side: 0, name: "Captain Vance", text: "Then we run it now. Get the crystal moving, Lieutenant. Vitrea doesn't wait for anyone." }
+      ],
       seed: 11,
       faction: "concord",
       enemyFaction: "reclaimers",
@@ -3071,6 +3119,11 @@
       briefing: [
         "The storms are coming early this year, and they're coming often. The Shardbound know it \u2014 they'll use the weather as cover to raid us.",
         "Hold out for eight minutes. Keep your harvesters out of the storms; they'll run for the refinery when one gets close, but they need somewhere safe to run to."
+      ],
+      scene: [
+        { who: "infantry", side: 0, name: "Lt. Hale", text: "Storm front on the scope, Captain. Three of them. Four. They're early." },
+        { who: "seer", side: 1, name: "The Seer", text: "The glass is singing, colonists. It always sings before it cuts." },
+        { who: "vance", side: 0, name: "Captain Vance", text: "Ignore her. Bring the harvesters in when the sky turns. We hold eight minutes, then it's our season." }
       ],
       seed: 23,
       faction: "concord",
@@ -3102,6 +3155,11 @@
       briefing: [
         "This time you're with the Shardbound. The Reclaimers have built a radar outpost that watches every storm route on the plain \u2014 and while it stands, they see us coming.",
         "There's no base this time: just a strike force of Prism Tanks, Skimmers and Glasswalkers. Take out the radar. Crystal will heal your units while they stand on it \u2014 use the fields."
+      ],
+      scene: [
+        { who: "seer", side: 0, name: "The Seer", text: "The scavengers have built an eye on the plain. It watches the storm roads. It watches us." },
+        { who: "glasswalker", side: 0, name: "Ione", text: "No base out here, Seer. Just us and the fields." },
+        { who: "seer", side: 0, name: "The Seer", text: "The fields are enough. Stand in the crystal, and it will close your wounds. Now: put out the eye." }
       ],
       seed: 37,
       faction: "shardbound",
@@ -3135,6 +3193,11 @@
         "Now you lead the Reclaimers. Concord thinks the colony's wreckage belongs to them. We think anything left lying on the plain belongs to whoever can carry it.",
         "Build up, and break their base. Remember: every Concord vehicle you destroy pays you salvage."
       ],
+      scene: [
+        { who: "rook", side: 0, name: "Boss Rook", text: "Concord says the wrecks out there are company property. The company's gone. That makes them mine." },
+        { who: "mechanic", side: 0, name: "Dee", text: "Every Concord tank we pop is a week of parts, Boss." },
+        { who: "rook", side: 0, name: "Boss Rook", text: "Then let's go shopping." }
+      ],
       seed: 52,
       faction: "reclaimers",
       enemyFaction: "concord",
@@ -3146,11 +3209,328 @@
       objectives: [{ text: "Destroy every Concord building", done: (g) => !g.buildings.some((b) => b.owner === ENEMY) }]
     },
     {
+      id: "dusk-convoy",
+      title: "5. Dusk Convoy",
+      briefing: [
+        "Concord has found a fresh claim on the far side of the plain, and the haulers to work it are ready. Rook's Reclaimers are waiting along the road; they want the haulers more than the claim.",
+        "Get them there. The convoy drives itself, but it halts whenever enemies are close: clear the road ahead and it will roll on. Two of the three haulers must reach the claim."
+      ],
+      scene: [
+        { who: "vance", side: 0, name: "Captain Vance", text: "Three haulers, one road, and the sun going down. What could go wrong." },
+        { who: "rook", side: 1, name: "Boss Rook", text: "Lovely trucks, Captain. Shame about the road. It's full of my boys." },
+        { who: "infantry", side: 0, name: "Lt. Hale", text: "The drivers won't roll into gunfire, sir. We clear each stretch, they follow." }
+      ],
+      seed: 61,
+      faction: "concord",
+      enemyFaction: "reclaimers",
+      difficulty: "normal",
+      hazards: false,
+      fog: true,
+      time: "dusk",
+      enemyBuilds: false,
+      enemyAttacks: false,
+      setup(g) {
+        stripPlayerBase(g);
+        const s = g.map.start;
+        spawnGroup(g, PLAYER, ["tank", "tank", "quad", "quad", "quad", "infantry", "infantry", "infantry", "infantry", "rocketInfantry", "rocketInfantry", "medic"], { x: s.x + 6, y: s.y + 5 });
+        const haulers = formationTiles(g.map, { x: s.x + 2, y: s.y + 3 }, 3).map((t) => spawnUnit(g, "harvester", t.x, t.y, PLAYER));
+        const spot = openSpot(g, { x: Math.round(g.map.w * 0.3), y: Math.round(g.map.h * 0.85) }, 3);
+        const claim = addZone(g, spot.x + 1, spot.y + 1, 3, "The new claim", false);
+        convoys.set(g, { ids: haulers.map((u) => u.id), arrived: [], halted: false, via: [] });
+        const mid = { x: Math.round(g.map.w * 0.42), y: Math.round(g.map.h * 0.45) };
+        const road = (k) => {
+          const a = { x: s.x + 3, y: s.y + 4 };
+          const p = (t, u, v) => ({ x: u.x + (v.x - u.x) * t, y: u.y + (v.y - u.y) * t });
+          const q = k < 0.5 ? p(k * 2, a, mid) : p((k - 0.5) * 2, mid, claim);
+          return { x: Math.round(q.x), y: Math.round(q.y) };
+        };
+        const ambushes = [
+          [0.22, ["scrapper", "scrapper", "scrapper", "junker"]],
+          [0.45, ["junker", "junker", "scrapper", "scrapper", "deadeye"]],
+          [0.68, ["wrecker", "scrapper", "scrapper", "scrapper", "mortarCrawler"]],
+          [0.88, ["wrecker", "junker", "scrapper", "scrapper", "scrapper", "mortarCrawler"]]
+        ];
+        for (const [k, kinds] of ambushes) {
+          formationTiles(g.map, road(k), kinds.length).forEach((t, i) => {
+            const u = spawnUnit(g, kinds[i], t.x, t.y, ENEMY);
+            u.post = t;
+          });
+        }
+      },
+      tick(g) {
+        const c = convoys.get(g);
+        const claim = g.mission?.zones[0];
+        if (!c || !claim || g.tick % 30 !== 0) return;
+        const trucks = c.ids.map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
+        for (const u of trucks) {
+          if (!c.arrived.includes(u.id) && Math.hypot(u.x / TILE - (claim.x + 0.5), u.y / TILE - (claim.y + 0.5)) <= claim.r) {
+            c.arrived.push(u.id);
+            notify(g, "A hauler has reached the claim!");
+          }
+        }
+        const rolling = trucks.filter((u) => !c.arrived.includes(u.id));
+        const danger = rolling.some((u) => g.units.some((e) => hostile(g, e.owner, PLAYER) && Math.hypot(e.x - u.x, e.y - u.y) < 9 * TILE));
+        if (danger) {
+          for (const u of rolling) {
+            if (g.time - u.hitAt < 1.5) {
+              const home = g.map.start;
+              const dx = home.x - u.x / TILE;
+              const dy = home.y - u.y / TILE;
+              const d = Math.hypot(dx, dy) || 1;
+              commandMove(g, [u], { x: Math.round(u.x / TILE + dx / d * 5), y: Math.round(u.y / TILE + dy / d * 5) });
+            } else u.path = [];
+          }
+          if (!c.halted) notify(g, "Convoy halted: enemies on the road!");
+          c.halted = true;
+          return;
+        }
+        if (c.halted) notify(g, "Road's clear. The convoy is rolling again.");
+        c.halted = false;
+        for (const u of rolling) {
+          if (u.path.length > 0) continue;
+          const mid = { x: Math.round(g.map.w * 0.42), y: Math.round(g.map.h * 0.45) };
+          const pastMid = c.via.includes(u.id) || Math.hypot(u.x / TILE - mid.x, u.y / TILE - mid.y) < 4;
+          if (pastMid && !c.via.includes(u.id)) {
+            c.via.push(u.id);
+            if (c.via.length === 1) {
+              const raiders = g.ai.army.map((id) => g.units.find((x) => x.id === id)).filter((x) => !!x);
+              if (raiders.length > 0) {
+                commandAttackMove(g, raiders, { x: Math.floor(u.x / TILE), y: Math.floor(u.y / TILE) });
+                g.ai.raiders.push(...raiders.map((x) => x.id));
+                g.ai.army = [];
+                notify(g, "Reclaimer raiders are coming for the convoy!");
+              }
+            }
+          }
+          commandMove(g, [u], pastMid ? { x: claim.x, y: claim.y } : mid);
+        }
+      },
+      objectives: [
+        {
+          text: "Get two haulers to the new claim",
+          progress: (g) => `${convoys.get(g)?.arrived.length ?? 0} of 2`,
+          done: (g) => (convoys.get(g)?.arrived.length ?? 0) >= 2
+        },
+        { text: "Bonus: all three make it", bonus: true, done: (g) => (convoys.get(g)?.arrived.length ?? 0) >= 3 }
+      ],
+      fail: (g) => {
+        const c = convoys.get(g);
+        if (!c) return null;
+        const left = c.ids.filter((id) => c.arrived.includes(id) || g.units.some((u) => u.id === id)).length;
+        if (left < 2) return "Too many haulers were lost on the road.";
+        return g.time > 1 && !g.units.some((u) => u.owner === PLAYER && UNIT_STATS[u.kind].weapon) && c.arrived.length < 2 ? "The escort has been destroyed." : null;
+      }
+    },
+    {
+      id: "lights-out",
+      title: "6. Lights Out",
+      briefing: [
+        "Shardbound again. Concord has dug in around its new claim, ringed with turrets that never sleep. But turrets need power, and power plants burn.",
+        "Strike at night. Destroy all three of their power plants: with the power out, their turrets fire at half speed. Your Lancers out-range the gun turrets and pick off soldiers, but only the Prism Tanks can bring buildings down. There is no base; keep your strike team alive."
+      ],
+      scene: [
+        { who: "seer", side: 0, name: "The Seer", text: "They light their camp like a festival. Every lamp is a cable, and every cable runs to a furnace." },
+        { who: "lancer", side: 0, name: "Lancer Oru", text: "Three furnaces. We see their lamps a mile off, and they see nothing in the dark." },
+        { who: "vance", side: 1, name: "Captain Vance", text: "Double the watch tonight. The glass people don't sleep, and neither do we." }
+      ],
+      seed: 88,
+      faction: "shardbound",
+      enemyFaction: "concord",
+      difficulty: "normal",
+      hazards: false,
+      fog: true,
+      time: "night",
+      enemyBuilds: false,
+      enemyAttacks: false,
+      setup(g) {
+        stripPlayerBase(g);
+        const s = g.map.start;
+        spawnGroup(g, PLAYER, ["seer", "prismTank", "prismTank", "prismTank", "prismTank", "lancer", "lancer", "skimmer", "skimmer", "glasswalker", "glasswalker", "glasswalker", "glasswalker", "mender", "mender"], { x: s.x + 5, y: s.y + 5 });
+        const e = g.map.enemyStart;
+        for (const near of [{ x: e.x - 6, y: e.y - 1 }, { x: e.x - 1, y: e.y - 6 }]) {
+          const p = openSpot(g, near, 2);
+          placeBuilding(g, "power", p.x, p.y, ENEMY);
+        }
+        const r = openSpot(g, { x: e.x + 3, y: e.y + 9 }, 1);
+        placeBuilding(g, "rocketTurret", r.x, r.y, ENEMY);
+      },
+      objectives: [
+        {
+          text: "Destroy all three power plants",
+          progress: (g) => `${3 - Math.min(3, g.buildings.filter((b) => b.owner === ENEMY && b.kind === "power").length)} of 3`,
+          done: (g) => g.time > 1 && !has(g, ENEMY, "power")
+        },
+        { text: "Bonus: destroy their Construction Yard", bonus: true, done: (g) => g.time > 1 && !has(g, ENEMY, "yard") }
+      ],
+      fail: (g) => g.time > 1 && !g.units.some((u) => u.owner === PLAYER && UNIT_STATS[u.kind].weapon) ? "Your strike team has been destroyed." : null
+    },
+    {
+      id: "relay-hill",
+      title: "7. Relay Hill",
+      briefing: [
+        "You're Boss Rook's again. The company left three relay towers on the plain, and whoever holds them hears every radio on Vitrea. The Shardbound want them silent.",
+        "The Shardbound hold all three, each with a turret and a squad. Take them (stand on a relay with no enemies near and it's yours) and hold all three at once for a full minute. Dust storms roll through: you'll hear the enemy before you see them."
+      ],
+      scene: [
+        { who: "rook", side: 0, name: "Boss Rook", text: "Three towers, and every secret on this rock goes through them. I want to hear Vance sneeze." },
+        { who: "mechanic", side: 0, name: "Dee", text: "Wind's picking up, Boss. Dust like that, you can't see your own hand." },
+        { who: "rook", side: 0, name: "Boss Rook", text: "Good. Neither can the glass-heads. Grab the towers and sit on them." }
+      ],
+      seed: 104,
+      faction: "reclaimers",
+      enemyFaction: "shardbound",
+      difficulty: "easy",
+      hazards: true,
+      fog: true,
+      weather: "dust",
+      enemyBuilds: true,
+      enemyAttacks: true,
+      setup(g) {
+        const w = g.map.w;
+        const h = g.map.h;
+        const names = ["Relay North", "Relay Central", "Relay South"];
+        [{ x: w * 0.68, y: h * 0.3 }, { x: w / 2 - 1, y: h / 2 - 1 }, { x: w * 0.32, y: h * 0.7 }].forEach((p, i) => {
+          const spot = openSpot(g, { x: Math.round(p.x), y: Math.round(p.y) }, 3);
+          const z = addZone(g, spot.x + 1, spot.y + 1, 3, names[i]);
+          z.owner = ENEMY;
+          const t = openSpot(g, { x: z.x + 3, y: z.y - 1 }, 1);
+          placeBuilding(g, "turret", t.x, t.y, ENEMY);
+          const guards = i === 1 ? ["prismTank", "glasswalker", "glasswalker", "glasswalker", "lancer"] : ["skimmer", "glasswalker", "glasswalker", "glasswalker"];
+          formationTiles(g.map, { x: z.x, y: z.y }, guards.length).forEach((tile, k) => {
+            const u = spawnUnit(g, guards[k], tile.x, tile.y, ENEMY);
+            u.post = tile;
+          });
+        });
+        relays.set(g, { held: 0 });
+      },
+      tick(g, dt) {
+        const zones = g.mission?.zones ?? [];
+        const r = relays.get(g);
+        if (!r) return;
+        r.held = zones.length > 0 && zones.every((z) => z.owner === PLAYER) ? r.held + dt : 0;
+        if (g.tick % 2400 !== 0 || g.time < 60) return;
+        const target = zones.find((z) => z.owner === PLAYER) ?? zones.find((z) => z.owner === null);
+        const army = g.ai.army.map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u).slice(0, 4);
+        if (target && army.length > 0) {
+          commandAttackMove(g, army, { x: target.x, y: target.y });
+          g.ai.army = g.ai.army.filter((id) => !army.some((u) => u.id === id));
+          g.ai.raiders.push(...army.map((u) => u.id));
+        }
+      },
+      objectives: [
+        {
+          text: "Hold all three relays at once for a minute",
+          progress: (g) => `${clockText(relays.get(g)?.held ?? 0)} / 1:00 \xB7 ${(g.mission?.zones ?? []).filter((z) => z.owner === PLAYER).length} of 3 held`,
+          done: (g) => (relays.get(g)?.held ?? 0) >= 60
+        },
+        { text: "Bonus: win within 15 minutes", bonus: true, done: (g) => (relays.get(g)?.held ?? 0) >= 60 && g.time <= mins(15) }
+      ]
+    },
+    {
+      id: "long-night",
+      title: "8. The Long Night",
+      briefing: [
+        "Back with Concord. The Seer and Boss Rook have made a deal, and tonight they come for us together, from two sides at once.",
+        "There's no winning this in the dark. Hold the Construction Yard until dawn: ten minutes. Build defences, keep the harvest going, and don't let the yard fall."
+      ],
+      scene: [
+        { who: "infantry", side: 0, name: "Lt. Hale", text: "Two signals, Captain. Shardbound from the east, Reclaimer engines from the south. They're coordinating." },
+        { who: "rook", side: 2, name: "Boss Rook", text: "Nothing personal, Vance. The Seer pays better than you do." },
+        { who: "vance", side: 0, name: "Captain Vance", text: "Lights on, turrets up, nobody sleeps. We see the sunrise from this yard, or not at all." }
+      ],
+      seed: 8,
+      faction: "concord",
+      enemyFaction: "shardbound",
+      factions: ["concord", "shardbound", "reclaimers"],
+      mode: "ffa3",
+      // Shardbound and Reclaimers on one team, tonight.
+      teams: [0, 1, 1, 3],
+      difficulty: "normal",
+      hazards: false,
+      fog: true,
+      time: "night",
+      enemyBuilds: true,
+      enemyAttacks: true,
+      setup(g) {
+        g.credits = 4e3;
+        const s = g.startOf[PLAYER];
+        const b = openSpot(g, { x: s.x + 6, y: s.y + 4 }, 2);
+        placeBuilding(g, "barracks", b.x, b.y, PLAYER);
+        for (const near of [{ x: s.x + 9, y: s.y + 8 }, { x: s.x + 3, y: s.y + 10 }]) {
+          const t = openSpot(g, near, 1);
+          placeBuilding(g, "turret", t.x, t.y, PLAYER);
+        }
+        if (g.ais[1]) g.ais[1].nextWave = 150;
+        if (g.ais[2]) g.ais[2].nextWave = 200;
+      },
+      tick(g) {
+        if (g.time >= mins(10) && g.weather.time === "night") {
+          g.weather.time = "day";
+          notify(g, "Dawn is breaking. They're pulling back!");
+        }
+      },
+      objectives: [
+        {
+          text: "Hold the Construction Yard until dawn",
+          progress: (g) => `${clockText(Math.max(0, mins(10) - g.time))} to dawn`,
+          done: (g) => g.time >= mins(10)
+        },
+        {
+          text: "Bonus: destroy 40 enemy units",
+          bonus: true,
+          progress: (g) => `${Math.min(40, g.stats.enemyUnitsDestroyed)} / 40`,
+          done: (g) => g.stats.enemyUnitsDestroyed >= 40
+        }
+      ],
+      fail: (g) => g.time > 1 && !has(g, PLAYER, "yard") ? "The Construction Yard has fallen." : null
+    },
+    {
+      id: "unlikely-allies",
+      title: "9. Unlikely Allies",
+      briefing: [
+        "The Seer broke her deal with Rook the moment the night was over, and took his best fields. Rook has called us. On an open channel. Asking for help.",
+        "Fight alongside the Reclaimers (green) against both Shardbound bases. Destroy every Shardbound building. Rook's people will fight their own war; help them, and they'll help you."
+      ],
+      scene: [
+        { who: "rook", side: 2, name: "Boss Rook", text: "Vance. I'll say this once. The glass witch stabbed me in the back and I want her gone. You in?" },
+        { who: "vance", side: 0, name: "Captain Vance", text: "You shot at my convoy and raided my claim, Rook." },
+        { who: "rook", side: 2, name: "Boss Rook", text: "And I'll do it again next week. But this week, we're friends. Green flags are mine. Try not to shoot them." }
+      ],
+      seed: 33,
+      faction: "concord",
+      enemyFaction: "shardbound",
+      factions: ["concord", "shardbound", "reclaimers", "shardbound"],
+      mode: "2v2",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      enemyBuilds: true,
+      enemyAttacks: true,
+      setup(g) {
+        const a = g.startOf[2];
+        const flip = a.y > g.map.h / 2 ? -1 : 1;
+        spawnGroup(g, 2, ["rook"], { x: a.x + 3, y: a.y + 5 * flip + 2 });
+      },
+      objectives: [
+        {
+          text: "Destroy both Shardbound bases",
+          progress: (g) => `${[1, 3].filter((s) => g.buildings.some((b) => b.owner === s)).length} left`,
+          done: (g) => g.time > 1 && !g.buildings.some((b) => hostile(g, b.owner, PLAYER))
+        },
+        { text: "Bonus: Boss Rook's yard still stands at the end", bonus: true, done: (g) => g.time > 1 && !g.buildings.some((b) => hostile(g, b.owner, PLAYER)) && has(g, 2, "yard") }
+      ]
+    },
+    {
       id: "glass-crown",
-      title: "5. The Glass Crown",
+      title: "10. The Glass Crown",
       briefing: [
         "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them.",
         "End this. Destroy their base before the crystal swallows the plain."
+      ],
+      scene: [
+        { who: "vance", side: 0, name: "Captain Vance", text: "Rook's people are hauling our wounded home. Didn't think I'd ever say that." },
+        { who: "seer", side: 1, name: "The Seer", text: "You fought well, little captain. But the crown is grown, and the storms answer to it." },
+        { who: "vance", side: 0, name: "Captain Vance", text: "Then we take the crown. All units: this ends today." }
       ],
       seed: 77,
       faction: "concord",
@@ -3174,17 +3554,28 @@
       hazards: def.hazards,
       fog: def.fog,
       playerFaction: def.faction,
-      enemyFaction: def.enemyFaction
+      enemyFaction: def.enemyFaction,
+      factions: def.factions,
+      mode: def.mode,
+      weather: def.weather,
+      time: def.time
     });
-    g.ai.builds = def.enemyBuilds;
-    if (!def.enemyAttacks) g.ai.nextWave = Infinity;
+    if (def.teams) def.teams.forEach((t, side) => g.teams[side] = t);
+    for (const side of g.sides) {
+      const ai = g.ais[side];
+      if (!ai || !hostile(g, side, PLAYER)) continue;
+      ai.builds = def.enemyBuilds;
+      if (!def.enemyAttacks) ai.nextWave = Infinity;
+    }
+    g.mission = { def, done: def.objectives.map(() => false), zones: [] };
     def.setup?.(g);
-    g.mission = { def, done: def.objectives.map(() => false) };
     return g;
   }
   function updateMission(g) {
     const m = g.mission;
     if (!m || g.result) return;
+    updateZones(g, m.zones, 1 / 60);
+    m.def.tick?.(g, 1 / 60);
     const current2 = m.def.sequential ? m.done.indexOf(false) : -1;
     m.def.objectives.forEach((o, i) => {
       if (m.def.sequential && i !== current2) return;
@@ -3217,7 +3608,7 @@
     }
   }
   function isUnlocked(completed, index) {
-    return index === 0 || completed.includes(MISSIONS[index - 1].id);
+    return index === 0 || completed.includes(MISSIONS[index - 1].id) || completed.includes(MISSIONS[index].id);
   }
   function loadProgress() {
     try {
@@ -6339,6 +6730,7 @@
       }
       ctx.imageSmoothingEnabled = false;
       for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
+      for (const z of g.mission?.zones ?? []) drawZone(ctx, z, g.time);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
       for (const b of shown) drawBuilding(ctx, b, this.sprites);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
@@ -6494,6 +6886,13 @@
         if (u.owner !== g.local && !visibleAt(g, u.x, u.y)) continue;
         mini.fillStyle = g.selection.has(u.id) ? "#ffffff" : TEAM[u.owner].mini;
         mini.fillRect(u.x * scale - 1.5, u.y * scale - 1.5, 3, 3);
+      }
+      for (const z of g.mission?.zones ?? []) {
+        mini.strokeStyle = z.owner === null ? "#f2b33d" : TEAM[z.owner].mini;
+        mini.lineWidth = 2;
+        mini.beginPath();
+        mini.arc((z.x + 0.5) * TILE * scale, (z.y + 0.5) * TILE * scale, Math.max(4, z.r * TILE * scale), 0, Math.PI * 2);
+        mini.stroke();
       }
       for (const st of g.storms) {
         mini.strokeStyle = Math.floor(g.time * 3) % 2 ? "rgba(180,240,255,0.9)" : "rgba(120,200,230,0.6)";
@@ -6846,6 +7245,67 @@
     c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
     c.fill();
   });
+  function drawZone(ctx, z, time) {
+    const cx = (z.x + 0.5) * TILE;
+    const cy = (z.y + 0.5) * TILE;
+    const r = z.r * TILE;
+    const colour = z.owner === null ? "rgba(242,179,61," : z.owner === 0 ? "rgba(120,180,255," : z.owner === 1 ? "rgba(255,120,100," : z.owner === 2 ? "rgba(110,230,170," : "rgba(200,150,240,";
+    ctx.save();
+    ctx.fillStyle = `${colour}0.08)`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `${colour}${0.65 + 0.2 * Math.sin(time * 2.5)})`;
+    ctx.lineWidth = 2.5;
+    if (!z.capturable) ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -time * 12;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (z.claimant !== null && z.hold > 0) {
+      const c = z.claimant === 0 ? "rgba(120,180,255,0.95)" : z.claimant === 1 ? "rgba(255,120,100,0.95)" : z.claimant === 2 ? "rgba(110,230,170,0.95)" : "rgba(200,150,240,0.95)";
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * z.hold / CAPTURE_TIME);
+      ctx.stroke();
+    }
+    if (z.capturable) {
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(cx + 8, cy + 3, 14, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#5d5a54";
+      ctx.fillRect(cx - 7, cy - 2, 14, 6);
+      ctx.strokeStyle = "#9a958a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 5, cy);
+      ctx.lineTo(cx, cy - 30);
+      ctx.lineTo(cx + 5, cy);
+      ctx.moveTo(cx - 3, cy - 10);
+      ctx.lineTo(cx + 3, cy - 10);
+      ctx.moveTo(cx - 2, cy - 20);
+      ctx.lineTo(cx + 2, cy - 20);
+      ctx.stroke();
+      ctx.fillStyle = "#c9c2b4";
+      ctx.beginPath();
+      ctx.ellipse(cx + 4, cy - 24, 6, 3.5, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      if (Math.sin(time * 4) > 0) {
+        ctx.fillStyle = `${colour}1)`;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 31, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.font = "700 12px 'Barlow Condensed', system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillText(z.label.toUpperCase(), cx + 1, cy - r - 7);
+    ctx.fillStyle = `${colour}1)`;
+    ctx.fillText(z.label.toUpperCase(), cx, cy - r - 8);
+    ctx.restore();
+  }
   var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
   function makeDustTile() {
     const size = 256;
@@ -8663,6 +9123,11 @@
       ["briefing_storm_season", "The storms are coming early this year, and they're coming often. The Shardbound know it. They'll use the weather as cover to raid us. Hold out for eight minutes. Keep your harvesters out of the storms; they'll run for the refinery when one gets close, but they need somewhere safe to run to."],
       ["briefing_glass_teeth", "This time you're with the Shardbound. The Reclaimers have built a radar outpost that watches every storm route on the plain, and while it stands, they see us coming. There's no base this time: just a strike force of Prism Tanks, Skimmers and Glasswalkers. Take out the radar. Crystal will heal your units while they stand on it. Use the fields."],
       ["briefing_salvage_rights", "Now you lead the Reclaimers. Concord thinks the colony's wreckage belongs to them. We think anything left lying on the plain belongs to whoever can carry it. Build up, and break their base. Remember: every Concord vehicle you destroy pays you salvage."],
+      ["briefing_dusk_convoy", "Concord has found a fresh claim on the far side of the plain, and the haulers to work it are ready. Rook's Reclaimers are waiting along the road; they want the haulers more than the claim. Get them there. The convoy drives itself, but it halts whenever enemies are close: clear the road ahead and it will roll on. Two of the three haulers must reach the claim."],
+      ["briefing_lights_out", "Shardbound again. Concord has dug in around its new claim, ringed with turrets that never sleep. But turrets need power, and power plants burn. Strike at night. Destroy all three of their power plants: with the power out, their turrets fire at half speed. Your Lancers out-range the gun turrets and pick off soldiers, but only the Prism Tanks can bring buildings down. There is no base. Keep your strike team alive."],
+      ["briefing_relay_hill", "You're Boss Rook's again. The company left three relay towers on the plain, and whoever holds them hears every radio on Vitrea. The Shardbound hold all three, each with a turret and a squad. Take them, and hold all three at the same time for a full minute. Dust storms roll through: you'll hear the enemy before you see them."],
+      ["briefing_long_night", "Back with Concord. The Seer and Boss Rook have made a deal, and tonight they come for us together, from two sides at once. There's no winning this in the dark. Hold the Construction Yard until dawn: ten minutes. Build defences, keep the harvest going, and don't let the yard fall."],
+      ["briefing_unlikely_allies", "The Seer broke her deal with Rook the moment the night was over, and took his best fields. Rook has called us. On an open channel. Asking for help. Fight alongside the Reclaimers against both Shardbound bases. Destroy every Shardbound building. Rook's people will fight their own war; help them, and they'll help you."],
       ["briefing_glass_crown", "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them. End this. Destroy their base before the crystal swallows the plain."]
     ])
   ];
@@ -13991,6 +14456,66 @@
     if (g.mode === "2v2") return `${name(0)} + ${name(2)} vs ${name(1)} + ${name(3)}`;
     return `${g.sides.length}-way: ${g.sides.map(name).join(", ")}`;
   }
+  function progressTag(text) {
+    const s = document.createElement("span");
+    s.className = "progress";
+    s.textContent = ` ${text}`;
+    return s;
+  }
+  function playScene(lines2) {
+    const box2 = el("scene");
+    const pic = box2.querySelector(".scene-pic");
+    const name = box2.querySelector(".scene-name");
+    const text = box2.querySelector(".scene-line");
+    const bars = el("scene-bars");
+    return new Promise((done) => {
+      let i = -1;
+      let shown = 0;
+      let timer = 0;
+      const finish = () => {
+        clearInterval(timer);
+        box2.hidden = true;
+        bars.hidden = true;
+        window.removeEventListener("keydown", onKey, true);
+        box2.removeEventListener("click", next);
+        done();
+      };
+      const next = () => {
+        const line = lines2[i];
+        if (line && shown < line.text.length) {
+          shown = line.text.length;
+          text.textContent = line.text;
+          return;
+        }
+        if (++i >= lines2.length) return finish();
+        const l = lines2[i];
+        pic.src = portraitOf(l.who, l.side);
+        pic.alt = l.name;
+        box2.dataset.side = String(l.side);
+        name.textContent = l.name;
+        shown = 0;
+        text.textContent = "";
+        clearInterval(timer);
+        timer = window.setInterval(() => {
+          shown = Math.min(l.text.length, shown + 2);
+          text.textContent = l.text.slice(0, shown);
+          if (shown >= l.text.length) clearInterval(timer);
+        }, 30);
+      };
+      const onKey = (e) => {
+        if (e.key === "Escape") finish();
+        else if (e.key === "Enter" || e.key === " ") next();
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      window.addEventListener("keydown", onKey, true);
+      box2.addEventListener("click", next);
+      box2.hidden = false;
+      bars.hidden = false;
+      next();
+    });
+  }
   var REPLAY_SPEEDS = [0.5, 1, 2, 4, 8];
   function start(settings, mission, online, bench = false, replayView) {
     el("menu").hidden = true;
@@ -14119,7 +14644,7 @@
         showSpeed();
         return;
       }
-      if (e.code !== keyFor("pause") || game.result || online) return;
+      if (e.code !== keyFor("pause") || game.result || online || inScene) return;
       setPaused(!paused);
     });
     const setPaused = (on2) => {
@@ -14207,7 +14732,7 @@
     const showObjectives = () => {
       const m = game.mission;
       if (!m) return;
-      const key = m.done.join();
+      const key = m.done.join() + m.def.objectives.map((o) => o.progress?.(game) ?? "").join("|");
       if (key === lastObjectives) return;
       lastObjectives = key;
       const head = document.createElement("b");
@@ -14221,6 +14746,7 @@
           const d = document.createElement("div");
           d.textContent = o.text;
           d.className = m.done[i] ? "done" : "current";
+          if (o.progress && !m.done[i]) d.append(progressTag(o.progress(game)));
           rows.push(d);
           if (i === current2 && o.hint) {
             const p = document.createElement("p");
@@ -14243,11 +14769,21 @@
           const d = document.createElement("div");
           d.textContent = o.text;
           d.className = [m.done[i] ? "done" : "", o.bonus ? "bonus" : ""].join(" ").trim();
+          if (o.progress && !m.done[i]) d.append(progressTag(o.progress(game)));
           return d;
         })
       );
       objectives.hidden = false;
     };
+    let inScene = false;
+    if (mission?.scene && !watching && !bench) {
+      inScene = true;
+      paused = true;
+      void playScene(mission.scene).then(() => {
+        inScene = false;
+        paused = false;
+      });
+    }
     el("to-menu").addEventListener("click", () => {
       navigate(settingsToQuery(settings, false).toString());
     });
@@ -14675,6 +15211,8 @@
       game,
       issue,
       sound,
+      /** Point the camera at a tile. */
+      look: (tx, ty) => input.centreOn((tx + 0.5) * TILE, (ty + 0.5) * TILE),
       skip: (seconds) => {
         if (online || watching) return;
         for (let t = 0; t < seconds; t += STEP3) update(game, STEP3);
