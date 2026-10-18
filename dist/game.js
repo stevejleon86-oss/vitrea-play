@@ -1398,6 +1398,76 @@
     emit(g, { kind: "announce", line });
   }
 
+  // src/weather.ts
+  var WEATHER_MODES = ["clear", "dust"];
+  var TIME_MODES = ["day", "dusk", "night", "cycle"];
+  var WEATHER = {
+    /** First dust storm between these times (s), then gaps between storms (s). */
+    firstDust: [120, 200],
+    dustGap: [170, 280],
+    /** Build-up and fade (s), and how long it blows at full strength (s). */
+    dustRamp: 15,
+    dustHold: [45, 75],
+    /** At full strength: sight × this, long guns' reach × this. */
+    dustSight: 0.55,
+    dustRange: 0.7,
+    /** Weapons that reach further than this (tiles) are "long guns". */
+    longRange: 5,
+    /** Daylight levels (1 = noon) and what full night does to sight and long guns. */
+    duskLight: 0.62,
+    nightLight: 0.3,
+    nightSight: 0.7,
+    nightRange: 0.85,
+    /** A full day-and-night cycle (s): day, dusk, night, dawn. */
+    dayLength: 600
+  };
+  function createWeather(seed, mode = "clear", time = "day") {
+    const rng = mulberry32(seed * 48271 + 11);
+    const between = (r) => r[0] + rng() * (r[1] - r[0]);
+    const w = { mode, time, dust: 0, dustStart: -Infinity, dustHold: 0, nextDust: Infinity, light: 1, rng };
+    if (mode === "dust") w.nextDust = between(WEATHER.firstDust);
+    w.light = daylight(time, 0);
+    return w;
+  }
+  function daylight(time, t) {
+    if (time === "day") return 1;
+    if (time === "dusk") return WEATHER.duskLight;
+    if (time === "night") return WEATHER.nightLight;
+    const p = t / WEATHER.dayLength % 1;
+    const night = WEATHER.nightLight;
+    const ease = (a, b, k) => a + (b - a) * (k * k * (3 - 2 * k));
+    if (p < 0.4) return 1;
+    if (p < 0.5) return ease(1, night, (p - 0.4) / 0.1);
+    if (p < 0.85) return night;
+    return ease(night, 1, (p - 0.85) / 0.15);
+  }
+  function updateWeather(w, t) {
+    w.light = daylight(w.time, t);
+    if (w.mode !== "dust") return;
+    const between = (r) => r[0] + w.rng() * (r[1] - r[0]);
+    const ramp = WEATHER.dustRamp;
+    if (t >= w.nextDust) {
+      w.dustStart = t;
+      w.dustHold = between(WEATHER.dustHold);
+      w.nextDust = t + w.dustHold + 2 * ramp + between(WEATHER.dustGap);
+    }
+    const age = t - w.dustStart;
+    const total = w.dustHold + 2 * ramp;
+    w.dust = age < 0 || age > total ? 0 : age < ramp ? age / ramp : age > total - ramp ? (total - age) / ramp : 1;
+  }
+  function sightFactor(w) {
+    if (!w) return 1;
+    const night = w.light >= 1 ? 1 : 1 - (1 - WEATHER.nightSight) * ((1 - w.light) / (1 - WEATHER.nightLight));
+    const dust = w.dust > 0 ? 1 - (1 - WEATHER.dustSight) * w.dust : 1;
+    return night * dust;
+  }
+  function rangeFactor(w, range) {
+    if (!w || range <= WEATHER.longRange) return 1;
+    const night = w.light >= 1 ? 1 : 1 - (1 - WEATHER.nightRange) * ((1 - w.light) / (1 - WEATHER.nightLight));
+    const dust = w.dust > 0 ? 1 - (1 - WEATHER.dustRange) * w.dust : 1;
+    return night * dust;
+  }
+
   // src/fog.ts
   function createFog(w, h, enabled) {
     const fog = { enabled, explored: new Uint8Array(w * h), visible: new Uint8Array(w * h), timer: 0 };
@@ -1428,13 +1498,15 @@
       if (!fog.enabled) continue;
       fog.visible.fill(0);
       const team = g.teams[owner];
+      const sight = sightFactor(g.weather);
+      const lit = 0.5 + 0.5 * sight;
       for (const u of g.units) {
-        if (g.teams[u.owner] === team) reveal(fog, g, u.x / TILE, u.y / TILE, SIGHT[u.kind] + rankSight(u));
+        if (g.teams[u.owner] === team) reveal(fog, g, u.x / TILE, u.y / TILE, (SIGHT[u.kind] + rankSight(u)) * sight);
       }
       for (const b of g.buildings) {
         if (g.teams[b.owner] !== team) continue;
         const own2 = SIGHT[b.kind];
-        reveal(fog, g, b.tx + b.w / 2, b.ty + b.h / 2, own2 ?? SIGHT.building + Math.max(b.w, b.h) / 2);
+        reveal(fog, g, b.tx + b.w / 2, b.ty + b.h / 2, (own2 ?? SIGHT.building + Math.max(b.w, b.h) / 2) * lit);
       }
     }
   }
@@ -1837,7 +1909,7 @@
     const weapon2 = UNIT_STATS[u.kind].weapon;
     if (!weapon2) return;
     const w = weapon(weapon2);
-    const range = w.range * bonus(g, u.owner, "range") * TILE;
+    const range = w.range * bonus(g, u.owner, "range") * rangeFactor(g.weather, w.range) * TILE;
     const minRange = (w.minRange ?? 0) * TILE;
     u.cooldown = Math.max(0, u.cooldown - dt);
     u.repath -= dt;
@@ -1897,7 +1969,7 @@
     const weapon2 = BUILDING_STATS[b.kind].weapon;
     if (!weapon2) return;
     const w = weapon(weapon2);
-    const range = w.range * TILE;
+    const range = w.range * rangeFactor(g.weather, w.range) * TILE;
     const c = buildingCentre(b);
     b.cooldown = Math.max(0, b.cooldown - dt);
     let target = b.targetId !== null ? targetInfo(g, b.targetId) : null;
@@ -3239,6 +3311,7 @@
       teams: [...layout.teams],
       startOf,
       eliminated: [],
+      weather: createWeather(seed, options.weather, options.time),
       storms: [],
       stormTimer: options.hazards === false ? Infinity : STORMS.firstSpawn,
       hazardRng: mulberry32(seed * 7919 + 17),
@@ -3792,6 +3865,7 @@
   function update(g, dt) {
     g.time += dt;
     g.tick++;
+    tickWeather(g);
     rebuildOccupancy(g);
     for (const u of g.units) {
       moveAlongPath(g, u, dt);
@@ -3823,6 +3897,16 @@
     g.markers = g.markers.filter((mk) => mk.age < 0.6);
     for (const n of g.notices) n.age += dt;
     g.notices = g.notices.filter((n) => n.age < 3);
+  }
+  function tickWeather(g) {
+    const w = g.weather;
+    const dust = w.dust;
+    const light = w.light;
+    updateWeather(w, g.time);
+    if (dust === 0 && w.dust > 0) notify(g, "Dust storm rolling in: everyone sees less, long-range guns fall short.");
+    if (dust > 0 && w.dust === 0) notify(g, "The dust is settling.");
+    if (light > 0.7 && w.light <= 0.7) notify(g, "Night is falling.");
+    if (light < 0.7 && w.light >= 0.7 && w.time === "cycle") notify(g, "Dawn is breaking.");
   }
   function updateCrystalRegen(g, dt) {
     for (const u of g.units) {
@@ -5919,6 +6003,10 @@
     propImages = /* @__PURE__ */ new Map();
     /** Crystal light: one pixel per tile, how strongly the glass lights the ground there. */
     crystalLight = null;
+    /** Night: a darkness layer (half the view's resolution) with the lights cut out of it. */
+    nightLayer = null;
+    /** Dust storms: a tile of soft drifting dust, scrolled with the wind. */
+    dustTile = null;
     crystalLightAt = -Infinity;
     /** How each turreted vehicle is shown: hull along its travel, turret on its target. */
     poses = /* @__PURE__ */ new Map();
@@ -6041,6 +6129,127 @@
         }
       }
       lctx.putImageData(img, 0, 0);
+    }
+    /**
+     * Night: fill a half-resolution layer with darkness, cut light out of it
+     * (crystal fields, buildings, vehicles' lamps, fire, gunfire and shots),
+     * then lay it over the view. One fill, a few dozen small images and one
+     * stretch a frame: cheap enough for the Low setting too.
+     */
+    drawNight(ctx, g, cam, shown, seen) {
+      const dark = (1 - g.weather.light) / (1 - 0.3) * 0.64;
+      if (dark <= 0.01) return;
+      const scale = 0.5;
+      const pad = 24;
+      const w = Math.ceil((cam.w + pad * 2) * scale);
+      const h = Math.ceil((cam.h + pad * 2) * scale);
+      if (!this.nightLayer) this.nightLayer = document.createElement("canvas");
+      const layer = this.nightLayer;
+      if (layer.width !== w || layer.height !== h) {
+        layer.width = w;
+        layer.height = h;
+      }
+      const lc = layer.getContext("2d");
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.globalCompositeOperation = "source-over";
+      lc.globalAlpha = 1;
+      lc.clearRect(0, 0, w, h);
+      lc.fillStyle = `rgba(6,10,28,${Math.min(0.9, dark)})`;
+      lc.fillRect(0, 0, w, h);
+      lc.globalCompositeOperation = "destination-out";
+      lc.setTransform(scale, 0, 0, scale, (-cam.x + pad) * scale, (-cam.y + pad) * scale);
+      const m = g.map;
+      this.updateCrystalLight(g);
+      if (this.crystalLight) {
+        const sx = Math.max(0, Math.floor(cam.x / TILE) - 2);
+        const sy = Math.max(0, Math.floor(cam.y / TILE) - 2);
+        const sw = Math.min(m.w - sx, Math.ceil(cam.w / TILE) + 5);
+        const sh = Math.min(m.h - sy, Math.ceil(cam.h / TILE) + 5);
+        lc.globalAlpha = 0.85;
+        lc.imageSmoothingEnabled = true;
+        lc.drawImage(this.crystalLight, sx, sy, sw, sh, sx * TILE, sy * TILE, sw * TILE, sh * TILE);
+      }
+      const light = lightGlow();
+      const inView = (x, y, r) => x + r > cam.x && x - r < cam.x + cam.w && y + r > cam.y && y - r < cam.y + cam.h;
+      for (const b of shown) {
+        const cx = (b.tx + b.w / 2) * TILE;
+        const cy = (b.ty + b.h / 2) * TILE;
+        const r = (Math.max(b.w, b.h) / 2 + 2.2) * TILE;
+        if (!inView(cx, cy, r)) continue;
+        drawGlow(lc, light, cx, cy, r, r * 0.9, powerInfo(g, b.owner).low ? 0.45 : 0.9);
+      }
+      for (const u of g.units) {
+        if (!seen(u)) continue;
+        const vehicle = UNIT_STATS[u.kind].armor !== "infantry";
+        const r = (vehicle ? 2.6 : 1.3) * TILE;
+        if (!inView(u.x, u.y, r * 1.6)) continue;
+        drawGlow(lc, light, u.x, u.y, r, r, vehicle ? 0.55 : 0.35);
+        if (vehicle) drawGlow(lc, light, u.x + Math.cos(u.angle) * r * 0.9, u.y + Math.sin(u.angle) * r * 0.9, r * 0.75, r * 0.75, 0.5);
+      }
+      for (const e of g.effects) {
+        const k = e.kind;
+        const life = 1 - e.age / e.life;
+        let r = 0;
+        let a = 0;
+        if (k === "fire" || k === "boom" || k === "bigBoom" || k === "flame") {
+          r = (k === "bigBoom" ? 4 : 2.4) * TILE * e.size;
+          a = 0.95 * life;
+        } else if (k === "muzzle") {
+          r = 1.6 * TILE;
+          a = 0.9 * life;
+        } else if (k === "beam" || k === "tracer") {
+          r = 1.1 * TILE;
+          a = 0.6 * life;
+        }
+        if (a > 0 && inView(e.x, e.y, r)) drawGlow(lc, light, e.x, e.y, r, r, a);
+      }
+      for (const p of g.projectiles) if (inView(p.x, p.y, TILE)) drawGlow(lc, light, p.x, p.y, TILE * 0.9, TILE * 0.9, 0.7);
+      for (const b of shown) {
+        const hurt = 1 - b.hp / BUILDING_STATS[b.kind].maxHp;
+        if (hurt < 0.5) continue;
+        const cx = (b.tx + b.w / 2) * TILE;
+        const cy = (b.ty + b.h / 2) * TILE;
+        drawGlow(lc, light, cx, cy, Math.max(b.w, b.h) * TILE, Math.max(b.w, b.h) * TILE, 0.6 * hurt);
+      }
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.globalCompositeOperation = "source-over";
+      lc.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(layer, 0, 0, w, h, cam.x - pad, cam.y - pad, cam.w + pad * 2, cam.h + pad * 2);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const warm = fireGlow();
+      for (const e of g.effects) {
+        if (e.kind !== "fire" && e.kind !== "boom" && e.kind !== "bigBoom" && e.kind !== "muzzle") continue;
+        const r = (e.kind === "bigBoom" ? 3 : e.kind === "muzzle" ? 1 : 1.8) * TILE;
+        if (inView(e.x, e.y, r)) drawGlow(ctx, warm, e.x, e.y, r, r, 0.18 * dark * (1 - e.age / e.life));
+      }
+      ctx.restore();
+    }
+    /**
+     * Dust storm: a tan haze over everything, with soft dust blowing through it.
+     * The haze thickens with the storm; the drifting layer scrolls with the wind.
+     */
+    drawDust(ctx, g, cam) {
+      const d = g.weather.dust;
+      const k = 0.3 + 0.7 * g.weather.light;
+      ctx.save();
+      ctx.fillStyle = `rgba(${Math.round(168 * k)},${Math.round(136 * k)},${Math.round(96 * k)},${0.3 * d})`;
+      ctx.fillRect(cam.x - 32, cam.y - 32, cam.w + 64, cam.h + 64);
+      if (!this.dustTile) this.dustTile = makeDustTile();
+      const pattern = ctx.createPattern(this.dustTile, "repeat");
+      if (pattern) {
+        for (const [speed, alpha, zoom] of [
+          [60, 0.55, 1.5],
+          [140, 0.4, 2.6]
+        ]) {
+          pattern.setTransform(new DOMMatrix().translate(g.time * speed, g.time * speed * 0.3).scale(zoom));
+          ctx.fillStyle = pattern;
+          ctx.globalAlpha = alpha * d * k;
+          ctx.fillRect(cam.x - 32, cam.y - 32, cam.w + 64, cam.h + 64);
+        }
+      }
+      ctx.restore();
     }
     /** Drop a tread mark behind every vehicle that has rolled far enough since its last one. */
     layTracks(g, seen) {
@@ -6185,6 +6394,8 @@
       ctx.globalCompositeOperation = "lighter";
       if (!LOW) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
       ctx.restore();
+      if (g.weather.light < 1) this.drawNight(ctx, g, cam, shown, seen);
+      if (g.weather.dust > 0) this.drawDust(ctx, g, cam);
       for (const st of g.storms) drawStormShadow(ctx, st);
       if (g.fog.enabled) this.drawShroud(ctx, g, cam);
       for (const st of g.storms) drawStorm(ctx, st, g.time);
@@ -6635,6 +6846,25 @@
     c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
     c.fill();
   });
+  var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
+  function makeDustTile() {
+    const size = 256;
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const x = c.getContext("2d");
+    const puff = dustGlow();
+    for (let i = 0; i < 70; i++) {
+      const px = Math.random() * size;
+      const py = Math.random() * size;
+      const r = 10 + Math.random() * 26;
+      const a = 0.06 + Math.random() * 0.12;
+      for (const dx of [-size, 0, size]) {
+        for (const dy of [-size, 0, size]) drawGlow(x, puff, px + dx, py + dy, r * 2.6, r, a);
+      }
+    }
+    return c;
+  }
   function drawGlow(ctx, img, x, y, rx, ry, alpha) {
     if (alpha <= 4e-3 || rx <= 0 || ry <= 0) return;
     ctx.globalAlpha = Math.min(1, alpha);
@@ -7591,7 +7821,9 @@
     enemyFaction: "random",
     speed: "normal",
     edgeScroll: true,
-    mode: "1v1"
+    mode: "1v1",
+    weather: "clear",
+    time: "day"
   };
   var CHOICES = [...FACTION_IDS, "random"];
   var isChoice = (v) => CHOICES.includes(v);
@@ -7618,6 +7850,8 @@
       if (SPEED_ORDER.includes(saved.speed)) base.speed = saved.speed;
       if (typeof saved.edgeScroll === "boolean") base.edgeScroll = saved.edgeScroll;
       if (MODE_IDS.includes(saved.mode)) base.mode = saved.mode;
+      if (WEATHER_MODES.includes(saved.weather)) base.weather = saved.weather;
+      if (TIME_MODES.includes(saved.time)) base.time = saved.time;
     }
     const speed = query.get("speed");
     const faction = query.get("faction");
@@ -7631,7 +7865,9 @@
       enemyFaction: isChoice(enemy) ? enemy : base.enemyFaction,
       speed: SPEED_ORDER.includes(speed) ? speed : base.speed,
       edgeScroll: flag(query.get("edge")) ?? base.edgeScroll,
-      mode: MODE_IDS.find((m) => m === query.get("mode")) ?? base.mode
+      mode: MODE_IDS.find((m) => m === query.get("mode")) ?? base.mode,
+      weather: WEATHER_MODES.find((m) => m === query.get("weather")) ?? base.weather,
+      time: TIME_MODES.find((m) => m === query.get("time")) ?? base.time
     };
   }
   function resolveFactions(s, rand3) {
@@ -7660,6 +7896,8 @@
     });
     if (!s.edgeScroll) q.set("edge", "0");
     if (s.mode !== "1v1") q.set("mode", s.mode);
+    if (s.weather !== "clear") q.set("weather", s.weather);
+    if (s.time !== "day") q.set("time", s.time);
     if (play) q.set("play", "1");
     return q;
   }
@@ -8316,6 +8554,7 @@
         const d = Math.hypot(s.x - cx, s.y - cy) / TILE;
         level = Math.max(level, Math.max(0, 1 - d / 28));
       }
+      level = Math.max(level, g.weather.dust * 0.75);
       const t = this.ctx.currentTime;
       this.wind.gain.gain.setTargetAtTime(level * 0.35, t, 0.4);
       this.wind.filter.frequency.setTargetAtTime(350 + 500 * level + 120 * Math.sin(t * 0.7), t, 0.3);
@@ -13059,7 +13298,9 @@
       enemyFaction: setup.factions[1],
       factions: setup.factions,
       pvp: setup.pvp,
-      mode: setup.mode
+      mode: setup.mode,
+      weather: setup.weather,
+      time: setup.time
     });
   }
   var ReplayRecorder = class {
@@ -13231,6 +13472,10 @@
     speed.value = settings.speed;
     const modeSelect = el("menu-mode");
     modeSelect.value = settings.mode;
+    const weatherSelect = el("menu-weather");
+    weatherSelect.value = settings.weather;
+    const timeSelect = el("menu-time");
+    timeSelect.value = settings.time;
     seed.value = String(settings.seed);
     level.value = settings.difficulty;
     storms.checked = settings.hazards;
@@ -13241,7 +13486,17 @@
     buildReplays();
     buildOnline(() => {
       const faction = document.querySelector('input[name="faction"]:checked')?.value ?? "concord";
-      return { ...settings, seed: Number(seed.value) || settings.seed, hazards: storms.checked, fog: fog.checked, faction, speed: speed.value, edgeScroll: edge.checked };
+      return {
+        ...settings,
+        seed: Number(seed.value) || settings.seed,
+        hazards: storms.checked,
+        fog: fog.checked,
+        faction,
+        speed: speed.value,
+        edgeScroll: edge.checked,
+        weather: weatherSelect.value,
+        time: timeSelect.value
+      };
     });
     menu.hidden = false;
     const wrap2 = menu.querySelector(".wrap");
@@ -13325,7 +13580,9 @@
             enemyFaction: enemy.value,
             speed: speed.value,
             edgeScroll: edge.checked,
-            mode: modeSelect.value
+            mode: modeSelect.value,
+            weather: weatherSelect.value,
+            time: timeSelect.value
           },
           false
         )
@@ -13454,7 +13711,7 @@
           const mine = pick2(s.faction);
           const theirs = pick2(msg.faction ?? "random", mine);
           const factions = [mine, theirs];
-          link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions });
+          link.send({ type: "start", seed: s.seed, hazards: s.hazards, fog: s.fog, speed: s.speed, factions, weather: s.weather, time: s.time });
           start({ ...s }, void 0, { station: host, link, code, local: 0, factions });
         });
       };
@@ -13475,7 +13732,7 @@
           if (msg.type !== "start" || !msg.factions) return;
           const s = current2();
           start(
-            { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal" },
+            { ...s, seed: msg.seed ?? s.seed, hazards: !!msg.hazards, fog: msg.fog !== false, speed: msg.speed ?? "normal", weather: msg.weather === "dust" ? "dust" : "clear", time: TIME_MODES.find((t) => t === msg.time) ?? "day" },
             void 0,
             { station: guest, link, code, local: 1, factions: msg.factions }
           );
@@ -13753,7 +14010,9 @@
       enemyFaction: sides.enemy,
       factions: lineup,
       pvp: !!online,
-      mode
+      mode,
+      weather: watching?.setup.weather ?? (mission ? void 0 : settings.weather),
+      time: watching?.setup.time ?? (mission ? void 0 : settings.time)
     });
     if (online) {
       game.local = online.local;
@@ -13769,7 +14028,9 @@
         factions: lineup,
         pvp: !!online,
         mission: mission?.id,
-        mode
+        mode,
+        weather: settings.weather,
+        time: settings.time
       },
       game.local,
       `${online ? "Online \xB7 " : ""}${matchup(game)} \xB7 ${mission ? mission.title : mapName(seed)}`

@@ -431,6 +431,7 @@
     }
     #menu label.field { display: grid; gap: 6px; font-family: var(--cond); font-size: 15px; font-weight: 600; letter-spacing: 0.04em; color: #cfc5b3; }
     #menu .seed-row { display: flex; gap: 8px; }
+    #menu .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     #menu input[type=number], #menu select {
       font-family: var(--body); font-size: 15px; color: var(--text); background: #12110f;
       border: 1px solid var(--edge); padding: 7px 9px; width: 100%;
@@ -740,6 +741,22 @@
             <option value="hard">Hard</option>
           </select>
         </label>
+        <div class="field-pair">
+          <label class="field">Weather
+            <select id="menu-weather" title="Dust storms cut everyone's sight and the reach of long-range guns for a minute at a time">
+              <option value="clear">Clear</option>
+              <option value="dust">Dust storms</option>
+            </select>
+          </label>
+          <label class="field">Time of day
+            <select id="menu-time" title="At night everyone sees less; the crystal, base lights and gunfire light the dark">
+              <option value="day">Day</option>
+              <option value="dusk">Dusk</option>
+              <option value="night">Night</option>
+              <option value="cycle">Day and night</option>
+            </select>
+          </label>
+        </div>
         <label class="toggle"><input id="menu-storms" type="checkbox"> Crystal storms</label>
         <label class="toggle"><input id="menu-fog" type="checkbox"> Fog of war</label>
         <label class="toggle"><input id="menu-edge" type="checkbox"> Scroll at the screen edge</label>
