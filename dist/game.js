@@ -865,6 +865,49 @@
     const f = UNIT_STATS[kind].faction;
     return f === "any" || f === faction;
   }
+  var VEINS = {
+    /** What one unit taken from the tile is worth (credits; for cores, cores). */
+    value: [1, 1, 2, 1],
+    /** Regrowth, as a share of CRYSTALS.regrowRate (cores use CORES.regrow). */
+    regrow: [1, 0.3, 0, 0],
+    /** The most a tile of this kind holds. */
+    max: [500, 1e3, 500, 40]
+  };
+  var CORES = {
+    /** Cores per deposit tile, and how fast an emptied tile refills (per second). */
+    perTile: 40,
+    regrow: 0.015,
+    /** A harvester carries this many cores a trip, scoops this many a second, and unloads this fast. */
+    capacity: 10,
+    harvestRate: 1.25,
+    unloadRate: 4,
+    /** Deposit radius in tiles. */
+    radius: 2
+  };
+  var CORE_COST = {
+    // Heroes
+    vance: 25,
+    seer: 25,
+    rook: 25,
+    // Tech Center heavies
+    bastion: 15,
+    monolith: 15,
+    titan: 15,
+    // Research
+    compositeArmor: 10,
+    longBarrels: 10,
+    logistics: 8,
+    fieldTraining: 15,
+    deepResonance: 8,
+    stormRiders: 10,
+    prismFocus: 12,
+    communion: 15,
+    scrapPlating: 10,
+    stripThemBare: 8,
+    overclocked: 10,
+    hardKnocks: 15
+  };
+  var coreCost = (kind) => CORE_COST[kind] ?? 0;
   var HARVESTER = {
     /** Resource units a full harvester carries. 1 unit = 1 credit. */
     capacity: 700,
@@ -984,6 +1027,7 @@
 
   // src/map.ts
   var Terrain = { Sand: 0, Rock: 1, Cliff: 2 };
+  var Vein = { Crystal: 0, Dense: 1, StormGlass: 2, Core: 3 };
   function idx(m, x, y) {
     return y * m.w + x;
   }
@@ -1022,7 +1066,8 @@
     }
     return null;
   }
-  function findNearestSpice(m, from, maxR, exclude = /* @__PURE__ */ new Set()) {
+  var isCoreTile = (m, i) => m.vein[i] === Vein.Core;
+  function findNearestSpice(m, from, maxR, exclude = /* @__PURE__ */ new Set(), cores = false) {
     const startTile = nearestPassable(m, from);
     if (!startTile) return null;
     const seen = new Uint8Array(m.w * m.h);
@@ -1032,7 +1077,7 @@
       const i = queue[head];
       const x = i % m.w;
       const y = (i - x) / m.w;
-      if (m.spice[i] > 0 && !exclude.has(i)) return { x, y };
+      if (m.spice[i] > 0 && !exclude.has(i) && isCoreTile(m, i) === cores) return { x, y };
       for (const [dx, dy] of NEIGHBOURS_4) {
         const nx = x + dx;
         const ny = y + dy;
@@ -1102,6 +1147,7 @@
       h,
       terrain: new Uint8Array(w * h),
       spice: new Float32Array(w * h),
+      vein: new Uint8Array(w * h),
       blocked: new Uint8Array(w * h),
       shade: new Float32Array(w * h),
       start: { x: PLATEAU.x + BASE_OFFSET.x, y: PLATEAU.y + BASE_OFFSET.y },
@@ -1144,8 +1190,51 @@
       m.spice[i] = m.spice[w * h - 1 - i];
     }
     for (const f of [...m.fields]) m.fields.push(mirror(m, f));
+    const copies = (p) => [p, mirror(m, p)];
+    addVeins(m, seed, copies, m.fields.length / 2, [
+      { x: (w - 1) / 2, y: (h - 1) / 2 },
+      { x: Math.round(w * 0.24), y: Math.round(h * 0.6) }
+    ], [PLATEAU, enemyPlateau]);
     return m;
   }
+  function addVeins(m, seed, copies, baseFields, deposits, plateaus) {
+    const rng = mulberry32(seed * 6151 + 29);
+    for (let f = 1; f < baseFields; f++) {
+      if (rng() > 0.34) continue;
+      for (const c of copies(m.fields[f])) {
+        forDisc(m, Math.round(c.x), Math.round(c.y), 5, (i) => {
+          if (m.spice[i] <= 0) return;
+          m.vein[i] = Vein.Dense;
+          m.spice[i] = Math.min(1e3, Math.round(m.spice[i] * 1.6));
+        });
+      }
+    }
+    for (const d of deposits) {
+      for (const c of copies(d)) {
+        const r = CORES_RADIUS + 0.5;
+        for (let y = Math.floor(c.y - r); y <= Math.ceil(c.y + r); y++) {
+          for (let x = Math.floor(c.x - r); x <= Math.ceil(c.x + r); x++) {
+            if (!inBounds(m, x, y) || Math.hypot(x - c.x, y - c.y) > r) continue;
+            const i = idx(m, x, y);
+            m.terrain[i] = Terrain.Sand;
+            m.vein[i] = Vein.Core;
+            m.spice[i] = CORES_PER_TILE;
+          }
+        }
+      }
+    }
+    for (const p of plateaus) {
+      const reach = reachableFrom(m, p);
+      for (const d of deposits) {
+        for (const c of copies(d)) {
+          const t = { x: Math.round(c.x), y: Math.round(c.y) };
+          if (!reach[idx(m, t.x, t.y)]) carveLine(m, { x: p.x, y: p.y }, t);
+        }
+      }
+    }
+  }
+  var CORES_RADIUS = 2;
+  var CORES_PER_TILE = 40;
   function generateMap4(seed, n) {
     const rng = mulberry32(seed * 7 + 4);
     const n1 = valueNoise(rng, n, n, 16);
@@ -1157,6 +1246,7 @@
       h: n,
       terrain: new Uint8Array(n * n),
       spice: new Float32Array(n * n),
+      vein: new Uint8Array(n * n),
       blocked: new Uint8Array(n * n),
       shade: new Float32Array(n * n),
       start: { x: PLATEAU.x + BASE_OFFSET.x, y: PLATEAU.y + BASE_OFFSET.y },
@@ -1185,8 +1275,8 @@
         addField(m, rng, c, 3 + Math.floor(rng() * 2), true);
       }
     }
-    addField(m, rng, { x: half - 7, y: half - 7 }, 4, true);
-    connectFields(m, [{ x: half - 1, y: half - 1 }]);
+    forDisc(m, half - 7, half - 7, 4, (i) => m.terrain[i] = Terrain.Sand);
+    connectFields(m, [{ x: half - 1, y: half - 1 }, { x: half - 7, y: half - 7 }]);
     for (let y = 0; y < half; y++) {
       for (let x = 0; x < half; x++) {
         let p = { x, y };
@@ -1204,6 +1294,12 @@
       let p = f;
       for (let k = 1; k < 4; k++) m.fields.push(p = rotate(n, p));
     }
+    const turns = (p) => {
+      const out = [p];
+      for (let k = 1; k < 4; k++) out.push(rotate(n, out[k - 1]));
+      return out;
+    };
+    addVeins(m, seed, turns, quarterFields.length, [{ x: half - 7, y: half - 7 }], plateaus);
     m.starts = plateaus.map((p) => ({ x: p.x + BASE_OFFSET.x, y: p.y + BASE_OFFSET.y }));
     m.start = m.starts[0];
     m.enemyStart = m.starts[2];
@@ -1653,10 +1749,12 @@
     if (r.done.includes(id)) return "Already researched.";
     if (!hasBuilding(g, "techCenter", owner)) return "Requires Tech Center";
     if (r.current) return "Already researching something.";
+    if (walletOf(g, owner).cores < coreCost(id)) return `Needs ${coreCost(id)} glass cores`;
     return null;
   }
   function startResearch(g, owner, id) {
     if (researchBlocked(g, owner, id)) return false;
+    walletOf(g, owner).cores -= coreCost(id);
     g.research[owner].current = { id, spent: 0 };
     if (owner === g.local) emit(g, { kind: "buildStart" });
     return true;
@@ -1665,6 +1763,7 @@
     const r = g.research[owner];
     if (!r.current) return;
     walletOf(g, owner).credits += r.current.spent;
+    walletOf(g, owner).cores += coreCost(r.current.id);
     r.current = null;
     if (owner === g.local) emit(g, { kind: "cancel" });
   }
@@ -2324,6 +2423,9 @@
     if (isHero(kind) && heroCount(g, owner) > 0) return false;
     const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
     if (line.queue.length + (line.current ? 1 : 0) >= MAX_QUEUE) return false;
+    const wallet = walletOf(g, owner);
+    if (wallet.cores < coreCost(kind)) return false;
+    wallet.cores -= coreCost(kind);
     line.queue.push(kind);
     if (!quiet && owner === g.local) {
       emit(g, { kind: "buildStart" });
@@ -2373,10 +2475,12 @@
     const i = line.queue.lastIndexOf(kind);
     if (i !== -1) {
       line.queue.splice(i, 1);
+      walletOf(g, owner).cores += coreCost(kind);
       return true;
     }
     if (line.current?.kind === kind) {
       walletOf(g, owner).credits += line.current.spent;
+      walletOf(g, owner).cores += coreCost(kind);
       line.current = null;
       return true;
     }
@@ -2404,6 +2508,7 @@
     return {
       difficulty,
       credits: level.startCredits,
+      cores: 0,
       structure: null,
       lines: {
         barracks: { current: null, queue: [] },
@@ -2536,7 +2641,8 @@
     const mix = ai.waves > 0;
     const facing = AI_LEVELS[ai.difficulty].counter ? enemyMix(g, me) : "mixed";
     if (producer === "barracks") {
-      if (!missingFor(g, F("vance"), me) && heroCount(g, me) === 0) return "vance";
+      const affordable = (k) => ai.cores >= coreCost(F(k));
+      if (!missingFor(g, F("vance"), me) && heroCount(g, me) === 0 && affordable("vance")) return "vance";
       if (mix && mine("medic") * 4 < mine("infantry")) return "medic";
       const snipers = facing === "infantry" ? 2 : facing === "vehicles" ? 99 : 3;
       if (mix && !missingFor(g, F("marksman"), me) && mine("marksman") * snipers < mine("infantry")) return "marksman";
@@ -2547,8 +2653,9 @@
       if (facing === "infantry") return mine("raider") < mine("quad") ? "raider" : "quad";
       return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
     }
-    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery", me))) return "harvester";
-    if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank")) return "bastion";
+    const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
+    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery", me) + coreMiner)) return "harvester";
+    if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank") && ai.cores >= coreCost(F("bastion"))) return "bastion";
     const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
     if (!missingFor(g, F("artillery"), me) && mine("artillery") * guns < mine("tank")) return "artillery";
     return "tank";
@@ -2621,6 +2728,8 @@
         if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
       }
       if (ai.credits < reserve + unitCost(g.factions[me], kind) * 0.25) continue;
+      if (ai.cores < coreCost(kind)) continue;
+      ai.cores -= coreCost(kind);
       line.current = { kind, spent: 0 };
       if (kind !== "harvester") wanted--;
     }
@@ -2652,6 +2761,7 @@
       }
     }
     defendBase(g, me);
+    mineCores(g, me);
     if (level.retreat > 0) pullBackWounded(g, me);
     if (level.raidGap > 0) runRaids(g, me);
     runFlank(g, me);
@@ -2660,6 +2770,25 @@
       const target = nearestEnemyBuilding2(g, me, u.x, u.y);
       if (target) commandAttackMove(g, [u], target.at);
     }
+  }
+  var CORES_WANTED = 50;
+  var CORES_PLENTY = 90;
+  function mineCores(g, me) {
+    const ai = aiOf(g, me);
+    const harvesters = g.units.filter((u) => u.owner === me && u.kind === "harvester");
+    const miner = harvesters.find((u) => u.load === "cores");
+    const useful = hasBuilding(g, "techCenter", me) || g.time > 420;
+    if (miner && (ai.cores >= CORES_PLENTY || !useful)) {
+      miner.load = "crystal";
+      if (miner.cargo === 0) autoHarvest(g, miner, { x: Math.floor(miner.x / TILE), y: Math.floor(miner.y / TILE) });
+      return;
+    }
+    if (miner || !useful || ai.cores >= CORES_WANTED || harvesters.length < 2) return;
+    const home = g.startOf[me];
+    const deposit = findNearestSpice(g.map, { x: home.x + 1, y: home.y + 1 }, 80, /* @__PURE__ */ new Set(), true);
+    if (!deposit) return;
+    const pick2 = [...harvesters].sort((a, b) => a.cargo - b.cargo || a.id - b.id)[0];
+    commandHarvest(g, [pick2], deposit);
   }
   var isFast = (u) => UNIT_STATS[u.kind].armor === "light" && UNIT_STATS[u.kind].speed >= 3.5 && !!UNIT_STATS[u.kind].weapon;
   var health = (u) => u.hp / UNIT_STATS[u.kind].maxHp;
@@ -2819,11 +2948,11 @@
   function canGrowAt(m, x, y) {
     if (!inBounds(m, x, y)) return false;
     const i = idx(m, x, y);
-    return m.terrain[i] === Terrain.Sand && m.blocked[i] === 0;
+    return m.terrain[i] === Terrain.Sand && m.blocked[i] === 0 && m.vein[i] !== Vein.Core;
   }
   function totalCrystal(m) {
     let t = 0;
-    for (let i = 0; i < m.spice.length; i++) t += m.spice[i];
+    for (let i = 0; i < m.spice.length; i++) if (m.vein[i] !== Vein.Core) t += m.spice[i];
     return t;
   }
   var NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -2840,14 +2969,23 @@
       for (let x = 0; x < m.w; x++) {
         const i = idx(m, x, y);
         const amt = m.spice[i];
+        const vein = m.vein[i];
+        if (vein === Vein.Core) {
+          m.spice[i] = Math.min(CORES.perTile, amt + CORES.regrow * step);
+          continue;
+        }
         if (amt <= 0) continue;
-        m.spice[i] = Math.min(CRYSTALS.maxPerTile, amt + CRYSTALS.regrowRate * step);
+        m.spice[i] = Math.min(VEINS.max[vein], amt + CRYSTALS.regrowRate * VEINS.regrow[vein] * step);
+        if (vein === Vein.StormGlass) continue;
         if (!canSpread || amt < CRYSTALS.spreadMin || g.crystalRng() >= CRYSTALS.spreadChance * step) continue;
         const [dx, dy] = NEIGHBOURS[Math.floor(g.crystalRng() * 4)];
         if (canGrowAt(m, x + dx, y + dy) && m.spice[idx(m, x + dx, y + dy)] === 0) seeds.push(idx(m, x + dx, y + dy));
       }
     }
-    for (const i of seeds) m.spice[i] = CRYSTALS.seedAmount;
+    for (const i of seeds) {
+      m.spice[i] = CRYSTALS.seedAmount;
+      m.vein[i] = Vein.Crystal;
+    }
   }
 
   // src/storm.ts
@@ -2911,6 +3049,7 @@
       const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
       if (canGrowAt(g.map, tx, ty)) {
         const i = idx(g.map, tx, ty);
+        if (g.map.spice[i] <= 0) g.map.vein[i] = Vein.StormGlass;
         g.crystalTotal += Math.max(0, STORMS.seedAmount - g.map.spice[i]);
         g.map.spice[i] = Math.max(g.map.spice[i], STORMS.seedAmount);
       }
@@ -3676,6 +3815,7 @@
       units: [],
       buildings: [],
       credits: START_CREDITS,
+      cores: 0,
       selection: /* @__PURE__ */ new Set(),
       selectedBuilding: null,
       markers: [],
@@ -3863,6 +4003,8 @@
       abilityCd: 0,
       shieldUntil: -Infinity,
       waypoints: [],
+      load: "crystal",
+      cargoKind: "crystal",
       cargo: 0,
       harvest: "idle",
       harvestTile: null,
@@ -4028,7 +4170,7 @@
     setPath(g, u, tile);
   }
   function autoHarvest(g, u, near, radius = HARVESTER.searchRadius) {
-    const tile = findNearestSpice(g.map, near, radius, claimedTiles(g, u));
+    const tile = findNearestSpice(g.map, near, radius, claimedTiles(g, u), u.load === "cores");
     if (tile) sendToField(g, u, tile);
     else if (u.cargo > 0) sendToRefinery(g, u);
     else goIdle(u);
@@ -4069,7 +4211,7 @@
         if (t && here.x === t.x && here.y === t.y) {
           u.harvest = "harvesting";
           u.retries = 0;
-        } else if (m.spice[idx(m, here.x, here.y)] > 0) {
+        } else if (m.spice[idx(m, here.x, here.y)] > 0 && isCoreTile(m, idx(m, here.x, here.y)) === (u.load === "cores")) {
           u.harvestTile = here;
           u.harvest = "harvesting";
         } else if (u.retries++ < 2) {
@@ -4082,15 +4224,27 @@
       case "harvesting": {
         const t = u.harvestTile;
         const i = idx(m, t.x, t.y);
-        const amount = Math.min(HARVESTER.harvestRate * dt, m.spice[i], HARVESTER.capacity - u.cargo);
+        const cores = isCoreTile(m, i);
+        const kind = cores ? "cores" : "crystal";
+        if (u.cargo > 0 && u.cargoKind !== kind) {
+          sendToRefinery(g, u);
+          return;
+        }
+        u.cargoKind = kind;
+        const capacity = cores ? CORES.capacity : HARVESTER.capacity;
+        const value = VEINS.value[m.vein[i]];
+        const amount = Math.min((cores ? CORES.harvestRate : HARVESTER.harvestRate) * dt, m.spice[i], (capacity - u.cargo) / value);
         m.spice[i] -= amount;
-        u.cargo += amount;
-        if (m.spice[i] < 0.01) m.spice[i] = 0;
-        if (u.cargo >= HARVESTER.capacity - 0.01) {
-          u.cargo = HARVESTER.capacity;
+        u.cargo += amount * value;
+        if (m.spice[i] < 0.01) {
+          m.spice[i] = 0;
+          if (!cores) m.vein[i] = Vein.Crystal;
+        }
+        if (u.cargo >= capacity - 0.01) {
+          u.cargo = capacity;
           sendToRefinery(g, u);
         } else if (m.spice[i] === 0) {
-          const next = findNearestSpice(m, t, HARVESTER.fieldRadius, claimedTiles(g, u));
+          const next = findNearestSpice(m, t, HARVESTER.fieldRadius, claimedTiles(g, u), cores);
           if (next) sendToField(g, u, next);
           else if (u.cargo > 0) sendToRefinery(g, u);
           else goIdle(u);
@@ -4131,10 +4285,13 @@
           sendToRefinery(g, u);
           return;
         }
-        const amount = Math.min(HARVESTER.unloadRate * dt, u.cargo);
+        const amount = Math.min((u.cargoKind === "cores" ? CORES.unloadRate : HARVESTER.unloadRate) * dt, u.cargo);
         u.cargo -= amount;
-        walletOf(g, u.owner).credits += amount;
-        if (u.owner === PLAYER) g.stats.creditsHarvested += amount;
+        if (u.cargoKind === "cores") walletOf(g, u.owner).cores += amount;
+        else {
+          walletOf(g, u.owner).credits += amount;
+          if (u.owner === PLAYER) g.stats.creditsHarvested += amount;
+        }
         if (u.cargo < 0.01) {
           u.cargo = 0;
           const field = u.lastField ?? here;
@@ -4304,7 +4461,7 @@
       const regen = FACTIONS[g.factions[u.owner]].crystalRegen;
       if (regen <= 0) continue;
       const t = unitTile(u);
-      if (!inBounds(g.map, t.x, t.y) || g.map.spice[idx(g.map, t.x, t.y)] <= 0) continue;
+      if (!inBounds(g.map, t.x, t.y) || g.map.spice[idx(g.map, t.x, t.y)] <= 0 || isCoreTile(g.map, idx(g.map, t.x, t.y))) continue;
       u.hp = Math.min(UNIT_STATS[u.kind].maxHp, u.hp + regen * bonus(g, u.owner, "regen") * dt);
     }
   }
@@ -4411,8 +4568,10 @@
     }
   }
   function commandHarvest(g, harvesters, target) {
+    const cores = inBounds(g.map, target.x, target.y) && isCoreTile(g.map, idx(g.map, target.x, target.y));
     for (const u of harvesters) {
-      const tile = findNearestSpice(g.map, target, HARVESTER.fieldRadius, claimedTiles(g, u));
+      u.load = cores ? "cores" : "crystal";
+      const tile = findNearestSpice(g.map, target, HARVESTER.fieldRadius, claimedTiles(g, u), cores);
       if (tile) sendToField(g, u, tile);
       else commandMove(g, [u], target);
     }
@@ -4900,19 +5059,21 @@
     let crystal = 0;
     let rock = 0;
     let cliff = 0;
+    let coreTiles = 0;
     const n = m.w * m.h;
     for (let i = 0; i < n; i++) {
-      crystal += m.spice[i];
+      if (m.vein[i] === Vein.Core) coreTiles++;
+      else crystal += m.spice[i];
       if (m.terrain[i] === Terrain.Rock) rock++;
       else if (m.terrain[i] === Terrain.Cliff) cliff++;
     }
-    return { crystal: Math.round(crystal / 1e3), rock: Math.round(rock / n * 100), cliff: Math.round(cliff / n * 100), fields: m.fields.length };
+    return { crystal: Math.round(crystal / 1e3), deposits: Math.round(coreTiles / 13), rock: Math.round(rock / n * 100), cliff: Math.round(cliff / n * 100), fields: m.fields.length };
   }
   function describeTraits(t) {
     const crystal = t.crystal >= 200 ? "Rich crystal" : t.crystal <= 140 ? "Scarce crystal" : "Fair crystal";
     const cliffs = t.cliff >= 11 ? "Many cliffs" : t.cliff <= 1 ? "No cliffs" : "Some cliffs";
     const ground = t.rock >= 38 ? "Rocky" : t.rock <= 17 ? "Open sand" : "Mixed ground";
-    return [crystal, `${t.fields} fields`, cliffs, ground];
+    return [crystal, `${t.fields} fields`, `${t.deposits} core deposits`, cliffs, ground];
   }
   var SIDE_COLOURS = [
     [47, 111, 176],
@@ -4931,10 +5092,12 @@
       let [r, g, b] = COLOURS[m.terrain[i]] ?? COLOURS[Terrain.Sand];
       const s = m.spice[i];
       if (s > 0) {
-        const k = Math.min(1, 0.45 + s / 900);
-        r += (111 - r) * k;
-        g += (227 - g) * k;
-        b += (240 - b) * k;
+        const v = m.vein[i];
+        const [tr, tg, tb] = v === Vein.Core ? [255, 196, 80] : v === Vein.Dense ? [120, 128, 245] : v === Vein.StormGlass ? [250, 100, 70] : [111, 227, 240];
+        const k = v === Vein.Core ? 1 : Math.min(1, 0.45 + s / 900);
+        r += (tr - r) * k;
+        g += (tg - g) * k;
+        b += (tb - b) * k;
       }
       out.set([r, g, b, 255], i * 4);
     }
@@ -5606,7 +5769,8 @@
         return placeStructure(g, c.x, c.y, owner) ? null : "Can't build there: needs clear rock near your base";
       case "train":
         if (!(c.kind in UNIT_STATS)) return null;
-        return queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0 ? null : "Can't train that now.";
+        if (queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0) return null;
+        return walletOf(g, owner).cores < coreCost(c.kind) ? `Needs ${coreCost(c.kind)} glass cores: send a harvester to a core deposit.` : "Can't train that now.";
       case "untrain":
         for (let k = 0; k < Math.max(1, Math.min(5, c.n)); k++) dequeueUnit(g, c.kind, owner);
         return null;
@@ -5614,7 +5778,7 @@
         return toggleRepeat(g, c.kind, owner) ? null : "Can't build that now.";
       case "research":
         if (!(c.id in RESEARCH)) return null;
-        return startResearch(g, owner, c.id) ? null : "Can't research that now.";
+        return startResearch(g, owner, c.id) ? null : researchBlocked(g, owner, c.id) ?? "Can't research that now.";
       case "cancelResearch":
         cancelResearch(g, owner);
         return null;
@@ -6848,7 +7012,7 @@
         for (let i = 0; i < m.w * m.h; i++) {
           const t = m.terrain[i];
           let c = t === Terrain.Cliff ? COLORS.cliff : t === Terrain.Rock ? COLORS.rockA : COLORS.sandA;
-          if (m.spice[i] > 0) c = [90, 220, 250];
+          if (m.spice[i] > 0) c = MINI_VEIN[m.vein[i]];
           if (!g.fog.explored[i]) c = [14, 11, 9];
           else if (!g.fog.visible[i]) c = c.map((v) => Math.round(v * 0.55));
           img.data[i * 4] = c[0];
@@ -6926,12 +7090,17 @@
       this.ctx = this.canvas.getContext("2d");
       this.levels = new Int8Array(m.w * m.h);
     }
-    static level(amount) {
-      return amount <= 0 ? 0 : 1 + Math.min(5, Math.floor(amount / 90));
+    /** How full a tile looks (0-6), times 8, plus its kind: a change of either redraws it. */
+    static level(m, i) {
+      const amount = m.spice[i];
+      const vein = m.vein[i];
+      if (amount <= 0) return 0;
+      const full = vein === Vein.Core ? 1 + Math.min(5, Math.floor(amount / 7)) : 1 + Math.min(5, Math.floor(amount / (vein === Vein.Dense ? 170 : 90)));
+      return full * 8 + vein;
     }
     update(m) {
       if (!this.ready) {
-        for (let i = 0; i < m.w * m.h; i++) this.levels[i] = _SpiceLayer.level(m.spice[i]);
+        for (let i = 0; i < m.w * m.h; i++) this.levels[i] = _SpiceLayer.level(m, i);
         for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) this.drawTile(m, x, y);
         this.ready = true;
         return;
@@ -6939,7 +7108,7 @@
       for (let y = 0; y < m.h; y++) {
         for (let x = 0; x < m.w; x++) {
           const i = idx(m, x, y);
-          const lvl = _SpiceLayer.level(m.spice[i]);
+          const lvl = _SpiceLayer.level(m, i);
           if (lvl === this.levels[i]) continue;
           this.levels[i] = lvl;
           this.redrawAround(m, x, y);
@@ -6962,24 +7131,26 @@
     }
     drawTile(m, x, y) {
       const i = idx(m, x, y);
-      const lvl = this.levels[i];
-      if (lvl <= 0) return;
+      const code = this.levels[i];
+      if (code <= 0) return;
+      const lvl = code >> 3;
+      const p = VEIN_LOOK[code & 7];
       const ctx = this.ctx;
       const a = lvl / 6;
       const cx = (x + 0.5) * TILE + (hash3(i, 1) - 0.5) * 8;
       const cy = (y + 0.5) * TILE + (hash3(i, 2) - 0.5) * 8;
-      const r = TILE * (0.7 + 0.35 * a);
+      const r = TILE * (0.7 + 0.35 * a) * p.glowSize;
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      grad.addColorStop(0, `rgba(110,225,250,${0.1 + 0.22 * a})`);
-      grad.addColorStop(1, "rgba(110,225,250,0)");
+      grad.addColorStop(0, `rgba(${p.glow},${(0.1 + 0.22 * a) * p.glowAlpha})`);
+      grad.addColorStop(1, `rgba(${p.glow},0)`);
       ctx.fillStyle = grad;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      const shards = 1 + lvl;
+      const shards = Math.round((1 + lvl) * p.count);
       for (let k = 0; k < shards; k++) {
         const px = x * TILE + 4 + hash3(i, k + 5) * (TILE - 8);
         const py = y * TILE + 6 + hash3(i, k + 37) * (TILE - 10);
-        const h = 5 + 9 * a * (0.6 + 0.4 * hash3(i, k + 71));
-        const w = 2 + 2 * hash3(i, k + 91);
+        const h = (5 + 9 * a * (0.6 + 0.4 * hash3(i, k + 71))) * p.height;
+        const w = (2 + 2 * hash3(i, k + 91)) * p.width;
         const lean = (hash3(i, k + 13) - 0.5) * 0.8;
         ctx.save();
         ctx.translate(px, py);
@@ -6988,7 +7159,7 @@
         ctx.beginPath();
         ctx.ellipse(1, 1, w + 1, 2, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = k % 3 === 0 ? "#3fb8d8" : "#5fd8f0";
+        ctx.fillStyle = k % 3 === 0 ? p.dark : p.light;
         ctx.beginPath();
         ctx.moveTo(0, -h);
         ctx.lineTo(w, -h * 0.35);
@@ -6996,7 +7167,7 @@
         ctx.lineTo(-w, -h * 0.35);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = "rgba(230,255,255,0.75)";
+        ctx.fillStyle = p.shine;
         ctx.beginPath();
         ctx.moveTo(0, -h);
         ctx.lineTo(-w, -h * 0.35);
@@ -7007,6 +7178,22 @@
       }
     }
   };
+  var VEIN_LOOK = [
+    // Crystal: cyan.
+    { light: "#5fd8f0", dark: "#3fb8d8", shine: "rgba(230,255,255,0.75)", glow: "110,225,250", glowAlpha: 1, glowSize: 1, count: 1, height: 1, width: 1 },
+    // Dense veins: deep blue-violet, bigger and more of them.
+    { light: "#7c8cf4", dark: "#4e5bd0", shine: "rgba(225,230,255,0.8)", glow: "120,130,250", glowAlpha: 1.1, glowSize: 1.15, count: 1.3, height: 1.35, width: 1.2 },
+    // Storm glass: red-orange, jagged.
+    { light: "#ff7a52", dark: "#d8442a", shine: "rgba(255,225,200,0.8)", glow: "255,110,70", glowAlpha: 1.2, glowSize: 1, count: 1, height: 1.15, width: 0.9 },
+    // Glass cores: amber, few, large, glowing.
+    { light: "#ffd36a", dark: "#e09a2a", shine: "rgba(255,250,225,0.9)", glow: "255,190,80", glowAlpha: 1.6, glowSize: 1.35, count: 0.7, height: 1.6, width: 1.7 }
+  ];
+  var MINI_VEIN = [
+    [90, 220, 250],
+    [110, 120, 245],
+    [250, 100, 70],
+    [255, 200, 90]
+  ];
   function drawBuilding(ctx, b, sprites) {
     const team = TEAM[b.owner];
     const x = b.tx * TILE;
@@ -8124,7 +8311,7 @@
       TRAINABLE.filter((k) => canTrain(faction, k)).forEach((kind, i) => {
         const cost = unitCost(faction, kind);
         const key = HOTKEYS[i];
-        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`, portraitOf(kind, me), "unit");
+        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`, portraitOf(kind, me), "unit", coreCost(kind));
         b.producer = UNIT_STATS[kind].producer;
         b.press = () => issue({ t: "train", kind, n: 1 });
         if (key) this.unitKeys.set(key, b);
@@ -8148,7 +8335,7 @@
           setState(b, {
             locked: !!missing,
             busy: heroTaken,
-            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : hero ? `Hero \u2014 one at a time. ${hero.ability} (Q): ${hero.blurb}` : "Click: queue one \xB7 Shift-click: five \xB7 Ctrl-click: keep building \xB7 Right-click: remove",
+            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : (coreCost(kind) ? `Also costs ${coreCost(kind)} glass cores (paid when queued). ` : "") + (hero ? `Hero \u2014 one at a time. ${hero.ability} (Q): ${hero.blurb}` : "Click: queue one \xB7 Shift-click: five \xB7 Ctrl-click: keep building \xB7 Right-click: remove"),
             progress: cur ? cur.spent / cost : 0,
             badge: repeating ? `\u21BB${n > 1 ? n : ""}` : n > 0 ? String(n) : "",
             ready: false
@@ -8169,7 +8356,7 @@
       });
       for (const id of researchFor(faction)) {
         const r = RESEARCH[id];
-        const b = makeButton(r.label, r.cost, "#9a8ac0");
+        const b = makeButton(r.label, r.cost, "#9a8ac0", void 0, void 0, void 0, coreCost(id));
         b.el.addEventListener("click", () => issue({ t: "research", id }));
         b.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -8217,7 +8404,7 @@
       for (const b of this.buttons) b.update();
     }
   };
-  function makeButton(label, cost, color, key, art, fit) {
+  function makeButton(label, cost, color, key, art, fit, cores = 0) {
     const el2 = document.createElement("button");
     el2.className = "build";
     if (art) {
@@ -8248,6 +8435,13 @@
     const badge = document.createElement("span");
     badge.className = "badge";
     el2.append(bar2, icon, name, price, badge);
+    if (cores > 0) {
+      const c = document.createElement("span");
+      c.className = "cores";
+      c.textContent = `\u25C6${cores}`;
+      c.title = `${cores} glass cores`;
+      el2.append(c);
+    }
     if (key) {
       const k = document.createElement("span");
       k.className = "key";
@@ -9148,6 +9342,8 @@
     };
     mix(g.credits);
     mix(g.ai.credits);
+    mix(g.cores);
+    mix(g.ai.cores);
     mix(g.nextId);
     for (const u of g.units) {
       mix(u.id);
@@ -13751,7 +13947,7 @@
   }
 
   // src/replay.ts
-  var REPLAY_VERSION = 1;
+  var REPLAY_VERSION = 2;
   var STEP2 = 1 / 60;
   function createReplayGame(setup) {
     const mission = setup.mission ? missionById(setup.mission) : void 0;
@@ -14713,6 +14909,7 @@
     const view = el("view");
     const minimap = el("minimap");
     const credits = el("credits");
+    const coresEl = el("cores");
     const power2 = el("power");
     const infoCard = new InfoCard(el("info"));
     const notices = el("notices");
@@ -15075,6 +15272,8 @@
       sound.updateWind(game, cam);
       sound.updateEngines(game, cam);
       credits.textContent = Math.floor(walletOf(game, game.local).credits).toLocaleString();
+      const coreText = String(Math.floor(walletOf(game, game.local).cores));
+      if (coresEl.textContent !== coreText) coresEl.textContent = coreText;
       const p = powerInfo(game, game.local);
       power2.textContent = `${p.produced} / ${p.used}`;
       power2.classList.toggle("low", p.low);
