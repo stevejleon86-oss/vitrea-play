@@ -942,14 +942,13 @@
     outpost: { label: "Forward Outpost", w: 2, h: 2, maxHp: 700, cost: 1600, power: -10, requires: "refinery", weapon: null },
     deepDrill: { label: "Deep Drill", w: 2, h: 2, maxHp: 600, cost: 900, power: -25, requires: "refinery", weapon: null, faction: "concord" },
     seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" },
-    silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null },
-    holdingYard: { label: "Holding Yard", w: 2, h: 2, maxHp: 800, cost: 600, power: -10, requires: "refinery", weapon: null }
+    silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null }
   };
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "silo", "holdingYard", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "seedSpire"];
   var STORAGE = {
-    holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3, holdingYard: 6e3 },
+    holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3 },
     slowFrom: 0.8
   };
   function canBuild(faction, kind) {
@@ -2648,8 +2647,6 @@
     const headroom = power2.produced - power2.used;
     const full = ai.credits > storageOf(g, me) * 0.75;
     const wants = [
-      // Small silos first; once it has a couple, a Holding Yard holds far more.
-      [full && count(g, "refinery", me) > 0 && count(g, "silo", me) >= 2, "holdingYard"],
       [full && count(g, "refinery", me) > 0, "silo"],
       [headroom < 20, "power"],
       [count(g, "refinery", me) === 0, "refinery"],
@@ -5090,7 +5087,6 @@
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
-    holdingYard: "Stores 6,000 credits: three silos' worth in one compound. Room to bank a big harvest.",
     silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
     outpost: "A deployed Outpost Truck: a forward refinery with room to build around it. Pack it up (Q) to move on.",
     deepDrill: "A deployed Drill Rig. Mines the field it stands on straight into the account, no harvester. Pack it up (Q) to move on.",
@@ -8655,7 +8651,6 @@
     outpostTruck: "#c08a4a",
     drillRig: "#8a8f9a",
     silo: "#b8b0a0",
-    holdingYard: "#9a8f78",
     deepDrill: "#8a8f9a",
     seedSpire: "#5fd8f0",
     techCenter: "#9a8ac0",
