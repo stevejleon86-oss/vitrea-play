@@ -1082,7 +1082,16 @@
   function mirror(m, p) {
     return { x: m.w - 1 - p.x, y: m.h - 1 - p.y };
   }
-  function generateMap(seed, w = MAP_W, h = MAP_H) {
+  function rotate(n, p) {
+    return { x: n - 1 - p.y, y: p.x };
+  }
+  function cornerPlateaus(n) {
+    const out = [{ ...PLATEAU }];
+    for (let k = 1; k < 4; k++) out.push({ ...rotate(n, out[k - 1]), r: PLATEAU.r });
+    return out;
+  }
+  function generateMap(seed, w = MAP_W, h = MAP_H, players = 2) {
+    if (players > 2) return generateMap4(seed, w);
     const rng = mulberry32(seed);
     const n1 = valueNoise(rng, w, h, 16);
     const n2 = valueNoise(rng, w, h, 8);
@@ -1135,6 +1144,69 @@
       m.spice[i] = m.spice[w * h - 1 - i];
     }
     for (const f of [...m.fields]) m.fields.push(mirror(m, f));
+    return m;
+  }
+  function generateMap4(seed, n) {
+    const rng = mulberry32(seed * 7 + 4);
+    const n1 = valueNoise(rng, n, n, 16);
+    const n2 = valueNoise(rng, n, n, 8);
+    const n3 = valueNoise(rng, n, n, 4);
+    const plateaus = cornerPlateaus(n);
+    const m = {
+      w: n,
+      h: n,
+      terrain: new Uint8Array(n * n),
+      spice: new Float32Array(n * n),
+      blocked: new Uint8Array(n * n),
+      shade: new Float32Array(n * n),
+      start: { x: PLATEAU.x + BASE_OFFSET.x, y: PLATEAU.y + BASE_OFFSET.y },
+      enemyStart: { x: 0, y: 0 },
+      fields: []
+    };
+    for (let i = 0; i < n * n; i++) {
+      const v = 0.6 * n1[i] + 0.3 * n2[i] + 0.1 * n3[i];
+      m.terrain[i] = v > 0.72 ? Terrain.Cliff : v > 0.58 ? Terrain.Rock : Terrain.Sand;
+      m.shade[i] = rng();
+    }
+    const half = n / 2;
+    const inQuarter = (p) => p.x < half && p.y < half;
+    forDisc(m, PLATEAU.x, PLATEAU.y, PLATEAU.r, (i) => m.terrain[i] = Terrain.Rock);
+    const angle = rng() * (Math.PI / 2);
+    addField(m, rng, { x: Math.round(PLATEAU.x + Math.cos(angle) * 17), y: Math.round(PLATEAU.y + Math.sin(angle) * 17) }, 5, true);
+    for (let gy = 0; gy * FIELD_GRID < half; gy++) {
+      for (let gx = 0; gx * FIELD_GRID < half; gx++) {
+        const c = {
+          x: Math.floor(gx * FIELD_GRID + FIELD_GRID / 2 + (rng() - 0.5) * FIELD_GRID * 0.5),
+          y: Math.floor(gy * FIELD_GRID + FIELD_GRID / 2 + (rng() - 0.5) * FIELD_GRID * 0.5)
+        };
+        if (!inQuarter({ x: c.x + 5, y: c.y + 5 })) continue;
+        if (plateaus.some((p) => Math.hypot(c.x - p.x, c.y - p.y) < p.r + 6)) continue;
+        if (m.fields.some((f) => Math.hypot(f.x - c.x, f.y - c.y) < 9)) continue;
+        addField(m, rng, c, 3 + Math.floor(rng() * 2), true);
+      }
+    }
+    addField(m, rng, { x: half - 7, y: half - 7 }, 4, true);
+    connectFields(m, [{ x: half - 1, y: half - 1 }]);
+    for (let y = 0; y < half; y++) {
+      for (let x = 0; x < half; x++) {
+        let p = { x, y };
+        const i = idx(m, x, y);
+        for (let k = 1; k < 4; k++) {
+          p = rotate(n, p);
+          const j = idx(m, p.x, p.y);
+          m.terrain[j] = m.terrain[i];
+          m.spice[j] = m.spice[i];
+        }
+      }
+    }
+    const quarterFields = [...m.fields];
+    for (const f of quarterFields) {
+      let p = f;
+      for (let k = 1; k < 4; k++) m.fields.push(p = rotate(n, p));
+    }
+    m.starts = plateaus.map((p) => ({ x: p.x + BASE_OFFSET.x, y: p.y + BASE_OFFSET.y }));
+    m.start = m.starts[0];
+    m.enemyStart = m.starts[2];
     return m;
   }
   function forDisc(m, cx, cy, r, fn) {
@@ -1355,11 +1427,12 @@
       const fog = g.fogs[owner];
       if (!fog.enabled) continue;
       fog.visible.fill(0);
+      const team = g.teams[owner];
       for (const u of g.units) {
-        if (u.owner === owner) reveal(fog, g, u.x / TILE, u.y / TILE, SIGHT[u.kind] + rankSight(u));
+        if (g.teams[u.owner] === team) reveal(fog, g, u.x / TILE, u.y / TILE, SIGHT[u.kind] + rankSight(u));
       }
       for (const b of g.buildings) {
-        if (b.owner !== owner) continue;
+        if (g.teams[b.owner] !== team) continue;
         const own2 = SIGHT[b.kind];
         reveal(fog, g, b.tx + b.w / 2, b.ty + b.h / 2, own2 ?? SIGHT.building + Math.max(b.w, b.h) / 2);
       }
@@ -1485,7 +1558,8 @@
   var RESEARCH_SPEED = 0.5;
   var AI_RESERVE = 1500;
   function createResearch() {
-    return { 0: { done: [], current: null }, 1: { done: [], current: null } };
+    const none = () => ({ done: [], current: null });
+    return { 0: none(), 1: none(), 2: none(), 3: none() };
   }
   function researchFor(faction) {
     return Object.keys(RESEARCH).filter((id) => RESEARCH[id].faction === faction);
@@ -1524,12 +1598,13 @@
   }
   function updateResearch(g, dt) {
     if (g.result) return;
-    const ai = g.research[ENEMY];
-    if (!ai.current && !g.humans.includes(ENEMY) && g.ai.builds && g.ai.credits > AI_RESERVE) {
-      const next = researchFor(g.factions[ENEMY]).find((id) => !researchBlocked(g, ENEMY, id));
-      if (next) startResearch(g, ENEMY, next);
+    for (const side of g.sides) {
+      const brain = g.ais[side];
+      if (!brain || g.humans.includes(side) || g.research[side].current || !brain.builds || brain.credits <= AI_RESERVE) continue;
+      const next = researchFor(g.factions[side]).find((id) => !researchBlocked(g, side, id));
+      if (next) startResearch(g, side, next);
     }
-    for (const owner of [PLAYER, ENEMY]) {
+    for (const owner of g.sides) {
       const r = g.research[owner];
       if (!r.current || !hasBuilding(g, "techCenter", owner)) continue;
       const wallet = walletOf(g, owner);
@@ -1574,29 +1649,35 @@
     let bestD = Infinity;
     const blind = g.humans.includes(owner) && g.fogs[owner].enabled;
     for (const u of g.units) {
-      if (u.owner === owner) continue;
+      if (!hostile(g, u.owner, owner)) continue;
+      const r = UNIT_STATS[u.kind].radius;
+      if (Math.abs(u.x - x) - r > maxDist || Math.abs(u.y - y) - r > maxDist) continue;
       if (blind && !visibleAt(g, u.x, u.y, owner)) continue;
-      const t = targetInfo(g, u.id);
-      const d = edgeDist(x, y, t);
-      if (minDist > 0 && Math.hypot(t.x - x, t.y - y) < minDist) continue;
+      const centre = Math.hypot(u.x - x, u.y - y);
+      const d = Math.max(0, centre - r);
+      if (minDist > 0 && centre < minDist) continue;
       if (d <= maxDist && d < bestD) {
-        best = t;
+        best = u;
         bestD = d;
       }
     }
-    if (best) return best;
+    if (best) return targetInfo(g, best.id);
     for (const b of g.buildings) {
-      if (b.owner === owner) continue;
+      if (!hostile(g, b.owner, owner)) continue;
+      const cx = (b.tx + b.w / 2) * TILE;
+      const cy = (b.ty + b.h / 2) * TILE;
+      const r = Math.min(b.w, b.h) * TILE / 2;
+      if (Math.abs(cx - x) - r > maxDist || Math.abs(cy - y) - r > maxDist) continue;
       if (blind && !visibleRect(g, b.tx, b.ty, b.w, b.h, owner)) continue;
-      const t = targetInfo(g, b.id);
-      const d = edgeDist(x, y, t);
-      if (minDist > 0 && Math.hypot(t.x - x, t.y - y) < minDist) continue;
+      const centre = Math.hypot(cx - x, cy - y);
+      const d = Math.max(0, centre - r);
+      if (minDist > 0 && centre < minDist) continue;
       if (d <= maxDist && d < bestD) {
-        best = t;
+        best = b;
         bestD = d;
       }
     }
-    return best;
+    return best ? targetInfo(g, best.id) : null;
   }
   function addEffect(g, e) {
     g.effects.push({ x2: e.x, y2: e.y, age: 0, size: 1, ...e });
@@ -1605,35 +1686,36 @@
     const by = attacker ?? source?.owner;
     const u = g.units.find((x) => x.id === id);
     if (u) {
-      if (by !== void 0 && by !== u.owner && u.owner === g.local) underAttack(g, u.x, u.y, false);
+      if (by !== void 0 && hostile(g, by, u.owner) && u.owner === g.local) underAttack(g, u.x, u.y, false);
       const vehicle = UNIT_STATS[u.kind].armor !== "infantry";
       const armour = (vehicle ? FACTIONS[g.factions[u.owner]].vehicleArmor * bonus(g, u.owner, "vehicleArmor") : 1) * bonus(g, u.owner, "armor");
       const dealt = Math.min(u.hp, amount * armour * rankArmor(u) * wardFactor(g, u));
       u.hp -= dealt;
       u.hitAt = g.time;
-      if (source && source.owner !== u.owner) gainXp(g, source, dealt);
-      if (u.hp <= 0) destroyUnit(g, u);
+      if (source && hostile(g, source.owner, u.owner)) gainXp(g, source, dealt);
+      if (u.hp <= 0) destroyUnit(g, u, by);
       return;
     }
     const b = g.buildings.find((x) => x.id === id);
     if (b) {
-      if (by !== void 0 && by !== b.owner && b.owner === g.local) {
+      if (by !== void 0 && hostile(g, by, b.owner) && b.owner === g.local) {
         const c = buildingCentre(b);
         underAttack(g, c.x, c.y, true);
       }
       const dealt = Math.min(b.hp, amount);
       b.hp -= dealt;
-      if (source && source.owner !== b.owner) gainXp(g, source, dealt);
+      if (source && hostile(g, source.owner, b.owner)) gainXp(g, source, dealt);
       if (b.hp <= 0) destroyBuilding(g, b);
     }
   }
-  function destroyUnit(g, u) {
+  var whose = (g, owner) => hostile(g, owner, g.local) ? "Enemy" : "Allied";
+  function destroyUnit(g, u, by) {
     g.units = g.units.filter((x) => x !== u);
     g.selection.delete(u.id);
     const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
     emit(g, { kind: "explode", big, x: u.x, y: u.y });
     unitDeathFx(g, u);
-    if (isHero(u.kind)) notify(g, u.owner === g.local ? `${UNIT_STATS[u.kind].label} has fallen!` : `Enemy hero ${UNIT_STATS[u.kind].label} is down!`);
+    if (isHero(u.kind)) notify(g, u.owner === g.local ? `${UNIT_STATS[u.kind].label} has fallen!` : `${whose(g, u.owner)} hero ${UNIT_STATS[u.kind].label} is down!`);
     if (u.owner === g.local && isHero(u.kind)) emit(g, { kind: "heroVoice", unit: u.kind, line: "fallen" });
     else if (u.owner === g.local && u.kind !== "harvester") announce(g, "unit_lost", 6);
     if (u.owner === g.local && u.kind === "harvester") {
@@ -1643,10 +1725,10 @@
     if (u.owner === PLAYER && u.kind === "harvester") {
       g.stats.harvestersLost++;
     }
-    if (u.owner === ENEMY) g.stats.enemyUnitsDestroyed++;
-    const rival = u.owner === PLAYER ? ENEMY : PLAYER;
-    const share = FACTIONS[g.factions[rival]].salvage + bonus(g, rival, "salvage");
-    if (share > 0) {
+    if (hostile(g, u.owner, PLAYER)) g.stats.enemyUnitsDestroyed++;
+    const rival = by !== void 0 && hostile(g, by, u.owner) ? by : g.sides.length === 2 ? u.owner === PLAYER ? ENEMY : PLAYER : void 0;
+    const share = rival === void 0 ? 0 : FACTIONS[g.factions[rival]].salvage + bonus(g, rival, "salvage");
+    if (rival !== void 0 && share > 0) {
       const payout = unitCost(g.factions[u.owner], u.kind) * share;
       walletOf(g, rival).credits += payout;
     }
@@ -1662,7 +1744,7 @@
     const c = buildingCentre(b);
     emit(g, { kind: "explode", big: true, x: c.x, y: c.y });
     buildingDeathFx(g, c.x, c.y, b.w, b.h);
-    notify(g, b.owner === g.local ? `${BUILDING_STATS[b.kind].label} destroyed` : `Enemy ${BUILDING_STATS[b.kind].label} destroyed`);
+    notify(g, b.owner === g.local ? `${BUILDING_STATS[b.kind].label} destroyed` : `${whose(g, b.owner)} ${BUILDING_STATS[b.kind].label} destroyed`);
     if (b.owner === g.local) announce(g, "structure_lost", 3);
   }
   function fire(g, owner, x, y, weapon2, t, source) {
@@ -1872,9 +1954,10 @@
     for (const u of [...g.units]) {
       if (g.units.includes(u)) updateUnit(g, u, dt);
     }
-    const low = { 0: powerInfo(g, PLAYER).low, 1: powerInfo(g, ENEMY).low };
+    const low = {};
+    for (const s of g.sides) low[s] = powerInfo(g, s).low;
     for (const b of [...g.buildings]) {
-      if (g.buildings.includes(b)) updateTurret(g, b, dt, low[b.owner]);
+      if (g.buildings.includes(b)) updateTurret(g, b, dt, !!low[b.owner]);
     }
     updateProjectiles(g, dt);
     for (const e of g.effects) e.age += dt;
@@ -1887,11 +1970,26 @@
           emit(g, { kind: "defeat" });
         }
       } else {
-        if (!g.buildings.some((b) => b.owner === ENEMY)) g.result = "victory";
-        else if (!g.buildings.some((b) => b.owner === PLAYER)) g.result = "defeat";
+        const standing = (s) => g.buildings.some((b) => b.owner === s);
+        if (g.sides.length > 2) noteEliminations(g, standing);
+        const mine = g.teams[PLAYER];
+        if (!g.sides.some((s) => g.teams[s] !== mine && standing(s))) g.result = "victory";
+        else if (!g.sides.some((s) => g.teams[s] === mine && standing(s))) g.result = "defeat";
         if (g.result) emit(g, { kind: g.result });
       }
     }
+  }
+  function noteEliminations(g, standing) {
+    for (const s of g.sides) {
+      if (g.eliminated.includes(s) || standing(s)) continue;
+      g.eliminated.push(s);
+      const name = FACTIONS[g.factions[s]].label;
+      if (s === g.local) notify(g, g.sides.some((o) => o !== s && !hostile(g, o, s) && standing(o)) ? "Your base has fallen. Your ally fights on." : "Your base has fallen.");
+      else notify(g, `${hostile(g, s, g.local) ? "" : "Our ally "}${name}${hostile(g, s, g.local) ? " (" + sideColour(s) + ")" : ""} has been knocked out!`);
+    }
+  }
+  function sideColour(s) {
+    return ["blue", "red", "green", "violet"][s];
   }
 
   // src/heroes.ts
@@ -1916,7 +2014,7 @@
   function nearestEnemyBuilding(g, u) {
     let best = { d: Infinity, b: null };
     for (const b of g.buildings) {
-      if (b.owner === u.owner) continue;
+      if (!hostile(g, b.owner, u.owner)) continue;
       const dx = Math.max(b.tx * TILE - u.x, 0, u.x - (b.tx + b.w) * TILE);
       const dy = Math.max(b.ty * TILE - u.y, 0, u.y - (b.ty + b.h) * TILE);
       const d = Math.hypot(dx, dy);
@@ -1942,7 +2040,7 @@
     } else {
       const kind = factionUnit(g.factions[u.owner], "infantry");
       const crew = formationTiles(g.map, unitTile(u), CREW.count + 1).filter((t) => !(t.x === unitTile(u).x && t.y === unitTile(u).y)).slice(0, CREW.count).map((t) => spawnUnit(g, kind, t.x, t.y, u.owner));
-      if (u.owner === ENEMY) g.ai.raiders.push(...crew.map((c) => c.id));
+      if (!g.humans.includes(u.owner)) g.ais[u.owner]?.raiders.push(...crew.map((c) => c.id));
     }
     u.abilityCd = hero.cooldown;
     emit(g, { kind: "ability", ability: hero.kind, owner: u.owner, x: u.x, y: u.y });
@@ -1963,13 +2061,13 @@
     g.charges = ticking.filter((c) => g.buildings.some((b) => b.id === c.buildingId));
     for (const u of g.units) {
       const hero = HEROES[u.kind];
-      if (!hero || u.owner !== ENEMY || g.humans.includes(ENEMY) || u.abilityCd > 0) continue;
-      const fighting = nearestHostile(g, ENEMY, u.x, u.y, 5 * TILE) !== null;
+      if (!hero || g.humans.includes(u.owner) || !g.ais[u.owner] || u.abilityCd > 0) continue;
+      const fighting = nearestHostile(g, u.owner, u.x, u.y, 5 * TILE) !== null;
       if (hero.kind === "charge") {
         const { d, b } = nearestEnemyBuilding(g, u);
         if (b && d <= CHARGE.reach * TILE) useAbility(g, u);
       } else if (hero.kind === "ward") {
-        const near = g.units.filter((o) => o.owner === ENEMY && Math.hypot(o.x - u.x, o.y - u.y) <= WARD.radius * TILE).length;
+        const near = g.units.filter((o) => o.owner === u.owner && Math.hypot(o.x - u.x, o.y - u.y) <= WARD.radius * TILE).length;
         if (fighting && near >= 3) useAbility(g, u);
       } else if (fighting) {
         useAbility(g, u);
@@ -2189,7 +2287,7 @@
     for (const b of g.buildings) {
       const max = BUILDING_STATS[b.kind].maxHp;
       const wallet = walletOf(g, b.owner);
-      if (b.owner === ENEMY && !g.humans.includes(ENEMY) && !b.repairing && b.hp < max * 0.6 && g.ai.credits > 600) b.repairing = true;
+      if (b.owner !== PLAYER && !g.humans.includes(b.owner) && !b.repairing && b.hp < max * 0.6 && wallet.credits > 600) b.repairing = true;
       if (!b.repairing) continue;
       const perHp = BUILDING_STATS[b.kind].cost * BUILDING_REPAIR.costShare / max;
       const hp = Math.min(max - b.hp, BUILDING_REPAIR.rate * dt, perHp > 0 ? wallet.credits / perHp : Infinity);
@@ -2245,36 +2343,55 @@
       builds: true
     };
   }
-  var count = (g, kind) => g.buildings.filter((b) => b.owner === ENEMY && b.kind === kind).length;
+  var aiOf = (g, me) => g.ais[me];
+  var count = (g, kind, me) => g.buildings.filter((b) => b.owner === me && b.kind === kind).length;
   var alive = (g, ids) => ids.map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
-  function enemyYard(g) {
-    return g.buildings.find((b) => b.owner === ENEMY && b.kind === "yard");
+  function myYard(g, me) {
+    return g.buildings.find((b) => b.owner === me && b.kind === "yard");
   }
-  function rallyPoint(g) {
-    const e = g.map.enemyStart;
-    const p = g.map.start;
+  function enemyHome(g, me) {
+    const home = g.startOf[me];
+    let best = home;
+    let bestD = Infinity;
+    for (const s of g.sides) {
+      if (!hostile(g, s, me)) continue;
+      if (g.sides.length > 2 && !g.buildings.some((b) => b.owner === s)) continue;
+      const p = g.startOf[s];
+      const d = Math.hypot(p.x - home.x, p.y - home.y);
+      if (d < bestD) {
+        best = p;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+  function rallyPoint(g, me = ENEMY) {
+    const e = g.startOf[me];
+    const p = enemyHome(g, me);
     const d = Math.hypot(p.x - e.x, p.y - e.y) || 1;
     const target = { x: Math.round(e.x + (p.x - e.x) / d * 6), y: Math.round(e.y + (p.y - e.y) / d * 6) };
     return nearestPassable(g.map, target) ?? e;
   }
-  function chooseStructure(g) {
-    const power2 = powerInfo(g, ENEMY);
+  function chooseStructure(g, me = ENEMY) {
+    const ai = aiOf(g, me);
+    const power2 = powerInfo(g, me);
     const headroom = power2.produced - power2.used;
     const wants = [
       [headroom < 20, "power"],
-      [count(g, "refinery") === 0, "refinery"],
-      [!hasBuilding(g, "lightFactory", ENEMY), "lightFactory"],
-      [!hasBuilding(g, "heavyFactory", ENEMY), "heavyFactory"],
-      [count(g, "refinery") < 2 && g.time > 300, "refinery"],
-      [count(g, "turret") < MAX_TURRETS && g.time > 200, "turret"],
-      [!hasBuilding(g, "radar", ENEMY) && g.time > 260, "radar"],
-      [count(g, "rocketTurret") < 3 && g.time > 420, "rocketTurret"],
-      [!hasBuilding(g, "techCenter", ENEMY) && g.time > 540, "techCenter"],
+      [count(g, "refinery", me) === 0, "refinery"],
+      [!hasBuilding(g, "barracks", me), "barracks"],
+      [!hasBuilding(g, "lightFactory", me), "lightFactory"],
+      [!hasBuilding(g, "heavyFactory", me), "heavyFactory"],
+      [count(g, "refinery", me) < 2 && g.time > 300, "refinery"],
+      [count(g, "turret", me) < MAX_TURRETS && g.time > 200, "turret"],
+      [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
+      [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
+      [!hasBuilding(g, "techCenter", me) && g.time > 540, "techCenter"],
       [headroom < 50, "power"]
     ];
     for (const [want, kind] of wants) {
-      const skipped = (g.ai.skipUntil[kind] ?? 0) > g.time;
-      if (want && !skipped && !missingFor(g, kind, ENEMY)) return kind;
+      const skipped = (ai.skipUntil[kind] ?? 0) > g.time;
+      if (want && !skipped && !missingFor(g, kind, me)) return kind;
     }
     return null;
   }
@@ -2286,57 +2403,64 @@
     }
     return true;
   }
-  function findSpot(g, kind) {
-    const yard = enemyYard(g) ?? g.buildings.find((b) => b.owner === ENEMY);
+  function findSpot(g, kind, me = ENEMY) {
+    const yard = myYard(g, me) ?? g.buildings.find((b) => b.owner === me);
     if (!yard) return null;
     const { w, h } = BUILDING_STATS[kind];
     const cx = yard.tx + 1;
     const cy = yard.ty + 1;
+    const foe = enemyHome(g, me);
     const candidates = [];
     for (let y = cy - 14; y <= cy + 14; y++) {
       for (let x = cx - 14; x <= cx + 14; x++) {
-        if (!canPlace(g, kind, x, y, ENEMY)) continue;
+        if (!canPlace(g, kind, x, y, me)) continue;
         if (kind === "refinery" && !isPassable(g.map, x + 1, y + h)) continue;
         const fromYard = Math.hypot(x - cx, y - cy);
-        const toPlayer = Math.hypot(x - g.map.start.x, y - g.map.start.y);
+        const toEnemy = Math.hypot(x - foe.x, y - foe.y);
         const cramped = hasClearance(g, x, y, w, h) ? 0 : 100;
-        candidates.push({ x, y, score: cramped + (kind === "turret" ? toPlayer + fromYard * 0.5 : fromYard) });
+        candidates.push({ x, y, score: cramped + (kind === "turret" ? toEnemy + fromYard * 0.5 : fromYard) });
       }
     }
     candidates.sort((a, b) => a.score - b.score);
     return candidates[0] ?? null;
   }
-  function chooseUnit(g, producer) {
-    const role = chooseRole(g, producer);
-    return factionUnit(g.factions[ENEMY], role);
+  function chooseUnit(g, producer, me) {
+    const role = chooseRole(g, producer, me);
+    return factionUnit(g.factions[me], role);
   }
-  function chooseRole(g, producer) {
-    const F = (k) => factionUnit(g.factions[ENEMY], k);
-    const mine = (k) => g.units.filter((u) => u.owner === ENEMY && u.kind === F(k)).length;
-    const mix = g.ai.waves > 0;
+  function chooseRole(g, producer, me) {
+    const F = (k) => factionUnit(g.factions[me], k);
+    const mine = (k) => g.units.filter((u) => u.owner === me && u.kind === F(k)).length;
+    const mix = aiOf(g, me).waves > 0;
     if (producer === "barracks") {
-      if (!missingFor(g, F("vance"), ENEMY) && heroCount(g, ENEMY) === 0) return "vance";
+      if (!missingFor(g, F("vance"), me) && heroCount(g, me) === 0) return "vance";
       if (mix && mine("medic") * 4 < mine("infantry")) return "medic";
-      if (mix && !missingFor(g, F("marksman"), ENEMY) && mine("marksman") * 3 < mine("infantry")) return "marksman";
+      if (mix && !missingFor(g, F("marksman"), me) && mine("marksman") * 3 < mine("infantry")) return "marksman";
       return mix && mine("rocketInfantry") * 2 < mine("infantry") ? "rocketInfantry" : "infantry";
     }
     if (producer === "lightFactory") return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
-    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery"))) return "harvester";
-    if (!missingFor(g, F("bastion"), ENEMY) && mine("bastion") * 2 <= mine("tank")) return "bastion";
-    if (!missingFor(g, F("artillery"), ENEMY) && mine("artillery") * 2 < mine("tank")) return "artillery";
+    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery", me))) return "harvester";
+    if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank")) return "bastion";
+    if (!missingFor(g, F("artillery"), me) && mine("artillery") * 2 < mine("tank")) return "artillery";
     return "tank";
   }
   function updateAi(g, dt) {
-    if (g.result || g.humans.includes(ENEMY)) return;
-    const ai = g.ai;
+    if (g.result) return;
+    for (const me of g.sides) {
+      if (g.humans.includes(me) || !g.ais[me]) continue;
+      updateSide(g, me, dt);
+    }
+  }
+  function updateSide(g, me, dt) {
+    const ai = aiOf(g, me);
     const level = AI_LEVELS[ai.difficulty];
     ai.credits += level.trickle * dt;
-    const factor = (powerInfo(g, ENEMY).low ? LOW_POWER_FACTOR : 1) * level.buildSpeed * bonus(g, ENEMY, "buildSpeed");
+    const factor = (powerInfo(g, me).low ? LOW_POWER_FACTOR : 1) * level.buildSpeed * bonus(g, me, "buildSpeed");
     const job = ai.structure;
-    if (job && enemyYard(g) && advance(ai, job, BUILDING_STATS[job.kind].cost, dt, factor)) {
-      const spot = findSpot(g, job.kind);
+    if (job && myYard(g, me) && advance(ai, job, BUILDING_STATS[job.kind].cost, dt, factor)) {
+      const spot = findSpot(g, job.kind, me);
       if (spot) {
-        const b = placeBuilding(g, job.kind, spot.x, spot.y, ENEMY);
+        const b = placeBuilding(g, job.kind, spot.x, spot.y, me);
         if (b.kind === "refinery") spawnFreeHarvester(g, b);
       } else {
         ai.credits += job.spent;
@@ -2346,15 +2470,15 @@
     }
     for (const producer of Object.keys(ai.lines)) {
       const line = ai.lines[producer];
-      const factory = g.buildings.find((b) => b.owner === ENEMY && b.kind === producer);
+      const factory = g.buildings.find((b) => b.owner === me && b.kind === producer);
       if (!factory || !line.current) continue;
-      if (advance(ai, line.current, unitCost(g.factions[ENEMY], line.current.kind), dt, factor)) {
+      if (advance(ai, line.current, unitCost(g.factions[me], line.current.kind), dt, factor)) {
         const t = exitTile(g, factory);
-        const u = spawnUnit(g, line.current.kind, t.x, t.y, ENEMY);
+        const u = spawnUnit(g, line.current.kind, t.x, t.y, me);
         if (u.kind === "harvester") autoHarvest(g, u, t);
         else {
           ai.army.push(u.id);
-          commandMove(g, [u], rallyPoint(g));
+          commandMove(g, [u], rallyPoint(g, me));
         }
         line.current = null;
       }
@@ -2362,13 +2486,13 @@
     ai.think -= dt;
     if (ai.think > 0) return;
     ai.think = THINK_INTERVAL;
-    think(g);
+    think(g, me);
   }
-  function think(g) {
-    const ai = g.ai;
+  function think(g, me) {
+    const ai = aiOf(g, me);
     const level = AI_LEVELS[ai.difficulty];
-    if (ai.builds && !ai.structure && enemyYard(g)) {
-      const kind = chooseStructure(g);
+    if (ai.builds && !ai.structure && myYard(g, me)) {
+      const kind = chooseStructure(g, me);
       if (kind) ai.structure = { kind, spent: 0, done: false };
     }
     ai.army = alive(g, ai.army).map((u) => u.id);
@@ -2380,13 +2504,13 @@
     const infantry = () => alive(g, ai.army).filter((u) => u.kind === "infantry" || u.kind === "rocketInfantry").length + (ai.lines.barracks.current ? 1 : 0);
     for (const producer of ["heavyFactory", "lightFactory", "barracks"]) {
       const line = ai.lines[producer];
-      if (line.current || !hasBuilding(g, producer, ENEMY)) continue;
-      const kind = chooseUnit(g, producer);
+      if (line.current || !hasBuilding(g, producer, me)) continue;
+      const kind = chooseUnit(g, producer, me);
       if (kind !== "harvester") {
         if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
         if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize / 2)) continue;
       }
-      if (ai.credits < reserve + unitCost(g.factions[ENEMY], kind) * 0.25) continue;
+      if (ai.credits < reserve + unitCost(g.factions[me], kind) * 0.25) continue;
       line.current = { kind, spent: 0 };
       if (kind !== "harvester") wanted--;
     }
@@ -2394,34 +2518,37 @@
     const due = g.time >= ai.nextWave;
     const overdue = g.time >= ai.nextWave + WAVE_PATIENCE;
     if (due && (army.length >= ai.waveSize || overdue && army.length >= 2)) {
-      const target = nearestPlayerBuilding(g, g.map.enemyStart.x * TILE, g.map.enemyStart.y * TILE);
+      const home = g.startOf[me];
+      const target = nearestEnemyBuilding2(g, me, home.x * TILE, home.y * TILE);
       if (target) {
-        commandAttackMove(g, army, target);
+        commandAttackMove(g, army, target.at);
         ai.raiders.push(...army.map((u) => u.id));
         ai.army = [];
         ai.waves++;
         ai.waveSize = Math.min(level.maxWave, ai.waveSize + level.waveGrow);
         ai.nextWave = g.time + level.waveGap;
-        notify(g, "Enemy attack incoming!");
-        emit(g, { kind: "alarm" });
-        announce(g, "enemy_approaching");
+        if (target.owner === g.local) {
+          notify(g, "Enemy attack incoming!");
+          emit(g, { kind: "alarm" });
+          announce(g, "enemy_approaching");
+        } else if (!hostile(g, me, g.local)) notify(g, "Our ally is launching an attack.");
       }
     }
-    defendBase(g);
+    defendBase(g, me);
     for (const u of alive(g, ai.raiders)) {
       if (u.order !== "idle" || u.targetId !== null || u.path.length > 0) continue;
-      const target = nearestPlayerBuilding(g, u.x, u.y);
-      if (target) commandAttackMove(g, [u], target);
+      const target = nearestEnemyBuilding2(g, me, u.x, u.y);
+      if (target) commandAttackMove(g, [u], target.at);
     }
   }
   var DEFEND_RADIUS = 10;
-  function defendBase(g) {
-    const ai = g.ai;
-    const base = g.buildings.filter((b) => b.owner === ENEMY);
+  function defendBase(g, me) {
+    const ai = aiOf(g, me);
+    const base = g.buildings.filter((b) => b.owner === me);
     let intruder = null;
     let best = Infinity;
     for (const u of g.units) {
-      if (u.owner !== PLAYER) continue;
+      if (!hostile(g, u.owner, me)) continue;
       for (const b of base) {
         const d = Math.hypot(u.x / TILE - (b.tx + b.w / 2), u.y / TILE - (b.ty + b.h / 2));
         if (d < DEFEND_RADIUS && d < best) {
@@ -2440,22 +2567,22 @@
       }
       return;
     }
-    const rally = rallyPoint(g);
+    const rally = rallyPoint(g, me);
     for (const u of army) {
       if (u.order === "idle" && u.targetId === null && u.path.length === 0 && Math.hypot(u.x / TILE - rally.x, u.y / TILE - rally.y) > 6) {
         commandMove(g, [u], rally);
       }
     }
   }
-  function nearestPlayerBuilding(g, x, y) {
+  function nearestEnemyBuilding2(g, me, x, y) {
     let best = null;
     let bestD = Infinity;
     for (const b of g.buildings) {
-      if (b.owner !== PLAYER) continue;
+      if (!hostile(g, b.owner, me)) continue;
       const c = { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h };
       const d = Math.hypot(c.x * TILE - x, c.y * TILE - y);
       if (d < bestD) {
-        best = c;
+        best = { at: c, owner: b.owner };
         bestD = d;
       }
     }
@@ -2892,6 +3019,18 @@
   var MAX_REPLANS = 10;
   var PLAYER = 0;
   var ENEMY = 1;
+  var ALL_SIDES = [0, 1, 2, 3];
+  var MAP4 = 112;
+  var MODES = {
+    "1v1": { label: "1 vs 1", sides: [0, 1], teams: [0, 1, 2, 3], corners: [] },
+    // Teammates share the west / east halves. Corners run clockwise from top-left.
+    "2v2": { label: "2 vs 2", sides: [0, 1, 2, 3], teams: [0, 1, 0, 1], corners: [0, 1, 3, 2] },
+    ffa3: { label: "Free-for-all (3)", sides: [0, 1, 2], teams: [0, 1, 2, 3], corners: [0, 2, 1] },
+    ffa4: { label: "Free-for-all (4)", sides: [0, 1, 2, 3], teams: [0, 1, 2, 3], corners: [0, 2, 1, 3] }
+  };
+  function hostile(g, a, b) {
+    return g.teams[a] !== g.teams[b];
+  }
   var PING_LIFE = 6;
   var PING_SPACING = 8;
   var ALERT_GAP = 15;
@@ -2905,8 +3044,16 @@
     announce(g, building ? "base_under_attack" : "units_under_attack");
   }
   function createGame(seed = 1, difficulty = "normal", options = {}) {
-    const map = generateMap(seed);
-    const fogs = { 0: createFog(map.w, map.h, options.fog !== false), 1: createFog(map.w, map.h, options.fog !== false) };
+    const mode = options.mode ?? "1v1";
+    const layout = MODES[mode];
+    const map = mode === "1v1" ? generateMap(seed) : generateMap(seed, MAP4, MAP4, 4);
+    const fog = () => createFog(map.w, map.h, options.fog !== false);
+    const fogs = { 0: fog(), 1: fog(), 2: fog(), 3: fog() };
+    const ai = createAiState(difficulty);
+    const factions = { 0: options.playerFaction ?? "concord", 1: options.enemyFaction ?? "shardbound", 2: "concord", 3: "concord" };
+    options.factions?.forEach((f, side) => factions[side] = f);
+    const starts = map.starts ?? [map.start, map.enemyStart];
+    const startOf = mode === "1v1" ? [map.start, map.enemyStart, map.start, map.enemyStart] : ALL_SIDES.map((s) => starts[layout.corners[s] ?? 0]);
     const g = {
       map,
       units: [],
@@ -2931,7 +3078,13 @@
       research: createResearch(),
       effects: [],
       result: null,
-      ai: createAiState(difficulty),
+      ai,
+      ais: { 1: ai },
+      mode,
+      sides: [...layout.sides],
+      teams: [...layout.teams],
+      startOf,
+      eliminated: [],
       storms: [],
       stormTimer: options.hazards === false ? Infinity : STORMS.firstSpawn,
       hazardRng: mulberry32(seed * 7919 + 17),
@@ -2946,7 +3099,7 @@
       groups: {},
       occupant: new Int32Array(map.w * map.h),
       events: [],
-      factions: { 0: options.playerFaction ?? "concord", 1: options.enemyFaction ?? "shardbound" },
+      factions,
       stats: { creditsHarvested: 0, harvestersLost: 0, enemyUnitsDestroyed: 0 },
       mission: null,
       resultReason: "",
@@ -2955,6 +3108,14 @@
       time: 0,
       tick: 0
     };
+    if (mode !== "1v1") {
+      for (const side of g.sides) {
+        if (side !== PLAYER && !g.ais[side]) g.ais[side] = createAiState(difficulty);
+        spawnCornerBase(g, side);
+      }
+      refreshFog(g);
+      return g;
+    }
     spawnStartingBase(g, PLAYER);
     if (options.pvp) {
       g.ai.credits = START_CREDITS;
@@ -2977,18 +3138,36 @@
     const near = owner === PLAYER ? { x: s.x + 3, y: s.y + 5 } : { x: g.map.w - 1 - (s.x + 3), y: g.map.h - 1 - (s.y + 5) };
     for (const t of formationTiles(g.map, near, 3)) spawnUnit(g, factionUnit(g.factions[owner], "quad"), t.x, t.y, owner);
   }
+  function spawnCornerBase(g, owner) {
+    const s0 = g.startOf[PLAYER];
+    const s = g.startOf[owner];
+    const flipX = s.x > g.map.w / 2;
+    const flipY = s.y > g.map.h / 2;
+    const fx = (x, w) => flipX ? g.map.w - x - w : x;
+    const fy = (y, h) => flipY ? g.map.h - y - h : y;
+    const at = (kind, x, y) => {
+      const { w, h } = BUILDING_STATS[kind];
+      return placeBuilding(g, kind, fx(x, w), fy(y, h), owner);
+    };
+    at("yard", s0.x, s0.y);
+    at("power", s0.x, s0.y + 4);
+    const refinery = at("refinery", s0.x + 4, s0.y + 1);
+    spawnFreeHarvester(g, refinery);
+    const near = { x: fx(s0.x + 3, 1), y: fy(s0.y + 5, 1) };
+    for (const t of formationTiles(g.map, near, 3)) spawnUnit(g, factionUnit(g.factions[owner], "quad"), t.x, t.y, owner);
+  }
   function walletOf(g, owner) {
-    return owner === PLAYER ? g : g.ai;
+    return owner === PLAYER ? g : g.ais[owner];
   }
   function linesOf(g, owner) {
-    return owner === PLAYER ? g.lines : g.ai.lines;
+    return owner === PLAYER ? g.lines : g.ais[owner].lines;
   }
   function structureOf(g, owner) {
-    return owner === PLAYER ? g.structure : g.ai.structure;
+    return owner === PLAYER ? g.structure : g.ais[owner]?.structure ?? null;
   }
   function setStructureOf(g, owner, job) {
     if (owner === PLAYER) g.structure = job;
-    else g.ai.structure = job;
+    else g.ais[owner].structure = job;
   }
   var ENEMY_LAYOUT = [
     { kind: "yard", dx: 0, dy: 0 },
@@ -3636,7 +3815,7 @@
     const b = buildingAtTile(g, tx, ty);
     const hasHarvesters = units.some((u) => u.kind === "harvester");
     if (b?.kind === "repairPad" && b.owner === owner && units.some((u) => UNIT_STATS[u.kind].armor !== "infantry")) return { marker: "move", sound: false };
-    if (b && b.owner !== owner || attackMove) return { marker: "attack", sound: true };
+    if (b && hostile(g, b.owner, owner) || attackMove) return { marker: "attack", sound: true };
     if (hasHarvesters && (b?.kind === "refinery" && b.owner === owner || g.map.spice[idx(g.map, tx, ty)] > 0)) return { marker: "harvest", sound: true };
     return { marker: "move", sound: true };
   }
@@ -3653,7 +3832,7 @@
         return;
       }
     }
-    if (b && b.owner !== owner) {
+    if (b && hostile(g, b.owner, owner)) {
       commandAttack(g, units, b.id);
       return;
     }
@@ -4105,7 +4284,13 @@
     const ground = t.rock >= 38 ? "Rocky" : t.rock <= 17 ? "Open sand" : "Mixed ground";
     return [crystal, `${t.fields} fields`, cliffs, ground];
   }
-  function previewPixels(m) {
+  var SIDE_COLOURS = [
+    [47, 111, 176],
+    [192, 57, 43],
+    [46, 154, 110],
+    [142, 82, 184]
+  ];
+  function previewPixels(m, bases) {
     const out = new Uint8ClampedArray(m.w * m.h * 4);
     const COLOURS = {
       [Terrain.Sand]: [158, 145, 124],
@@ -4132,8 +4317,11 @@
         }
       }
     };
-    mark(m.start, [47, 111, 176]);
-    mark(m.enemyStart, [192, 57, 43]);
+    for (const b of bases ?? [
+      { at: m.start, colour: SIDE_COLOURS[0] },
+      { at: m.enemyStart, colour: SIDE_COLOURS[1] }
+    ])
+      mark(b.at, b.colour);
     return out;
   }
 
@@ -5066,13 +5254,13 @@
           emit(this.game, { kind: "command" });
           return;
         }
-        if (e.shiftKey && !(enemy && enemy.owner !== me) && selected.length > 0) {
+        if (e.shiftKey && !(enemy && hostile(this.game, enemy.owner, me)) && selected.length > 0) {
           this.issue({ t: "order", units: selected.map((u) => u.id), x: Math.floor(wx / TILE), y: Math.floor(wy / TILE), queue: true });
           this.game.markers.push({ x: wx, y: wy, age: 0, kind: "move" });
           emit(this.game, { kind: "command" });
           return;
         }
-        if (enemy && enemy.owner !== me && visibleAt(this.game, enemy.x, enemy.y)) {
+        if (enemy && hostile(this.game, enemy.owner, me) && visibleAt(this.game, enemy.x, enemy.y)) {
           if (selected.length > 0) emit(this.game, { kind: "command", attack: true });
           this.issue({ t: "attack", units: selected.map((u) => u.id), target: enemy.id });
           this.game.markers.push({ x: enemy.x, y: enemy.y, age: 0, kind: "attack" });
@@ -5137,14 +5325,14 @@
       let cursor = "default";
       const hit = unitAtPoint(g, wx, wy);
       const b = inBounds(g.map, tx, ty) ? buildingAtTile(g, tx, ty) : void 0;
-      const hostile = hit && hit.owner !== g.local && visibleAt(g, hit.x, hit.y) || b && b.owner !== g.local && exploredRect(g, b.tx, b.ty, b.w, b.h);
+      const foe = hit && hostile(g, hit.owner, g.local) && visibleAt(g, hit.x, hit.y) || b && hostile(g, b.owner, g.local) && exploredRect(g, b.tx, b.ty, b.w, b.h);
       if (this.mode === "sell") {
         cursor = "alias";
       } else if (this.mode === "repair") {
         cursor = "context-menu";
       } else if (this.placing) {
         cursor = "copy";
-      } else if (hostile && g.selection.size > 0) {
+      } else if (foe && g.selection.size > 0) {
         cursor = "crosshair";
       } else if (hit?.owner === g.local) {
         cursor = "pointer";
@@ -5534,7 +5722,10 @@
   };
   var TEAM = {
     0: { main: "#2f6fb0", dark: "#1d4a78", mini: "#8fc3ff" },
-    1: { main: "#c0392b", dark: "#7d2219", mini: "#ff8a7a" }
+    1: { main: "#c0392b", dark: "#7d2219", mini: "#ff8a7a" },
+    // Green and violet: the extra sides in 2v2 and free-for-all.
+    2: { main: "#2e9a6e", dark: "#1c6045", mini: "#7ee8b8" },
+    3: { main: "#8e52b8", dark: "#5a3276", mini: "#d0a2f2" }
   };
   function hash3(i, k) {
     let h = i * 374761393 + k * 668265263 | 0;
@@ -5548,9 +5739,9 @@
     spice;
     miniTiles;
     miniAge = Infinity;
-    constructor(view, minimap, map, factions) {
+    constructor(view, minimap, map, factions, sides = [0, 1]) {
       this.factions = factions;
-      this.sprites = new SpriteBank(factions);
+      this.sprites = new SpriteBank(factions, sides);
       this.ctx = view.getContext("2d");
       this.mini = minimap.getContext("2d");
       this.terrain = buildTerrain(map);
@@ -5833,7 +6024,8 @@
         ctx.drawImage(this.crystalLight, sx, sy, sw, sh, sx * TILE, sy * TILE, sw * TILE, sh * TILE);
         ctx.restore();
       }
-      const lowPower = { 0: powerInfo(g, 0).low, 1: powerInfo(g, 1).low };
+      const lowPower = {};
+      for (const s of g.sides) lowPower[s] = powerInfo(g, s).low;
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       if (!LOW) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
@@ -6701,10 +6893,10 @@
   var SpriteBank = class {
     images = /* @__PURE__ */ new Map();
     /** Each side's buildings come from its faction's art (assets/buildings/<faction>/). */
-    constructor(factions) {
+    constructor(factions, sides = [0, 1]) {
       const strips = [...Object.keys(UNIT_SPRITES), ...Object.keys(TURRET_SPRITES)];
       const buildings = Object.keys(BUILDING_STATS).filter((k) => !(k in TURRET_SPRITES));
-      for (const owner of [0, 1]) {
+      for (const owner of sides) {
         for (const kind of strips) this.load(`${kind}_${owner}`, `assets/units/${kind}_${owner}.png`);
         for (const kind of Object.keys(UNIT_TURRETS)) this.load(`${kind}_turret_${owner}`, `assets/units/${kind}_turret_${owner}.png`);
         for (const kind of buildings) this.load(`${kind}_${owner}`, `assets/buildings/${factions[owner]}/${kind}_${owner}.png`);
@@ -7231,6 +7423,7 @@
   }
 
   // src/settings.ts
+  var MODE_IDS = ["1v1", "2v2", "ffa3", "ffa4"];
   var SPEEDS = { slow: 0.6, normal: 1, fast: 1.5, fastest: 2.2 };
   var SPEED_ORDER = ["slow", "normal", "fast", "fastest"];
   var SPEED_LABELS = { slow: "Slow", normal: "Normal", fast: "Fast", fastest: "Fastest" };
@@ -7242,7 +7435,8 @@
     faction: "concord",
     enemyFaction: "random",
     speed: "normal",
-    edgeScroll: true
+    edgeScroll: true,
+    mode: "1v1"
   };
   var CHOICES = [...FACTION_IDS, "random"];
   var isChoice = (v) => CHOICES.includes(v);
@@ -7268,6 +7462,7 @@
       if (isChoice(saved.enemyFaction)) base.enemyFaction = saved.enemyFaction;
       if (SPEED_ORDER.includes(saved.speed)) base.speed = saved.speed;
       if (typeof saved.edgeScroll === "boolean") base.edgeScroll = saved.edgeScroll;
+      if (MODE_IDS.includes(saved.mode)) base.mode = saved.mode;
     }
     const speed = query.get("speed");
     const faction = query.get("faction");
@@ -7280,7 +7475,8 @@
       faction: isChoice(faction) ? faction : base.faction,
       enemyFaction: isChoice(enemy) ? enemy : base.enemyFaction,
       speed: SPEED_ORDER.includes(speed) ? speed : base.speed,
-      edgeScroll: flag(query.get("edge")) ?? base.edgeScroll
+      edgeScroll: flag(query.get("edge")) ?? base.edgeScroll,
+      mode: MODE_IDS.find((m) => m === query.get("mode")) ?? base.mode
     };
   }
   function resolveFactions(s, rand3) {
@@ -7288,6 +7484,14 @@
     const others = FACTION_IDS.filter((f) => f !== player);
     const enemy = s.enemyFaction === "random" ? others[Math.floor(rand3() * others.length)] : s.enemyFaction;
     return { player, enemy };
+  }
+  function sideFactions(mode, player, enemy, enemyChoice, rand3) {
+    const pick2 = () => FACTION_IDS[Math.floor(rand3() * FACTION_IDS.length)];
+    if (mode === "1v1") return [player, enemy];
+    const extra = (enemySide) => enemySide && enemyChoice !== "random" ? enemyChoice : pick2();
+    if (mode === "2v2") return [player, enemy, extra(false), extra(true)];
+    if (mode === "ffa3") return [player, enemy, extra(true)];
+    return [player, enemy, extra(true), extra(true)];
   }
   function settingsToQuery(s, play) {
     const q = new URLSearchParams({
@@ -7300,6 +7504,7 @@
       speed: s.speed
     });
     if (!s.edgeScroll) q.set("edge", "0");
+    if (s.mode !== "1v1") q.set("mode", s.mode);
     if (play) q.set("play", "1");
     return q;
   }
@@ -12697,7 +12902,9 @@
       fog: setup.fog,
       playerFaction: setup.factions[0],
       enemyFaction: setup.factions[1],
-      pvp: setup.pvp
+      factions: setup.factions,
+      pvp: setup.pvp,
+      mode: setup.mode
     });
   }
   var ReplayRecorder = class {
@@ -12785,7 +12992,7 @@
       const r = JSON.parse(text);
       if (!r || r.v !== REPLAY_VERSION || !r.setup || !Array.isArray(r.cmds) || typeof r.ticks !== "number") return null;
       if (!Number.isFinite(r.setup.seed) || !Array.isArray(r.setup.factions)) return null;
-      if (!r.cmds.every((e) => Array.isArray(e) && typeof e[0] === "number" && (e[1] === 0 || e[1] === 1) && e[2] && typeof e[2].t === "string")) return null;
+      if (!r.cmds.every((e) => Array.isArray(e) && typeof e[0] === "number" && [0, 1, 2, 3].includes(e[1]) && e[2] && typeof e[2].t === "string")) return null;
       return r;
     } catch {
       return null;
@@ -12867,6 +13074,8 @@
     const enemy = el("menu-enemy");
     const speed = el("menu-speed");
     speed.value = settings.speed;
+    const modeSelect = el("menu-mode");
+    modeSelect.value = settings.mode;
     seed.value = String(settings.seed);
     level.value = settings.difficulty;
     storms.checked = settings.hazards;
@@ -12883,10 +13092,12 @@
     const wrap2 = menu.querySelector(".wrap");
     stopTitle = startTitleBackground(el("menu-bg"), () => wrap2?.getBoundingClientRect() ?? null);
     const paintMap = (canvas, n) => {
-      const m = generateMap(n);
+      const mode = modeSelect.value;
+      const m = mode === "1v1" ? generateMap(n) : generateMap(n, MAP4, MAP4, 4);
+      const bases = m.starts ? MODES[mode].sides.map((s) => ({ at: m.starts[MODES[mode].corners[s]], colour: SIDE_COLOURS[s] })) : void 0;
       canvas.width = m.w;
       canvas.height = m.h;
-      canvas.getContext("2d").putImageData(new ImageData(previewPixels(m), m.w, m.h), 0, 0);
+      canvas.getContext("2d").putImageData(new ImageData(previewPixels(m, bases), m.w, m.h), 0, 0);
       return m;
     };
     const picker = el("map-picker");
@@ -12936,6 +13147,10 @@
     };
     seed.addEventListener("input", showMap);
     showMap();
+    modeSelect.addEventListener("change", () => {
+      cards.forEach((c, i) => paintMap(c.card.querySelector("canvas"), MAP_POOL[i].seed));
+      showMap();
+    });
     el("menu-random").addEventListener("click", () => {
       seed.value = String(randomSeed());
       showMap();
@@ -12954,7 +13169,8 @@
             faction,
             enemyFaction: enemy.value,
             speed: speed.value,
-            edgeScroll: edge.checked
+            edgeScroll: edge.checked,
+            mode: modeSelect.value
           },
           false
         )
@@ -13357,6 +13573,12 @@
       watchReplay(r);
     });
   }
+  function matchup(g) {
+    const name = (s) => FACTIONS[g.factions[s]].label;
+    if (g.mode === "1v1") return `${name(0)} vs ${name(1)}`;
+    if (g.mode === "2v2") return `${name(0)} + ${name(2)} vs ${name(1)} + ${name(3)}`;
+    return `${g.sides.length}-way: ${g.sides.map(name).join(", ")}`;
+  }
   var REPLAY_SPEEDS = [0.5, 1, 2, 4, 8];
   function start(settings, mission, online, bench = false, replayView) {
     el("menu").hidden = true;
@@ -13367,12 +13589,16 @@
     const sides = watching ? { player: watching.setup.factions[0], enemy: watching.setup.factions[1] } : online ? { player: online.factions[0], enemy: online.factions[1] } : mission ? { player: mission.faction, enemy: mission.enemyFaction } : resolveFactions(settings, mulberry32(settings.seed * 31 + 7));
     const seed = watching?.setup.seed ?? mission?.seed ?? settings.seed;
     const difficulty = watching?.setup.difficulty ?? mission?.difficulty ?? settings.difficulty;
+    const mode = watching ? watching.setup.mode ?? "1v1" : online || mission || bench ? "1v1" : settings.mode;
+    const lineup = watching ? watching.setup.factions : sideFactions(mode, sides.player, sides.enemy, settings.enemyFaction, mulberry32(seed * 131 + 9));
     const game = playback ? playback.g : mission ? createMissionGame(mission) : createGame(seed, difficulty, {
       hazards: settings.hazards,
       fog: settings.fog,
       playerFaction: sides.player,
       enemyFaction: sides.enemy,
-      pvp: !!online
+      factions: lineup,
+      pvp: !!online,
+      mode
     });
     if (online) {
       game.local = online.local;
@@ -13385,12 +13611,13 @@
         difficulty,
         hazards: settings.hazards,
         fog: settings.fog,
-        factions: [sides.player, sides.enemy],
+        factions: lineup,
         pvp: !!online,
-        mission: mission?.id
+        mission: mission?.id,
+        mode
       },
       game.local,
-      `${online ? "Online \xB7 " : ""}${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label} \xB7 ${mission ? mission.title : mapName(seed)}`
+      `${online ? "Online \xB7 " : ""}${matchup(game)} \xB7 ${mission ? mission.title : mapName(seed)}`
     );
     let savedReplay = null;
     const keepReplay = () => {
@@ -13407,7 +13634,7 @@
     if (watching) document.body.classList.add("replaying");
     if (mission) document.title = `${mission.title.replace(/^\d+\. /, "")} \u2014 Vitrea`;
     el("difficulty").textContent = watching?.setup.pvp || online ? "Online" : LEVEL_LABELS[difficulty];
-    el("factions").textContent = `${FACTIONS[sides.player].label} vs ${FACTIONS[sides.enemy].label}`;
+    el("factions").textContent = matchup(game);
     el("map-seed").textContent = mapName(seed).replace(/^Map /, "");
     el("map-seed").title = `Map ${seed}`;
     let paused = false;
@@ -13609,7 +13836,7 @@
       navigate(settingsToQuery(settings, false).toString());
     });
     const cam = { x: 0, y: 0, w: 0, h: 0 };
-    const renderer = new Renderer(view, minimap, game.map, game.factions);
+    const renderer = new Renderer(view, minimap, game.map, game.factions, game.sides);
     renderer.radarAlways = !!watching;
     const input = new Input(game, cam, view, minimap);
     const lockstep = online ? new Lockstep(game, online.local, (m) => online.link?.send(m)) : null;
@@ -13837,7 +14064,7 @@
       } else if (playback && watching) {
         if (seekTarget !== null) {
           const t0 = performance.now();
-          while (game.tick < seekTarget && !playback.done && performance.now() - t0 < 35) playback.advance(Math.min(240, seekTarget - game.tick));
+          while (game.tick < seekTarget && !playback.done && performance.now() - t0 < 70) playback.advance(Math.min(240, seekTarget - game.tick));
           game.events.length = 0;
           game.notices.length = 0;
           acc = 0;
@@ -13930,7 +14157,9 @@
         el("watch-replay").hidden = !kept;
         el("save-replay").hidden = !kept && !watching;
         if (watching) {
-          const winner = FACTIONS[game.factions[game.result === "victory" ? 0 : 1]].label;
+          const standing = game.sides.filter((s) => game.buildings.some((b) => b.owner === s));
+          const winners = game.result === "victory" ? game.sides.filter((s) => game.teams[s] === game.teams[0]) : standing.filter((s) => game.teams[s] !== game.teams[0]);
+          const winner = (winners.length ? winners : [game.result === "victory" ? 0 : 1]).map((s) => FACTIONS[game.factions[s]].label).join(" and ");
           el("result-title").textContent = "Replay over";
           const loser = FACTIONS[game.factions[game.result === "victory" ? 1 : 0]].label;
           const reason = game.resultReason.replace(/^You surrendered./, `${loser} surrendered.`).replace(/^Your opponent (surrendered|left the game)./, `${loser} $1.`);
@@ -13953,7 +14182,7 @@
           el("result-text").textContent = game.result === "victory" ? `${mission.title.replace(/^\d+\. /, "")} complete in ${time}.${bonusText}${next ? "" : " The campaign is won."}` : game.resultReason || "Mission failed.";
           again.textContent = game.result === "victory" ? next ? "Next mission" : "Play again" : "Retry mission";
         } else {
-          el("result-text").textContent = game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen.";
+          el("result-text").textContent = game.mode === "1v1" ? game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen." : game.result === "victory" ? `Every rival base is destroyed after ${time}.` : game.mode === "2v2" ? "Your team's bases have fallen." : `Your base has fallen after ${time}.`;
         }
       }
       perf.mark();
