@@ -931,11 +931,19 @@
     heavyFactory: { label: "Heavy Factory", w: 3, h: 3, maxHp: 1e3, cost: 1e3, power: -35, requires: "lightFactory", weapon: null },
     repairPad: { label: "Repair Pad", w: 2, h: 2, maxHp: 600, cost: 700, power: -20, requires: "heavyFactory", weapon: null },
     rocketTurret: { label: "Rocket Turret", w: 1, h: 1, maxHp: 650, cost: 900, power: -25, requires: "radar", weapon: "turretRocket" },
-    techCenter: { label: "Tech Center", w: 3, h: 3, maxHp: 1e3, cost: 1500, power: -50, requires: "radar", weapon: null }
+    techCenter: { label: "Tech Center", w: 3, h: 3, maxHp: 1e3, cost: 1500, power: -50, requires: "radar", weapon: null },
+    // Expansion and the faction economies (economy.ts).
+    outpost: { label: "Forward Outpost", w: 2, h: 2, maxHp: 700, cost: 1600, power: -10, requires: "refinery", weapon: null },
+    deepDrill: { label: "Deep Drill", w: 2, h: 2, maxHp: 600, cost: 900, power: -25, requires: "refinery", weapon: null, faction: "concord" },
+    seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" }
   };
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter"];
+  var BUILDABLE = ["power", "refinery", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "outpost", "deepDrill", "seedSpire"];
+  function canBuild(faction, kind) {
+    const only = BUILDING_STATS[kind].faction;
+    return !only || only === faction;
+  }
   var TRAINABLE = [
     "infantry",
     "glasswalker",
@@ -1482,6 +1490,169 @@
     return path.reverse();
   }
 
+  // src/economy.ts
+  var ECONOMY = {
+    /** Outposts and drills: crystal (or core) tiles needed this close (tiles) to the spot. */
+    outpostReach: 6,
+    outpostMinTiles: 6,
+    drillReach: 3,
+    drillMinTiles: 5,
+    /** No remote building this close (tiles) to an enemy building. */
+    enemyClearance: 9,
+    /** A drill takes this much crystal a second (worth more from storm glass), and cores this fast. */
+    drillRate: 7,
+    drillCoreRate: 0.08,
+    /** A spire grows crystal this often (s), this far out (tiles), this much at a time. */
+    spireInterval: 1.5,
+    spireRadius: 5,
+    spireGrow: 45,
+    /** Salvage: share of a wreck's cost left in the pile, how long piles last (s), pick-up rate. */
+    salvageShare: 0.3,
+    salvageLife: 240,
+    salvageRate: 90
+  };
+  var REMOTE = ["outpost", "deepDrill"];
+  var isRemote = (kind) => REMOTE.includes(kind);
+  var isDock = (kind) => kind === "refinery" || kind === "outpost";
+  function resourceNear(g, cx, cy, r) {
+    let n = 0;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(g.map, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
+        if (g.map.spice[idx(g.map, x, y)] > 0) n++;
+      }
+    }
+    return n;
+  }
+  function remoteTiles(g, kind, tx, ty, owner, occupied) {
+    const { w, h } = BUILDING_STATS[kind];
+    const m = g.map;
+    const cx = tx + w / 2;
+    const cy = ty + h / 2;
+    const drill3 = kind === "deepDrill";
+    const fog = g.humans.includes(owner) && g.fogs[owner].enabled ? g.fogs[owner] : null;
+    const enough = resourceNear(g, cx, cy, drill3 ? ECONOMY.drillReach : ECONOMY.outpostReach) >= (drill3 ? ECONOMY.drillMinTiles : ECONOMY.outpostMinTiles);
+    const clear = !g.buildings.some((b) => hostile(g, b.owner, owner) && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) < ECONOMY.enemyClearance);
+    const out = [];
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        let ok = enough && clear && inBounds(m, x, y);
+        if (ok) {
+          const i = idx(m, x, y);
+          ok = m.terrain[i] !== Terrain.Cliff && m.blocked[i] === 0 && !occupied.has(`${x},${y}`) && (!fog || fog.explored[i] === 1);
+          if (ok && !drill3) ok = m.spice[i] <= 0;
+          if (ok && m.vein[i] === Vein.Core && m.spice[i] > 0 && !drill3) ok = false;
+        }
+        out.push({ x, y, ok });
+      }
+    }
+    return out;
+  }
+  function clearUnder(g, b) {
+    for (let y = b.ty; y < b.ty + b.h; y++) {
+      for (let x = b.tx; x < b.tx + b.w; x++) {
+        if (!inBounds(g.map, x, y)) continue;
+        const i = idx(g.map, x, y);
+        if (g.map.vein[i] === Vein.Core) continue;
+        g.map.spice[i] = 0;
+        g.map.vein[i] = Vein.Crystal;
+      }
+    }
+  }
+  function anyFaction(g, faction) {
+    return g.sides.some((s) => g.factions[s] === faction);
+  }
+  function leaveSalvage(g, x, y, worth) {
+    if (worth <= 0 || !anyFaction(g, "reclaimers")) return;
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    const here = g.salvage.find((p) => p.x === tx && p.y === ty);
+    if (here) {
+      here.amount += worth * ECONOMY.salvageShare;
+      here.age = 0;
+      return;
+    }
+    g.salvage.push({ id: g.nextId++, x: tx, y: ty, amount: worth * ECONOMY.salvageShare, age: 0 });
+  }
+  function updateEconomy(g, dt) {
+    for (const b of g.buildings) {
+      if (b.kind === "deepDrill") drill(g, b, dt);
+      else if (b.kind === "seedSpire") grow(g, b, dt);
+    }
+    if (g.salvage.length) {
+      for (const p of g.salvage) p.age += dt;
+      g.salvage = g.salvage.filter((p) => p.age < ECONOMY.salvageLife && p.amount > 0.5);
+    }
+  }
+  function drill(g, b, dt) {
+    const m = g.map;
+    const cx = b.tx + b.w / 2;
+    const cy = b.ty + b.h / 2;
+    const r = ECONOMY.drillReach;
+    const power2 = powerInfo(g, b.owner).low ? 0.5 : 1;
+    let best = -1;
+    let core = -1;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(m, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
+        const i = idx(m, x, y);
+        if (m.spice[i] <= 0) continue;
+        if (m.vein[i] === Vein.Core) {
+          if (core < 0 || m.spice[i] > m.spice[core]) core = i;
+        } else if (best < 0 || m.spice[i] > m.spice[best]) best = i;
+      }
+    }
+    const wallet = walletOf(g, b.owner);
+    if (best >= 0) {
+      const take = Math.min(m.spice[best], ECONOMY.drillRate * power2 * dt);
+      m.spice[best] -= take;
+      const credits = take * VEINS.value[m.vein[best]];
+      wallet.credits += credits;
+      if (b.owner === PLAYER) g.stats.creditsHarvested += credits;
+      if (m.spice[best] < 0.01) {
+        m.spice[best] = 0;
+        m.vein[best] = Vein.Crystal;
+      }
+    }
+    if (core >= 0) {
+      const take = Math.min(m.spice[core], ECONOMY.drillCoreRate * power2 * dt);
+      m.spice[core] -= take;
+      wallet.cores += take;
+    }
+  }
+  function grow(g, b, dt) {
+    b.cooldown -= dt * (powerInfo(g, b.owner).low ? 0.5 : 1);
+    if (b.cooldown > 0) return;
+    b.cooldown += ECONOMY.spireInterval;
+    const m = g.map;
+    const cx = b.tx + b.w / 2;
+    const cy = b.ty + b.h / 2;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const a = g.crystalRng() * Math.PI * 2;
+      const d = 1.2 + Math.sqrt(g.crystalRng()) * (ECONOMY.spireRadius - 1.2);
+      const x = Math.floor(cx + Math.cos(a) * d);
+      const y = Math.floor(cy + Math.sin(a) * d);
+      if (!inBounds(m, x, y)) continue;
+      const i = idx(m, x, y);
+      if (m.terrain[i] === Terrain.Cliff || m.blocked[i] !== 0 || m.vein[i] === Vein.Core) continue;
+      if (m.spice[i] <= 0) m.vein[i] = Vein.Crystal;
+      m.spice[i] = Math.min(VEINS.max[m.vein[i]], m.spice[i] + ECONOMY.spireGrow);
+      return;
+    }
+  }
+  function nearestSalvage(g, from, r, except) {
+    let best = null;
+    let bestD = r;
+    for (const p of g.salvage) {
+      const d = Math.hypot(p.x - from.x, p.y - from.y);
+      if (d >= bestD) continue;
+      if (g.units.some((u) => u.id !== except && u.salvageId === p.id)) continue;
+      best = p;
+      bestD = d;
+    }
+    return best;
+  }
+
   // src/events.ts
   var MAX_EVENTS = 96;
   function emit(g, e) {
@@ -1882,6 +2053,7 @@
   var whose = (g, owner) => hostile(g, owner, g.local) ? "Enemy" : "Allied";
   function destroyUnit(g, u, by) {
     g.units = g.units.filter((x) => x !== u);
+    if (UNIT_STATS[u.kind].armor !== "infantry") leaveSalvage(g, u.x / TILE, u.y / TILE, unitCost(g.factions[u.owner], u.kind));
     g.selection.delete(u.id);
     const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
     emit(g, { kind: "explode", big, x: u.x, y: u.y });
@@ -1906,6 +2078,7 @@
   }
   function destroyBuilding(g, b) {
     g.buildings = g.buildings.filter((x) => x !== b);
+    leaveSalvage(g, b.tx + b.w / 2, b.ty + b.h, BUILDING_STATS[b.kind].cost);
     for (let y = b.ty; y < b.ty + b.h; y++) {
       for (let x = b.tx; x < b.tx + b.w; x++) {
         if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = 0;
@@ -2350,6 +2523,7 @@
   }
   function startStructure(g, kind, owner = PLAYER) {
     if (structureOf(g, owner) || missingFor(g, kind, owner) || BUILDING_STATS[kind].cost <= 0) return false;
+    if (!canBuild(g.factions[owner], kind)) return false;
     setStructureOf(g, owner, { kind, spent: 0, done: false });
     if (owner === g.local) {
       emit(g, { kind: "buildStart" });
@@ -2373,6 +2547,7 @@
       const t = unitTile(u);
       return `${t.x},${t.y}`;
     }));
+    if (isRemote(kind)) return remoteTiles(g, kind, tx, ty, owner, occupied);
     const near = nearBase(g, tx, ty, w, h, owner);
     const tiles = [];
     for (let y = ty; y < ty + h; y++) {
@@ -2394,7 +2569,8 @@
     const job = structureOf(g, owner);
     if (!job?.done || !canPlace(g, job.kind, tx, ty, owner)) return false;
     const b = placeBuilding(g, job.kind, tx, ty, owner);
-    if (b.kind === "refinery") spawnFreeHarvester(g, b);
+    clearUnder(g, b);
+    if (isDock(b.kind)) spawnFreeHarvester(g, b);
     setStructureOf(g, owner, null);
     if (owner === g.local) {
       emit(g, { kind: "place" });
@@ -2578,6 +2754,10 @@
       [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
       [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
       [!hasBuilding(g, "techCenter", me) && g.time > 540, "techCenter"],
+      // The faction economies, then expansion to a field of its own.
+      [canBuild(g.factions[me], "seedSpire") && count(g, "seedSpire", me) < 2 && g.time > 200, "seedSpire"],
+      [canBuild(g.factions[me], "deepDrill") && count(g, "deepDrill", me) < 2 && g.time > 240, "deepDrill"],
+      [count(g, "outpost", me) < 1 && g.time > 360 && ai.credits > 2200, "outpost"],
       // Somewhere for pulled-back vehicles to get patched up.
       [AI_LEVELS[ai.difficulty].retreat > 0 && !hasBuilding(g, "repairPad", me) && g.time > 400, "repairPad"],
       [headroom < 50, "power"]
@@ -2585,6 +2765,32 @@
     for (const [want, kind] of wants) {
       const skipped = (ai.skipUntil[kind] ?? 0) > g.time;
       if (want && !skipped && !missingFor(g, kind, me)) return kind;
+    }
+    return null;
+  }
+  function resourceRoom(g, x, y) {
+    let n = 0;
+    for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) if (inBounds(g.map, x + dx, y + dy) && g.map.terrain[idx(g.map, x + dx, y + dy)] === 0) n++;
+    return n;
+  }
+  function findFieldSpot(g, kind, me) {
+    const docks = g.buildings.filter((b) => b.owner === me && isDock(b.kind));
+    const home = g.startOf[me];
+    const outpost = kind === "outpost";
+    const fields = g.map.fields.filter((f) => {
+      const nearDock = docks.some((d) => Math.hypot(d.tx - f.x, d.ty - f.y) < (outpost ? 16 : 13));
+      return outpost ? !nearDock : nearDock;
+    }).sort((a, b) => Math.hypot(a.x - home.x, a.y - home.y) - Math.hypot(b.x - home.x, b.y - home.y));
+    for (const f of fields.slice(0, 6)) {
+      let best = null;
+      for (let y = f.y - 7; y <= f.y + 7; y++) {
+        for (let x = f.x - 7; x <= f.x + 7; x++) {
+          if (!canPlace(g, kind, x, y, me)) continue;
+          const score = outpost ? Math.hypot(x - f.x, y - f.y) : -resourceNear(g, x + 1, y + 1, 3);
+          if (!best || score < best.score) best = { x, y, score };
+        }
+      }
+      if (best) return { x: best.x, y: best.y };
     }
     return null;
   }
@@ -2597,6 +2803,7 @@
     return true;
   }
   function findSpot(g, kind, me = ENEMY) {
+    if (isRemote(kind)) return findFieldSpot(g, kind, me);
     const yard = myYard(g, me) ?? g.buildings.find((b) => b.owner === me);
     if (!yard) return null;
     const { w, h } = BUILDING_STATS[kind];
@@ -2611,7 +2818,8 @@
         const fromYard = Math.hypot(x - cx, y - cy);
         const toEnemy = Math.hypot(x - foe.x, y - foe.y);
         const cramped = hasClearance(g, x, y, w, h) ? 0 : 100;
-        candidates.push({ x, y, score: cramped + (kind === "turret" ? toEnemy + fromYard * 0.5 : fromYard) });
+        const room = kind === "seedSpire" ? -resourceRoom(g, x, y) * 0.4 : 0;
+        candidates.push({ x, y, score: cramped + room + (kind === "turret" ? toEnemy + fromYard * 0.5 : fromYard) });
       }
     }
     candidates.sort((a, b) => a.score - b.score);
@@ -2654,7 +2862,7 @@
       return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
     }
     const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
-    if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery", me) + coreMiner)) return "harvester";
+    if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), count(g, "refinery", me) + count(g, "outpost", me) + coreMiner)) return "harvester";
     if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank") && ai.cores >= coreCost(F("bastion"))) return "bastion";
     const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
     if (!missingFor(g, F("artillery"), me) && mine("artillery") * guns < mine("tank")) return "artillery";
@@ -2677,7 +2885,8 @@
       const spot = findSpot(g, job.kind, me);
       if (spot) {
         const b = placeBuilding(g, job.kind, spot.x, spot.y, me);
-        if (b.kind === "refinery") spawnFreeHarvester(g, b);
+        clearUnder(g, b);
+        if (isDock(b.kind)) spawnFreeHarvester(g, b);
       } else {
         ai.credits += job.spent;
         ai.skipUntil[job.kind] = g.time + 60;
@@ -3147,7 +3356,7 @@
   var clockText = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   var convoys = /* @__PURE__ */ new WeakMap();
   var relays = /* @__PURE__ */ new WeakMap();
-  var drill = /* @__PURE__ */ new WeakMap();
+  var drill2 = /* @__PURE__ */ new WeakMap();
   var combatUnits = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind !== "harvester");
   var TUTORIAL = {
     id: "training",
@@ -3171,7 +3380,7 @@
       const before = new Set(g.units.map((u) => u.id));
       spawnGroup(g, ENEMY, ["scrapper", "scrapper", "scrapper"], openSpot(g, near, 2));
       const scouts = g.units.filter((u) => !before.has(u.id)).map((u) => u.id);
-      drill.set(g, { quadStarts, scouts });
+      drill2.set(g, { quadStarts, scouts });
     },
     objectives: [
       {
@@ -3183,7 +3392,7 @@
         text: "Move them out",
         hint: "Right-click open ground to send them there. Move the view with WASD, the arrow keys, or by pushing the mouse against the screen edge.",
         done: (g) => {
-          const d = drill.get(g);
+          const d = drill2.get(g);
           return !!d && g.units.some((u) => {
             const s = d.quadStarts.get(u.id);
             return !!s && Math.hypot(u.x - s.x, u.y - s.y) > 4 * 32;
@@ -3219,7 +3428,7 @@
         text: "Destroy the Reclaimer scouts",
         hint: "They're dug in south-east of your base, out on the plain. Right-click an enemy to attack it, or Ctrl + right-click the ground to attack-move: your units fight whatever they meet on the way.",
         done: (g) => {
-          const d = drill.get(g);
+          const d = drill2.get(g);
           return !!d && d.scouts.every((id) => !g.units.some((u) => u.id === id));
         }
       }
@@ -3843,6 +4052,7 @@
       startOf,
       eliminated: [],
       weather: createWeather(seed, options.weather, options.time),
+      salvage: [],
       storms: [],
       stormTimer: options.hazards === false ? Infinity : STORMS.firstSpawn,
       hazardRng: mulberry32(seed * 7919 + 17),
@@ -4006,6 +4216,7 @@
       load: "crystal",
       cargoKind: "crystal",
       cargo: 0,
+      salvageId: null,
       harvest: "idle",
       harvestTile: null,
       lastField: null,
@@ -4154,7 +4365,7 @@
     let best;
     let bestD = Infinity;
     for (const b of g.buildings) {
-      if (b.kind !== "refinery" || b.owner !== u.owner) continue;
+      if (!isDock(b.kind) || b.owner !== u.owner) continue;
       const d = b.id === u.refineryId ? -1 : Math.hypot(b.tx * TILE - u.x, b.ty * TILE - u.y);
       if (d < bestD) {
         best = b;
@@ -4170,6 +4381,15 @@
     setPath(g, u, tile);
   }
   function autoHarvest(g, u, near, radius = HARVESTER.searchRadius) {
+    u.salvageId = null;
+    if (u.load === "crystal" && g.factions[u.owner] === "reclaimers") {
+      const pile = nearestSalvage(g, near, 14, u.id) ?? nearestSalvage(g, unitTile(u), 14, u.id);
+      if (pile) {
+        u.salvageId = pile.id;
+        sendToField(g, u, { x: pile.x, y: pile.y });
+        return;
+      }
+    }
     const tile = findNearestSpice(g.map, near, radius, claimedTiles(g, u), u.load === "cores");
     if (tile) sendToField(g, u, tile);
     else if (u.cargo > 0) sendToRefinery(g, u);
@@ -4211,6 +4431,9 @@
         if (t && here.x === t.x && here.y === t.y) {
           u.harvest = "harvesting";
           u.retries = 0;
+        } else if (u.salvageId !== null && t && Math.hypot(here.x - t.x, here.y - t.y) <= 1.5) {
+          u.harvest = "harvesting";
+          u.retries = 0;
         } else if (m.spice[idx(m, here.x, here.y)] > 0 && isCoreTile(m, idx(m, here.x, here.y)) === (u.load === "cores")) {
           u.harvestTile = here;
           u.harvest = "harvesting";
@@ -4223,6 +4446,21 @@
       }
       case "harvesting": {
         const t = u.harvestTile;
+        if (u.salvageId !== null) {
+          const pile = g.salvage.find((p) => p.id === u.salvageId);
+          if (!pile || u.cargo > 0 && u.cargoKind !== "crystal") {
+            if (u.cargo > 0) sendToRefinery(g, u);
+            else autoHarvest(g, u, t);
+            return;
+          }
+          u.cargoKind = "crystal";
+          const take = Math.min(ECONOMY.salvageRate * dt, pile.amount, HARVESTER.capacity - u.cargo);
+          pile.amount -= take;
+          u.cargo += take;
+          if (u.cargo >= HARVESTER.capacity - 0.01) sendToRefinery(g, u);
+          else if (pile.amount <= 0.5) autoHarvest(g, u, t);
+          return;
+        }
         const i = idx(m, t.x, t.y);
         const cores = isCoreTile(m, i);
         const kind = cores ? "cores" : "crystal";
@@ -4438,6 +4676,7 @@
     updateAi(g, dt);
     updateStorms(g, dt);
     updateCrystals(g, dt);
+    updateEconomy(g, dt);
     updateMission(g);
     for (const p of g.pings) p.age += dt;
     g.pings = g.pings.filter((p) => p.age < PING_LIFE);
@@ -4605,7 +4844,7 @@
     const hasHarvesters = units.some((u) => u.kind === "harvester");
     if (b?.kind === "repairPad" && b.owner === owner && units.some((u) => UNIT_STATS[u.kind].armor !== "infantry")) return { marker: "move", sound: false };
     if (b && hostile(g, b.owner, owner) || attackMove) return { marker: "attack", sound: true };
-    if (hasHarvesters && (b?.kind === "refinery" && b.owner === owner || g.map.spice[idx(g.map, tx, ty)] > 0)) return { marker: "harvest", sound: true };
+    if (hasHarvesters && (b && isDock(b.kind) && b.owner === owner || g.map.spice[idx(g.map, tx, ty)] > 0)) return { marker: "harvest", sound: true };
     return { marker: "move", sound: true };
   }
   function orderAt(g, units, tx, ty, attackMove = false) {
@@ -4629,7 +4868,16 @@
       commandAttackMove(g, units, { x: tx, y: ty });
       return;
     }
-    if (b?.kind === "refinery" && b.owner === owner && harvesters.length > 0) {
+    const pile = g.salvage.find((p) => Math.abs(p.x - tx) <= 1 && Math.abs(p.y - ty) <= 1);
+    const scrappers = harvesters.filter((u) => g.factions[u.owner] === "reclaimers");
+    if (pile && scrappers.length > 0) {
+      for (const u of scrappers) {
+        u.load = "crystal";
+        u.salvageId = pile.id;
+        sendToField(g, u, { x: pile.x, y: pile.y });
+      }
+      movers = units.filter((u) => !scrappers.includes(u));
+    } else if (b && isDock(b.kind) && b.owner === owner && harvesters.length > 0) {
       for (const u of harvesters) sendToRefinery(g, u, b);
     } else if (g.map.spice[idx(g.map, tx, ty)] > 0 && harvesters.length > 0) {
       commandHarvest(g, harvesters, { x: tx, y: ty });
@@ -4727,7 +4975,10 @@
     heavyFactory: "Builds tanks, artillery and harvesters.",
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
-    techCenter: "Research upgrades; unlocks heroes and super-heavies."
+    techCenter: "Research upgrades; unlocks heroes and super-heavies.",
+    outpost: "A forward refinery for a distant field. Comes with a harvester, and you can build around it.",
+    deepDrill: "Concord only. Mines the field it stands on, straight into the account, with no harvester.",
+    seedSpire: "Shardbound only. Grows new crystal on the open ground around it."
   };
   var WEAPON_LABELS = {
     rifle: "Service rifle",
@@ -5765,8 +6016,13 @@
       case "cancelBuild":
         cancelStructure(g, owner);
         return null;
-      case "place":
-        return placeStructure(g, c.x, c.y, owner) ? null : "Can't build there: needs clear rock near your base";
+      case "place": {
+        const kind = structureOf(g, owner)?.kind;
+        if (placeStructure(g, c.x, c.y, owner)) return null;
+        if (kind === "outpost") return "Can't build there: outposts go on clear ground beside crystal you've explored, away from enemy bases";
+        if (kind === "deepDrill") return "Can't build there: drills go on a crystal field you've explored, away from enemy bases";
+        return "Can't build there: needs clear rock near your base";
+      }
       case "train":
         if (!(c.kind in UNIT_STATS)) return null;
         if (queueUnits(g, c.kind, Math.max(1, Math.min(5, c.n)), owner) > 0) return null;
@@ -6895,6 +7151,7 @@
       ctx.imageSmoothingEnabled = false;
       for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
       for (const z of g.mission?.zones ?? []) drawZone(ctx, z, g.time);
+      for (const p of g.salvage) if (onScreen((p.x + 0.5) * TILE, (p.y + 0.5) * TILE) && exploredRect(g, p.x, p.y, 1, 1)) drawSalvage(ctx, p);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
       for (const b of shown) drawBuilding(ctx, b, this.sprites);
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
@@ -6949,6 +7206,11 @@
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       if (!LOW) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
+      for (const b of shown) {
+        if (b.kind !== "seedSpire") continue;
+        const pulse = 0.35 + 0.25 * Math.sin(g.time * 2 + b.id);
+        drawGlow(ctx, shardGlow("rgba(140,240,255,0.9)"), (b.tx + 0.5) * TILE, (b.ty + 0.1) * TILE, 22, 30, pulse);
+      }
       ctx.restore();
       if (g.weather.light < 1) this.drawNight(ctx, g, cam, shown, seen);
       if (g.weather.dust > 0) this.drawDust(ctx, g, cam);
@@ -7200,7 +7462,7 @@
     const y = b.ty * TILE;
     const w = b.w * TILE;
     const h = b.h * TILE;
-    if (b.kind === "refinery") {
+    if (b.kind === "refinery" || b.kind === "outpost") {
       const d = dockTile(b);
       ctx.fillStyle = "rgba(60,60,60,0.45)";
       ctx.fillRect(d.x * TILE + 2, d.y * TILE, TILE - 4, TILE - 4);
@@ -7493,6 +7755,34 @@
     ctx.fillText(z.label.toUpperCase(), cx, cy - r - 8);
     ctx.restore();
   }
+  function drawSalvage(ctx, p) {
+    const cx = (p.x + 0.5) * TILE;
+    const cy = (p.y + 0.5) * TILE;
+    const size = Math.min(1.4, 0.55 + p.amount / 400);
+    const fade = Math.min(1, (ECONOMY.salvageLife - p.age) / 30);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(cx + 2, cy + 3, 12 * size, 6 * size, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const bits = 6;
+    for (let k = 0; k < bits; k++) {
+      const a = hash3(p.id, k) * Math.PI * 2;
+      const d = hash3(p.id, k + 9) * 8 * size;
+      const w = (4 + hash3(p.id, k + 17) * 6) * size;
+      const h = (2 + hash3(p.id, k + 23) * 4) * size;
+      ctx.save();
+      ctx.translate(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.6);
+      ctx.rotate(hash3(p.id, k + 31) * Math.PI);
+      ctx.fillStyle = k % 3 === 0 ? "#8a4a2a" : k % 3 === 1 ? "#5a5650" : "#7a7466";
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillRect(-w / 2, -h / 2, w, 1);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
   var lightGlow = () => radialGlow("light", [[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [1, "rgba(255,255,255,0)"]]);
   function makeDustTile() {
     const size = 256;
@@ -7633,8 +7923,8 @@
     const t = e.age / e.life;
     switch (e.kind) {
       case "fire": {
-        const grow = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) * 0.5;
-        const r = 16 * e.size * grow;
+        const grow2 = t < 0.25 ? t / 0.25 : 1 - (t - 0.25) * 0.5;
+        const r = 16 * e.size * grow2;
         drawGlow(ctx, fireGlow(), e.x, e.y - 6 * t * e.size, r, r, 1 - t);
         break;
       }
@@ -8209,6 +8499,9 @@
     junker: "#d07030",
     wrecker: "#8a7058",
     mortarCrawler: "#a07848",
+    outpost: "#c08a4a",
+    deepDrill: "#8a8f9a",
+    seedSpire: "#5fd8f0",
     techCenter: "#9a8ac0",
     medic: "#e8e8e8",
     mender: "#a8f0f8",
@@ -8274,7 +8567,7 @@
         tabRow?.append(el2);
         this.tabButtons.set(t.id, { el: el2, dot });
       }
-      BUILDABLE.forEach((kind, i) => {
+      BUILDABLE.filter((k) => canBuild(game.factions[me], k)).forEach((kind, i) => {
         const art = BUILDING_STATS[kind].weapon ? portraitOf(kind, me) : `assets/buildings/${game.factions[me]}/${kind}_${me}.png`;
         const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i], art, BUILDING_STATS[kind].weapon ? "unit" : "building");
         b.press = () => {
