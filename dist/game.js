@@ -717,12 +717,17 @@
     /** Gap before the next storm after one passes (random in this range). */
     gapMin: 90,
     gapMax: 150,
-    radius: 3.5,
-    speed: 1.1,
+    /** Full-strength radius (tiles). */
+    radius: 4,
+    /** A storm builds up for this long (s), rages for a while, then dies down over `fade` (s). */
+    buildUp: 20,
+    rageMin: 35,
+    rageMax: 55,
+    fade: 10,
     /** Damage per second inside the storm, by armour class. */
     damage: { infantry: 14, light: 10, heavy: 5, building: 2 },
-    /** Tiles per second the storm seeds with new crystal as it passes. */
-    seedRate: 3,
+    /** Tiles per second the raging storm seeds with storm glass, and how much each gets. */
+    seedRate: 1.2,
     seedAmount: 150
   };
   var SIGHT = {
@@ -1216,8 +1221,9 @@
     const copies = (p) => [p, mirror(m, p)];
     thinFields(m, seed, copies, m.fields.length / 2);
     addVeins(m, seed, copies, m.fields.length / 2, [
+      // The middle, and on the line exactly between the bases (the bases sit top-left and bottom-right).
       { x: (w - 1) / 2, y: (h - 1) / 2 },
-      { x: Math.round(w * 0.24), y: Math.round(h * 0.6) }
+      { x: Math.round(w * 0.3), y: Math.round(h * 0.7) }
     ], [PLATEAU, enemyPlateau]);
     return m;
   }
@@ -1241,8 +1247,14 @@
   }
   function addVeins(m, seed, copies, baseFields, deposits, plateaus) {
     const rng = mulberry32(seed * 6151 + 29);
+    const contest = (p) => {
+      const d = plateaus.map((q) => Math.hypot(q.x - p.x, q.y - p.y)).sort((a, b) => a - b);
+      return Math.abs(d[0] - d[1]);
+    };
+    const ranked = Array.from({ length: baseFields - 1 }, (_, k) => k + 1).sort((a, b) => contest(m.fields[a]) - contest(m.fields[b]));
+    const dense = new Set(ranked.slice(0, Math.max(1, Math.round(ranked.length * 0.34))));
     for (let f = 1; f < baseFields; f++) {
-      if (rng() > 0.34) continue;
+      if (!dense.has(f) || rng() > 0.9) continue;
       for (const c of copies(m.fields[f])) {
         forDisc(m, Math.round(c.x), Math.round(c.y), 5, (i) => {
           if (m.spice[i] <= 0) return;
@@ -3141,65 +3153,72 @@
   }
 
   // src/storm.ts
-  function spawnStorm(g, from, to) {
-    const W = g.map.w * TILE;
-    const H = g.map.h * TILE;
+  function stormRadius(s) {
+    const grow2 = Math.min(1, s.age / STORMS.buildUp);
+    const fade = Math.min(1, (s.life - s.age) / STORMS.fade);
+    return STORMS.radius * Math.max(0.15, Math.min(grow2, fade));
+  }
+  var raging = (s) => s.age >= STORMS.buildUp && s.life - s.age > STORMS.fade;
+  function stormSpot(g) {
     const r = g.hazardRng;
-    const edgePoint = (side2) => {
-      const t = 0.15 + r() * 0.7;
-      return [
-        { x: -STORMS.radius * TILE, y: t * H },
-        { x: W + STORMS.radius * TILE, y: t * H },
-        { x: t * W, y: -STORMS.radius * TILE },
-        { x: t * W, y: H + STORMS.radius * TILE }
-      ][side2];
-    };
-    const side = Math.floor(r() * 4);
-    const start2 = from ? { x: (from.x + 0.5) * TILE, y: (from.y + 0.5) * TILE } : edgePoint(side);
-    const end = to ? { x: (to.x + 0.5) * TILE, y: (to.y + 0.5) * TILE } : edgePoint(side ^ 1);
-    const d = Math.hypot(end.x - start2.x, end.y - start2.y) || 1;
-    const speed = STORMS.speed * TILE;
+    const m = g.map;
+    let best = null;
+    let bestScore = Infinity;
+    for (let k = 0; k < 10; k++) {
+      const p = { x: Math.floor(6 + r() * (m.w - 12)), y: Math.floor(6 + r() * (m.h - 12)) };
+      if (!isPassable(m, p.x, p.y)) continue;
+      const d = g.sides.map((s) => Math.hypot(g.startOf[s].x + 1.5 - p.x, g.startOf[s].y + 1.5 - p.y)).sort((a, b) => a - b);
+      let score = Math.abs(d[0] - (d[1] ?? d[0]));
+      if (g.buildings.some((b) => Math.hypot(b.tx + b.w / 2 - p.x, b.ty + b.h / 2 - p.y) < STORMS.radius + 6)) score += 100;
+      if (score < bestScore) {
+        best = p;
+        bestScore = score;
+      }
+    }
+    return best ?? { x: m.w >> 1, y: m.h >> 1 };
+  }
+  function spawnStorm(g, at) {
+    const p = at ?? stormSpot(g);
     const s = {
       id: g.nextId++,
-      x: start2.x,
-      y: start2.y,
-      vx: (end.x - start2.x) / d * speed,
-      vy: (end.y - start2.y) / d * speed,
-      life: d / speed,
+      x: (p.x + 0.5) * TILE,
+      y: (p.y + 0.5) * TILE,
       age: 0,
+      life: STORMS.buildUp + STORMS.rageMin + g.hazardRng() * (STORMS.rageMax - STORMS.rageMin) + STORMS.fade,
       seedDebt: 0
     };
     g.storms.push(s);
-    notify(g, "Crystal storm approaching!");
+    notify(g, "Crystal storm building up! (Space to look)");
+    g.pings.push({ x: s.x, y: s.y, age: 0 });
     emit(g, { kind: "stormWarning" });
     return s;
   }
   function stormNear(g, x, y, margin) {
-    return g.storms.some((s) => Math.hypot(x - s.x, y - s.y) <= (STORMS.radius + margin) * TILE);
+    return g.storms.some((s) => Math.hypot(x - s.x, y - s.y) <= (stormRadius(s) + margin) * TILE);
   }
   function inStorm(s, x, y) {
-    return Math.hypot(x - s.x, y - s.y) <= STORMS.radius * TILE;
+    return Math.hypot(x - s.x, y - s.y) <= stormRadius(s) * TILE;
   }
   function updateStorm(g, s, dt) {
-    s.x += s.vx * dt;
-    s.y += s.vy * dt;
     s.age += dt;
+    const strength = Math.min(1, s.age / STORMS.buildUp);
     for (const u of [...g.units]) {
-      if (inStorm(s, u.x, u.y)) damage(g, u.id, STORMS.damage[UNIT_STATS[u.kind].armor] * FACTIONS[g.factions[u.owner]].stormDamage * bonus(g, u.owner, "storm") * dt);
+      if (inStorm(s, u.x, u.y)) damage(g, u.id, STORMS.damage[UNIT_STATS[u.kind].armor] * FACTIONS[g.factions[u.owner]].stormDamage * bonus(g, u.owner, "storm") * strength * dt);
     }
     for (const b of [...g.buildings]) {
       const cx = (b.tx + b.w / 2) * TILE;
       const cy = (b.ty + b.h / 2) * TILE;
-      if (inStorm(s, cx, cy)) damage(g, b.id, STORMS.damage.building * dt * (BUILDING_STATS[b.kind].maxHp / 500));
+      if (inStorm(s, cx, cy)) damage(g, b.id, STORMS.damage.building * strength * dt * (BUILDING_STATS[b.kind].maxHp / 500));
     }
-    s.seedDebt += STORMS.seedRate * dt;
-    while (s.seedDebt >= 1 && g.crystalTotal < g.crystalCap) {
-      s.seedDebt -= 1;
-      const a = g.hazardRng() * Math.PI * 2;
-      const r = Math.sqrt(g.hazardRng()) * STORMS.radius;
-      const tx = Math.floor(s.x / TILE + Math.cos(a) * r);
-      const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
-      if (canGrowAt(g.map, tx, ty)) {
+    if (raging(s)) {
+      s.seedDebt += STORMS.seedRate * dt;
+      while (s.seedDebt >= 1) {
+        s.seedDebt -= 1;
+        const a = g.hazardRng() * Math.PI * 2;
+        const r = Math.sqrt(g.hazardRng()) * stormRadius(s);
+        const tx = Math.floor(s.x / TILE + Math.cos(a) * r);
+        const ty = Math.floor(s.y / TILE + Math.sin(a) * r);
+        if (!inBounds(g.map, tx, ty) || !canGrowAt(g.map, tx, ty)) continue;
         const i = idx(g.map, tx, ty);
         if (g.map.spice[i] <= 0) g.map.vein[i] = Vein.StormGlass;
         g.crystalTotal += Math.max(0, STORMS.seedAmount - g.map.spice[i]);
@@ -6256,7 +6275,7 @@
       if (!this.stormed && this.elapsed >= BENCH.stormAt) {
         this.stormed = true;
         const c = this.centre;
-        spawnStorm(g, { x: c.x - 4, y: Math.max(0, c.y - 18) }, { x: c.x + 4, y: Math.min(g.map.h - 1, c.y + 18) });
+        spawnStorm(g, { x: c.x, y: c.y }).age = STORMS.buildUp;
       }
       if (this.elapsed >= BENCH.seconds) this.done = true;
     }
@@ -7492,7 +7511,7 @@
         mini.strokeStyle = Math.floor(g.time * 3) % 2 ? "rgba(180,240,255,0.9)" : "rgba(120,200,230,0.6)";
         mini.lineWidth = 1.5;
         mini.beginPath();
-        mini.arc(st.x * scale, st.y * scale, STORMS.radius * TILE * scale, 0, Math.PI * 2);
+        mini.arc(st.x * scale, st.y * scale, stormRadius(st) * TILE * scale, 0, Math.PI * 2);
         mini.stroke();
       }
       mini.strokeStyle = "rgba(255,255,255,0.85)";
@@ -8291,7 +8310,7 @@
     ctx.fill();
   }
   function drawStormShadow(ctx, st) {
-    const r = STORMS.radius * TILE;
+    const r = stormRadius(st) * TILE;
     const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
     const g = ctx.createRadialGradient(st.x, st.y, r * 0.3, st.x, st.y, r * 2.1);
     g.addColorStop(0, `rgba(14,16,20,${0.35 * fade})`);
@@ -8301,7 +8320,7 @@
     ctx.fillRect(st.x - r * 2.1, st.y - r * 2.1, r * 4.2, r * 4.2);
   }
   function drawStorm(ctx, st, time) {
-    const r = STORMS.radius * TILE;
+    const r = stormRadius(st) * TILE;
     const fade = Math.min(1, st.age / 2, (st.life - st.age) / 2);
     for (let i = 0; i < (LOW ? 0 : 18); i++) {
       const a = i * 2.17 + time * (0.35 + i % 3 * 0.12);
