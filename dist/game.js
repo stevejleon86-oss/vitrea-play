@@ -777,10 +777,10 @@
   var UNIT_STATS = {
     infantry: { label: "Infantry", speed: 1.2, maxHp: 50, radius: 5, cost: 60, producer: "barracks", needs: null, armor: "infantry", weapon: "rifle", faction: "concord" },
     rocketInfantry: { label: "Rocket Trooper", speed: 1.1, maxHp: 45, radius: 5, cost: 100, producer: "barracks", needs: null, armor: "infantry", weapon: "rocket", faction: "any" },
-    quad: { label: "Quad", speed: 3.5, maxHp: 120, radius: 9, cost: 300, producer: "lightFactory", needs: null, armor: "light", weapon: "mg", faction: "concord" },
+    quad: { label: "Quad", speed: 3.5, maxHp: 120, radius: 9, cost: 260, producer: "lightFactory", needs: null, armor: "light", weapon: "mg", faction: "concord" },
     raider: { label: "Raider", speed: 4.6, maxHp: 80, radius: 8, cost: 150, producer: "lightFactory", needs: null, armor: "light", weapon: "raiderGun", faction: "any" },
-    tank: { label: "Tank", speed: 2, maxHp: 450, radius: 11, cost: 700, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "cannon", faction: "concord" },
-    artillery: { label: "Artillery", speed: 1.5, maxHp: 160, radius: 11, cost: 800, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "artilleryShell", faction: "concord" },
+    tank: { label: "Tank", speed: 2, maxHp: 450, radius: 11, cost: 620, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "cannon", faction: "concord" },
+    artillery: { label: "Artillery", speed: 1.5, maxHp: 160, radius: 11, cost: 720, producer: "heavyFactory", needs: "radar", armor: "light", weapon: "artilleryShell", faction: "concord" },
     harvester: { label: "Harvester", speed: 1.6, maxHp: 400, radius: 13, cost: 1100, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
     // Aircraft (AIR): fly straight over anything; only some weapons can hit them.
     gunship: { label: "Gunship", speed: 4.2, maxHp: 220, radius: 12, cost: 900, producer: "airfield", needs: null, armor: "light", weapon: "gunRockets", faction: "any" },
@@ -788,7 +788,7 @@
     bomber: { label: "Bomber", speed: 2.6, maxHp: 420, radius: 15, cost: 1800, producer: "airfield", needs: "techCenter", armor: "heavy", weapon: "bombs", faction: "any" },
     // Deployable vehicles: drive to a field, deploy (Q) into a building (economy.ts).
     outpostTruck: { label: "Outpost Truck", speed: 1.5, maxHp: 500, radius: 13, cost: 1600, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "any" },
-    drillRig: { label: "Drill Rig", speed: 1.6, maxHp: 450, radius: 12, cost: 900, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "concord" },
+    drillRig: { label: "Drill Rig", speed: 1.6, maxHp: 450, radius: 12, cost: 700, producer: "heavyFactory", needs: null, armor: "heavy", weapon: null, faction: "concord" },
     glasswalker: { label: "Glasswalker", speed: 1.3, maxHp: 55, radius: 5, cost: 70, producer: "barracks", needs: null, armor: "infantry", weapon: "shardRifle", faction: "shardbound" },
     skimmer: { label: "Skimmer", speed: 4.2, maxHp: 100, radius: 9, cost: 280, producer: "lightFactory", needs: null, armor: "light", weapon: "shardRepeater", faction: "shardbound" },
     prismTank: { label: "Prism Tank", speed: 2.3, maxHp: 380, radius: 11, cost: 750, producer: "heavyFactory", needs: null, armor: "heavy", weapon: "prismBeam", faction: "shardbound" },
@@ -801,11 +801,11 @@
     medic: { label: "Field Medic", speed: 1.3, maxHp: 60, radius: 5, cost: 200, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "concord" },
     mender: { label: "Mender", speed: 1.3, maxHp: 65, radius: 5, cost: 250, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "shardbound" },
     mechanic: { label: "Mechanic", speed: 1.3, maxHp: 60, radius: 5, cost: 200, producer: "barracks", needs: null, armor: "infantry", weapon: null, faction: "reclaimers" },
-    marksman: { label: "Marksman", speed: 1.1, maxHp: 45, radius: 5, cost: 450, producer: "barracks", needs: "radar", armor: "infantry", weapon: "marksmanRifle", faction: "concord" },
+    marksman: { label: "Marksman", speed: 1.1, maxHp: 45, radius: 5, cost: 400, producer: "barracks", needs: "radar", armor: "infantry", weapon: "marksmanRifle", faction: "concord" },
     lancer: { label: "Lancer", speed: 1.2, maxHp: 50, radius: 5, cost: 450, producer: "barracks", needs: "radar", armor: "infantry", weapon: "lancerBeam", faction: "shardbound" },
     deadeye: { label: "Deadeye", speed: 1.2, maxHp: 45, radius: 5, cost: 420, producer: "barracks", needs: "radar", armor: "infantry", weapon: "deadeyeRifle", faction: "reclaimers" },
     // Top tier: needs a Tech Center.
-    bastion: { label: "Bastion", speed: 1.5, maxHp: 900, radius: 13, cost: 1600, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "twinCannon", faction: "concord" },
+    bastion: { label: "Bastion", speed: 1.5, maxHp: 900, radius: 13, cost: 1450, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "twinCannon", faction: "concord" },
     monolith: { label: "Monolith", speed: 1.6, maxHp: 700, radius: 13, cost: 1600, producer: "heavyFactory", needs: "techCenter", armor: "heavy", weapon: "monolithBeam", faction: "shardbound" },
     // Heroes (see HEROES): one per side at a time.
     vance: { label: "Captain Vance", speed: 1.6, maxHp: 400, radius: 6, cost: 2e3, producer: "barracks", needs: "techCenter", armor: "infantry", weapon: "vancePistols", faction: "concord" },
@@ -3232,7 +3232,7 @@
     const docks = count(g, "refinery", me) + count(g, "outpost", me);
     if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), docks * HARVESTERS_PER_DOCK + coreMiner)) return "harvester";
     const placed = (b) => count(g, b, me);
-    if (canTrain(g.factions[me], "drillRig") && placed("deepDrill") + mine("drillRig") < 2 && g.time > 240) return "drillRig";
+    if (canTrain(g.factions[me], "drillRig") && placed("deepDrill") + mine("drillRig") < 1 && g.time > 360) return "drillRig";
     if (placed("outpost") + mine("outpostTruck") < 1 && g.time > 360 && ai.credits > 2200) return "outpostTruck";
     if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank") && ai.cores >= coreCost(F("bastion"))) return "bastion";
     const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
@@ -5278,7 +5278,7 @@
     /** No remote building this close (tiles) to an enemy building. */
     enemyClearance: 9,
     /** A drill takes this much crystal a second (worth more from storm glass), and cores this fast. */
-    drillRate: 7,
+    drillRate: 9,
     drillCoreRate: 0.08,
     /** A spire grows crystal this often (s), this far out (tiles), this much at a time. */
     spireInterval: 1.5,
