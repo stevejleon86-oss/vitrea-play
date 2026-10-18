@@ -2287,7 +2287,7 @@
     for (const b of g.buildings) {
       const max = BUILDING_STATS[b.kind].maxHp;
       const wallet = walletOf(g, b.owner);
-      if (b.owner !== PLAYER && !g.humans.includes(b.owner) && !b.repairing && b.hp < max * 0.6 && wallet.credits > 600) b.repairing = true;
+      if (g.ais[b.owner] && !g.humans.includes(b.owner) && !b.repairing && b.hp < max * 0.6 && wallet.credits > 600) b.repairing = true;
       if (!b.repairing) continue;
       const perHp = BUILDING_STATS[b.kind].cost * BUILDING_REPAIR.costShare / max;
       const hp = Math.min(max - b.hp, BUILDING_REPAIR.rate * dt, perHp > 0 ? wallet.credits / perHp : Infinity);
@@ -2313,10 +2313,15 @@
 
   // src/ai.ts
   var AI_LEVELS = {
-    easy: { startCredits: 1500, trickle: 1, buildSpeed: 0.7, firstWave: 330, waveGap: 210, waveStart: 3, waveGrow: 1, maxWave: 8 },
-    normal: { startCredits: 2500, trickle: 3, buildSpeed: 1, firstWave: 240, waveGap: 160, waveStart: 4, waveGrow: 2, maxWave: 12 },
-    hard: { startCredits: 4e3, trickle: 6, buildSpeed: 1.3, firstWave: 180, waveGap: 120, waveStart: 6, waveGrow: 2, maxWave: 16 }
+    easy: { startCredits: 1500, trickle: 1, buildSpeed: 0.7, firstWave: 330, waveGap: 210, waveStart: 3, waveGrow: 1, maxWave: 8, counter: 0, raidGap: 0, retreat: 0, flank: 0 },
+    normal: { startCredits: 2500, trickle: 3, buildSpeed: 1, firstWave: 240, waveGap: 160, waveStart: 4, waveGrow: 2, maxWave: 12, counter: 1, raidGap: 140, retreat: 0.25, flank: 1 },
+    hard: { startCredits: 4e3, trickle: 6, buildSpeed: 1.3, firstWave: 180, waveGap: 120, waveStart: 6, waveGrow: 2, maxWave: 16, counter: 1, raidGap: 80, retreat: 0.35, flank: 1 }
   };
+  var RAID_SIZE = 3;
+  var FLANK_MIN_WAVE = 6;
+  var FLANK_SWING = 14;
+  var MENDED = 0.8;
+  var MEND_TIMEOUT = 45;
   var THINK_INTERVAL = 1;
   var WAVE_PATIENCE = 90;
   var MAX_TURRETS = 5;
@@ -2340,7 +2345,11 @@
       army: [],
       raiders: [],
       skipUntil: {},
-      builds: true
+      builds: true,
+      raid: [],
+      nextRaid: level.firstWave + level.raidGap,
+      mending: {},
+      flank: null
     };
   }
   var aiOf = (g, me) => g.ais[me];
@@ -2349,21 +2358,26 @@
   function myYard(g, me) {
     return g.buildings.find((b) => b.owner === me && b.kind === "yard");
   }
-  function enemyHome(g, me) {
+  function chooseRival(g, me) {
     const home = g.startOf[me];
-    let best = home;
-    let bestD = Infinity;
+    let best = null;
+    let bestScore = Infinity;
     for (const s of g.sides) {
       if (!hostile(g, s, me)) continue;
       if (g.sides.length > 2 && !g.buildings.some((b) => b.owner === s)) continue;
       const p = g.startOf[s];
-      const d = Math.hypot(p.x - home.x, p.y - home.y);
-      if (d < bestD) {
-        best = p;
-        bestD = d;
+      const army = g.units.filter((u) => u.owner === s && u.kind !== "harvester").length;
+      const score = Math.hypot(p.x - home.x, p.y - home.y) * (1 + army / 20);
+      if (score < bestScore) {
+        best = s;
+        bestScore = score;
       }
     }
     return best;
+  }
+  function enemyHome(g, me) {
+    const rival = chooseRival(g, me);
+    return rival === null ? g.startOf[me] : g.startOf[rival];
   }
   function rallyPoint(g, me = ENEMY) {
     const e = g.startOf[me];
@@ -2387,6 +2401,8 @@
       [!hasBuilding(g, "radar", me) && g.time > 260, "radar"],
       [count(g, "rocketTurret", me) < 3 && g.time > 420, "rocketTurret"],
       [!hasBuilding(g, "techCenter", me) && g.time > 540, "techCenter"],
+      // Somewhere for pulled-back vehicles to get patched up.
+      [AI_LEVELS[ai.difficulty].retreat > 0 && !hasBuilding(g, "repairPad", me) && g.time > 400, "repairPad"],
       [headroom < 50, "power"]
     ];
     for (const [want, kind] of wants) {
@@ -2428,20 +2444,41 @@
     const role = chooseRole(g, producer, me);
     return factionUnit(g.factions[me], role);
   }
+  function enemyMix(g, me) {
+    let foot = 0;
+    let armour = 0;
+    for (const u of g.units) {
+      if (!hostile(g, u.owner, me) || u.kind === "harvester" || !UNIT_STATS[u.kind].weapon) continue;
+      if (UNIT_STATS[u.kind].armor === "infantry") foot++;
+      else armour++;
+    }
+    if (foot + armour < 4) return "mixed";
+    if (foot >= (foot + armour) * 0.65) return "infantry";
+    if (armour >= (foot + armour) * 0.65) return "vehicles";
+    return "mixed";
+  }
   function chooseRole(g, producer, me) {
     const F = (k) => factionUnit(g.factions[me], k);
     const mine = (k) => g.units.filter((u) => u.owner === me && u.kind === F(k)).length;
-    const mix = aiOf(g, me).waves > 0;
+    const ai = aiOf(g, me);
+    const mix = ai.waves > 0;
+    const facing = AI_LEVELS[ai.difficulty].counter ? enemyMix(g, me) : "mixed";
     if (producer === "barracks") {
       if (!missingFor(g, F("vance"), me) && heroCount(g, me) === 0) return "vance";
       if (mix && mine("medic") * 4 < mine("infantry")) return "medic";
-      if (mix && !missingFor(g, F("marksman"), me) && mine("marksman") * 3 < mine("infantry")) return "marksman";
+      const snipers = facing === "infantry" ? 2 : facing === "vehicles" ? 99 : 3;
+      if (mix && !missingFor(g, F("marksman"), me) && mine("marksman") * snipers < mine("infantry")) return "marksman";
+      if (facing === "vehicles") return mine("rocketInfantry") <= mine("infantry") * 2 ? "rocketInfantry" : "infantry";
       return mix && mine("rocketInfantry") * 2 < mine("infantry") ? "rocketInfantry" : "infantry";
     }
-    if (producer === "lightFactory") return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
+    if (producer === "lightFactory") {
+      if (facing === "infantry") return mine("raider") < mine("quad") ? "raider" : "quad";
+      return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
+    }
     if (mine("harvester") < Math.min(MAX_HARVESTERS, count(g, "refinery", me))) return "harvester";
     if (!missingFor(g, F("bastion"), me) && mine("bastion") * 2 <= mine("tank")) return "bastion";
-    if (!missingFor(g, F("artillery"), me) && mine("artillery") * 2 < mine("tank")) return "artillery";
+    const guns = facing === "infantry" ? 1 : facing === "vehicles" ? 4 : 2;
+    if (!missingFor(g, F("artillery"), me) && mine("artillery") * guns < mine("tank")) return "artillery";
     return "tank";
   }
   function updateAi(g, dt) {
@@ -2508,7 +2545,8 @@
       const kind = chooseUnit(g, producer, me);
       if (kind !== "harvester") {
         if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
-        if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize / 2)) continue;
+        const footShare = kind === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
+        if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
       }
       if (ai.credits < reserve + unitCost(g.factions[me], kind) * 0.25) continue;
       line.current = { kind, spent: 0 };
@@ -2519,10 +2557,17 @@
     const overdue = g.time >= ai.nextWave + WAVE_PATIENCE;
     if (due && (army.length >= ai.waveSize || overdue && army.length >= 2)) {
       const home = g.startOf[me];
-      const target = nearestEnemyBuilding2(g, me, home.x * TILE, home.y * TILE);
+      const target = nearestEnemyBuilding2(g, me, home.x * TILE, home.y * TILE, chooseRival(g, me));
       if (target) {
-        commandAttackMove(g, army, target.at);
-        ai.raiders.push(...army.map((u) => u.id));
+        const flankers = level.flank && army.length >= FLANK_MIN_WAVE && !ai.flank ? pickFlankers(army) : [];
+        const via = flankers.length ? flankPoint(g, home, target.at, ai.waves) : null;
+        const main = army.filter((u) => !flankers.includes(u));
+        commandAttackMove(g, main, target.at);
+        ai.raiders.push(...main.map((u) => u.id));
+        if (via) {
+          commandAttackMove(g, flankers, via);
+          ai.flank = { ids: flankers.map((u) => u.id), via, target: target.at, since: g.time };
+        }
         ai.army = [];
         ai.waves++;
         ai.waveSize = Math.min(level.maxWave, ai.waveSize + level.waveGrow);
@@ -2535,10 +2580,119 @@
       }
     }
     defendBase(g, me);
+    if (level.retreat > 0) pullBackWounded(g, me);
+    if (level.raidGap > 0) runRaids(g, me);
+    runFlank(g, me);
     for (const u of alive(g, ai.raiders)) {
       if (u.order !== "idle" || u.targetId !== null || u.path.length > 0) continue;
       const target = nearestEnemyBuilding2(g, me, u.x, u.y);
       if (target) commandAttackMove(g, [u], target.at);
+    }
+  }
+  var isFast = (u) => UNIT_STATS[u.kind].armor === "light" && UNIT_STATS[u.kind].speed >= 3.5 && !!UNIT_STATS[u.kind].weapon;
+  var health = (u) => u.hp / UNIT_STATS[u.kind].maxHp;
+  function pickFlankers(army) {
+    const n = Math.floor(army.length / 3);
+    return [...army].sort((a, b) => UNIT_STATS[b.kind].speed - UNIT_STATS[a.kind].speed || a.id - b.id).slice(0, n);
+  }
+  function flankPoint(g, home, target, wave) {
+    const dx = target.x - home.x;
+    const dy = target.y - home.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const side = wave % 2 === 0 ? 1 : -1;
+    const p = {
+      x: Math.round(home.x + dx * 0.66 + -dy / d * FLANK_SWING * side),
+      y: Math.round(home.y + dy * 0.66 + dx / d * FLANK_SWING * side)
+    };
+    const clamped = { x: Math.max(2, Math.min(g.map.w - 3, p.x)), y: Math.max(2, Math.min(g.map.h - 3, p.y)) };
+    return nearestPassable(g.map, clamped) ?? target;
+  }
+  function runFlank(g, me) {
+    const ai = aiOf(g, me);
+    const f = ai.flank;
+    if (!f) return;
+    const units = alive(g, f.ids);
+    if (units.length === 0) {
+      ai.flank = null;
+      return;
+    }
+    const there = units.filter((u) => Math.hypot(u.x / TILE - f.via.x, u.y / TILE - f.via.y) < 5).length;
+    if (there * 2 >= units.length || g.time - f.since > 50) {
+      commandAttackMove(g, units, f.target);
+      ai.raiders.push(...units.map((u) => u.id));
+      ai.flank = null;
+    }
+  }
+  function runRaids(g, me) {
+    const ai = aiOf(g, me);
+    const level = AI_LEVELS[ai.difficulty];
+    ai.raid = alive(g, ai.raid).map((u) => u.id);
+    const raiders = alive(g, ai.raid);
+    const prey = (u) => {
+      let best = null;
+      let bestD = Infinity;
+      for (const h of g.units) {
+        if (h.kind !== "harvester" || !hostile(g, h.owner, me)) continue;
+        const d = Math.hypot(h.x - u.x, h.y - u.y);
+        if (d < bestD) {
+          best = h;
+          bestD = d;
+        }
+      }
+      return best;
+    };
+    for (const u of raiders) {
+      if (health(u) < 0.45) {
+        ai.raid = ai.raid.filter((id) => id !== u.id);
+        ai.mending[u.id] = g.time;
+        goMend(g, me, u);
+        continue;
+      }
+      if (u.targetId !== null && g.units.some((h2) => h2.id === u.targetId)) continue;
+      const h = prey(u);
+      if (h) commandAttack(g, [u], h.id);
+      else {
+        ai.raid = ai.raid.filter((id) => id !== u.id);
+        ai.army.push(u.id);
+        commandMove(g, [u], rallyPoint(g, me));
+      }
+    }
+    if (g.time < ai.nextRaid || raiders.length > 0) return;
+    ai.nextRaid = g.time + level.raidGap;
+    const fast = alive(g, ai.army).filter((u) => isFast(u) && health(u) > 0.7 && !(u.id in ai.mending));
+    if (fast.length < 2) return;
+    const party = fast.slice(0, RAID_SIZE);
+    const target = prey(party[0]);
+    if (!target) return;
+    commandAttack(g, party, target.id);
+    ai.raid.push(...party.map((u) => u.id));
+    ai.army = ai.army.filter((id) => !party.some((u) => u.id === id));
+  }
+  function goMend(g, me, u) {
+    const pad = UNIT_STATS[u.kind].armor !== "infantry" ? g.buildings.find((b) => b.owner === me && b.kind === "repairPad") : void 0;
+    commandMove(g, [u], pad ? { x: pad.tx, y: pad.ty } : rallyPoint(g, me));
+  }
+  function pullBackWounded(g, me) {
+    const ai = aiOf(g, me);
+    const level = AI_LEVELS[ai.difficulty];
+    for (const u of alive(g, ai.raiders)) {
+      if (health(u) >= level.retreat || g.time - u.hitAt > 3) continue;
+      if (UNIT_STATS[u.kind].armor === "infantry" && UNIT_STATS[u.kind].maxHp < 100) continue;
+      ai.raiders = ai.raiders.filter((id) => id !== u.id);
+      ai.mending[u.id] = g.time;
+      goMend(g, me, u);
+    }
+    for (const key of Object.keys(ai.mending)) {
+      const id = Number(key);
+      const u = g.units.find((x) => x.id === id);
+      if (!u) {
+        delete ai.mending[id];
+        continue;
+      }
+      if (health(u) >= MENDED || g.time - ai.mending[id] > MEND_TIMEOUT) {
+        delete ai.mending[id];
+        if (!ai.army.includes(id)) ai.army.push(id);
+      }
     }
   }
   var DEFEND_RADIUS = 10;
@@ -2557,7 +2711,7 @@
         }
       }
     }
-    const army = alive(g, ai.army);
+    const army = alive(g, ai.army).filter((u) => !(u.id in ai.mending));
     if (intruder) {
       const spot = { x: Math.floor(intruder.x / TILE), y: Math.floor(intruder.y / TILE) };
       for (const u of army) {
@@ -2574,11 +2728,11 @@
       }
     }
   }
-  function nearestEnemyBuilding2(g, me, x, y) {
+  function nearestEnemyBuilding2(g, me, x, y, only = null) {
     let best = null;
     let bestD = Infinity;
     for (const b of g.buildings) {
-      if (!hostile(g, b.owner, me)) continue;
+      if (!hostile(g, b.owner, me) || only !== null && b.owner !== only) continue;
       const c = { x: b.tx + Math.floor(b.w / 2), y: b.ty + b.h };
       const d = Math.hypot(c.x * TILE - x, c.y * TILE - y);
       if (d < bestD) {
@@ -3156,17 +3310,18 @@
     const near = { x: fx(s0.x + 3, 1), y: fy(s0.y + 5, 1) };
     for (const t of formationTiles(g.map, near, 3)) spawnUnit(g, factionUnit(g.factions[owner], "quad"), t.x, t.y, owner);
   }
+  var personal = (g, owner) => owner === PLAYER && !g.ais[PLAYER];
   function walletOf(g, owner) {
-    return owner === PLAYER ? g : g.ais[owner];
+    return personal(g, owner) ? g : g.ais[owner];
   }
   function linesOf(g, owner) {
-    return owner === PLAYER ? g.lines : g.ais[owner].lines;
+    return personal(g, owner) ? g.lines : g.ais[owner].lines;
   }
   function structureOf(g, owner) {
-    return owner === PLAYER ? g.structure : g.ais[owner]?.structure ?? null;
+    return personal(g, owner) ? g.structure : g.ais[owner]?.structure ?? null;
   }
   function setStructureOf(g, owner, job) {
-    if (owner === PLAYER) g.structure = job;
+    if (personal(g, owner)) g.structure = job;
     else g.ais[owner].structure = job;
   }
   var ENEMY_LAYOUT = [
