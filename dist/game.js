@@ -700,15 +700,15 @@
     /** A tile never holds more than this. */
     maxPerTile: 500,
     /** Units regrown per second on any tile that still has some crystal. */
-    regrowRate: 1.5,
+    regrowRate: 0.75,
     /** Chance per second that a well-stocked tile seeds an empty neighbour. */
-    spreadChance: 4e-3,
+    spreadChance: 2e-3,
     /** A tile needs at least this much before it can spread. */
-    spreadMin: 300,
+    spreadMin: 220,
     /** How much a freshly seeded tile starts with. */
     seedAmount: 60,
     /** Spreading (and storm seeding) stops once the map holds this many times its starting crystal. */
-    capFactor: 2.5,
+    capFactor: 1.5,
     /** How often growth is applied. */
     interval: 1
   };
@@ -1214,11 +1214,30 @@
     }
     for (const f of [...m.fields]) m.fields.push(mirror(m, f));
     const copies = (p) => [p, mirror(m, p)];
+    thinFields(m, seed, copies, m.fields.length / 2);
     addVeins(m, seed, copies, m.fields.length / 2, [
       { x: (w - 1) / 2, y: (h - 1) / 2 },
       { x: Math.round(w * 0.24), y: Math.round(h * 0.6) }
     ], [PLATEAU, enemyPlateau]);
     return m;
+  }
+  var FIELD_KEEP = 0.5;
+  var FIELD_RICHNESS = 0.7;
+  function thinFields(m, seed, copies, baseFields, share = FIELD_KEEP) {
+    const rng = mulberry32(seed * 3571 + 13);
+    const base = m.fields.slice(0, baseFields);
+    const keep = base.map((_, f) => f === 0 || rng() < share);
+    for (let f = 0; f < base.length; f++) {
+      if (keep[f]) continue;
+      for (const c of copies(base[f])) forDisc(m, Math.round(c.x), Math.round(c.y), 4, (i) => m.spice[i] = 0);
+    }
+    for (let i = 0; i < m.spice.length; i++) m.spice[i] = Math.round(m.spice[i] * FIELD_RICHNESS);
+    const survivors = base.filter((_, f) => keep[f]);
+    const n = survivors.length;
+    const rest = [];
+    for (let k = 1; k < copies(survivors[0] ?? { x: 0, y: 0 }).length; k++) for (const p of survivors) rest.push(copies(p)[k]);
+    m.fields = [...survivors, ...rest];
+    return n;
   }
   function addVeins(m, seed, copies, baseFields, deposits, plateaus) {
     const rng = mulberry32(seed * 6151 + 29);
@@ -1322,7 +1341,8 @@
       for (let k = 1; k < 4; k++) out.push(rotate(n, out[k - 1]));
       return out;
     };
-    addVeins(m, seed, turns, quarterFields.length, [{ x: half - 7, y: half - 7 }], plateaus);
+    const kept = thinFields(m, seed, turns, quarterFields.length, 0.8);
+    addVeins(m, seed, turns, kept, [{ x: half - 7, y: half - 7 }], plateaus);
     m.starts = plateaus.map((p) => ({ x: p.x + BASE_OFFSET.x, y: p.y + BASE_OFFSET.y }));
     m.start = m.starts[0];
     m.enemyStart = m.starts[2];
@@ -5427,8 +5447,8 @@
     { seed: 491, name: "The Shatterline", blurb: "A maze of cliffs and narrow passes. Hold the chokepoints." },
     { seed: 8, name: "Ashfall Flats", blurb: "Wide open sand, nowhere to hide. Fast raids and big armies." },
     { seed: 265, name: "Iron Mesa", blurb: "Mostly bare rock: room to build, little to mine." },
-    { seed: 33, name: "Thousand Veins", blurb: "Small fields everywhere. Spread out and keep your harvesters busy." },
-    { seed: 343, name: "Broken Teeth", blurb: "Scarce crystal behind jagged cliffs. A slow, hard war." }
+    { seed: 230, name: "Thousand Veins", blurb: "Small fields everywhere. Spread out and keep your harvesters busy." },
+    { seed: 95, name: "Broken Teeth", blurb: "Scarce crystal behind jagged cliffs. A slow, hard war." }
   ];
   var mapName = (seed) => MAP_POOL.find((m) => m.seed === seed)?.name ?? `Map #${seed}`;
   function mapTraits(m) {
@@ -5446,7 +5466,7 @@
     return { crystal: Math.round(crystal / 1e3), deposits: Math.round(coreTiles / 13), rock: Math.round(rock / n * 100), cliff: Math.round(cliff / n * 100), fields: m.fields.length };
   }
   function describeTraits(t) {
-    const crystal = t.crystal >= 200 ? "Rich crystal" : t.crystal <= 140 ? "Scarce crystal" : "Fair crystal";
+    const crystal = t.crystal >= 110 ? "Rich crystal" : t.crystal <= 55 ? "Scarce crystal" : "Fair crystal";
     const cliffs = t.cliff >= 11 ? "Many cliffs" : t.cliff <= 1 ? "No cliffs" : "Some cliffs";
     const ground = t.rock >= 38 ? "Rocky" : t.rock <= 17 ? "Open sand" : "Mixed ground";
     return [crystal, `${t.fields} fields`, `${t.deposits} core deposits`, cliffs, ground];
