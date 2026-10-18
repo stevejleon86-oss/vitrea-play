@@ -935,11 +935,17 @@
     // Expansion and the faction economies (economy.ts).
     outpost: { label: "Forward Outpost", w: 2, h: 2, maxHp: 700, cost: 1600, power: -10, requires: "refinery", weapon: null },
     deepDrill: { label: "Deep Drill", w: 2, h: 2, maxHp: 600, cost: 900, power: -25, requires: "refinery", weapon: null, faction: "concord" },
-    seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" }
+    seedSpire: { label: "Seed Spire", w: 1, h: 1, maxHp: 450, cost: 700, power: -15, requires: "refinery", weapon: null, faction: "shardbound" },
+    silo: { label: "Silo", w: 1, h: 1, maxHp: 400, cost: 150, power: -5, requires: "refinery", weapon: null },
+    holdingYard: { label: "Holding Yard", w: 2, h: 2, maxHp: 800, cost: 600, power: -10, requires: "refinery", weapon: null }
   };
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
-  var BUILDABLE = ["power", "refinery", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "outpost", "deepDrill", "seedSpire"];
+  var BUILDABLE = ["power", "refinery", "silo", "holdingYard", "barracks", "turret", "lightFactory", "radar", "heavyFactory", "repairPad", "rocketTurret", "techCenter", "outpost", "deepDrill", "seedSpire"];
+  var STORAGE = {
+    holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3, holdingYard: 6e3 },
+    slowFrom: 0.8
+  };
   function canBuild(faction, kind) {
     const only = BUILDING_STATS[kind].faction;
     return !only || only === faction;
@@ -1490,169 +1496,6 @@
     return path.reverse();
   }
 
-  // src/economy.ts
-  var ECONOMY = {
-    /** Outposts and drills: crystal (or core) tiles needed this close (tiles) to the spot. */
-    outpostReach: 6,
-    outpostMinTiles: 6,
-    drillReach: 3,
-    drillMinTiles: 5,
-    /** No remote building this close (tiles) to an enemy building. */
-    enemyClearance: 9,
-    /** A drill takes this much crystal a second (worth more from storm glass), and cores this fast. */
-    drillRate: 7,
-    drillCoreRate: 0.08,
-    /** A spire grows crystal this often (s), this far out (tiles), this much at a time. */
-    spireInterval: 1.5,
-    spireRadius: 5,
-    spireGrow: 45,
-    /** Salvage: share of a wreck's cost left in the pile, how long piles last (s), pick-up rate. */
-    salvageShare: 0.3,
-    salvageLife: 240,
-    salvageRate: 90
-  };
-  var REMOTE = ["outpost", "deepDrill"];
-  var isRemote = (kind) => REMOTE.includes(kind);
-  var isDock = (kind) => kind === "refinery" || kind === "outpost";
-  function resourceNear(g, cx, cy, r) {
-    let n = 0;
-    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
-      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        if (!inBounds(g.map, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
-        if (g.map.spice[idx(g.map, x, y)] > 0) n++;
-      }
-    }
-    return n;
-  }
-  function remoteTiles(g, kind, tx, ty, owner, occupied) {
-    const { w, h } = BUILDING_STATS[kind];
-    const m = g.map;
-    const cx = tx + w / 2;
-    const cy = ty + h / 2;
-    const drill3 = kind === "deepDrill";
-    const fog = g.humans.includes(owner) && g.fogs[owner].enabled ? g.fogs[owner] : null;
-    const enough = resourceNear(g, cx, cy, drill3 ? ECONOMY.drillReach : ECONOMY.outpostReach) >= (drill3 ? ECONOMY.drillMinTiles : ECONOMY.outpostMinTiles);
-    const clear = !g.buildings.some((b) => hostile(g, b.owner, owner) && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) < ECONOMY.enemyClearance);
-    const out = [];
-    for (let y = ty; y < ty + h; y++) {
-      for (let x = tx; x < tx + w; x++) {
-        let ok = enough && clear && inBounds(m, x, y);
-        if (ok) {
-          const i = idx(m, x, y);
-          ok = m.terrain[i] !== Terrain.Cliff && m.blocked[i] === 0 && !occupied.has(`${x},${y}`) && (!fog || fog.explored[i] === 1);
-          if (ok && !drill3) ok = m.spice[i] <= 0;
-          if (ok && m.vein[i] === Vein.Core && m.spice[i] > 0 && !drill3) ok = false;
-        }
-        out.push({ x, y, ok });
-      }
-    }
-    return out;
-  }
-  function clearUnder(g, b) {
-    for (let y = b.ty; y < b.ty + b.h; y++) {
-      for (let x = b.tx; x < b.tx + b.w; x++) {
-        if (!inBounds(g.map, x, y)) continue;
-        const i = idx(g.map, x, y);
-        if (g.map.vein[i] === Vein.Core) continue;
-        g.map.spice[i] = 0;
-        g.map.vein[i] = Vein.Crystal;
-      }
-    }
-  }
-  function anyFaction(g, faction) {
-    return g.sides.some((s) => g.factions[s] === faction);
-  }
-  function leaveSalvage(g, x, y, worth) {
-    if (worth <= 0 || !anyFaction(g, "reclaimers")) return;
-    const tx = Math.floor(x);
-    const ty = Math.floor(y);
-    const here = g.salvage.find((p) => p.x === tx && p.y === ty);
-    if (here) {
-      here.amount += worth * ECONOMY.salvageShare;
-      here.age = 0;
-      return;
-    }
-    g.salvage.push({ id: g.nextId++, x: tx, y: ty, amount: worth * ECONOMY.salvageShare, age: 0 });
-  }
-  function updateEconomy(g, dt) {
-    for (const b of g.buildings) {
-      if (b.kind === "deepDrill") drill(g, b, dt);
-      else if (b.kind === "seedSpire") grow(g, b, dt);
-    }
-    if (g.salvage.length) {
-      for (const p of g.salvage) p.age += dt;
-      g.salvage = g.salvage.filter((p) => p.age < ECONOMY.salvageLife && p.amount > 0.5);
-    }
-  }
-  function drill(g, b, dt) {
-    const m = g.map;
-    const cx = b.tx + b.w / 2;
-    const cy = b.ty + b.h / 2;
-    const r = ECONOMY.drillReach;
-    const power2 = powerInfo(g, b.owner).low ? 0.5 : 1;
-    let best = -1;
-    let core = -1;
-    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
-      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        if (!inBounds(m, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
-        const i = idx(m, x, y);
-        if (m.spice[i] <= 0) continue;
-        if (m.vein[i] === Vein.Core) {
-          if (core < 0 || m.spice[i] > m.spice[core]) core = i;
-        } else if (best < 0 || m.spice[i] > m.spice[best]) best = i;
-      }
-    }
-    const wallet = walletOf(g, b.owner);
-    if (best >= 0) {
-      const take = Math.min(m.spice[best], ECONOMY.drillRate * power2 * dt);
-      m.spice[best] -= take;
-      const credits = take * VEINS.value[m.vein[best]];
-      wallet.credits += credits;
-      if (b.owner === PLAYER) g.stats.creditsHarvested += credits;
-      if (m.spice[best] < 0.01) {
-        m.spice[best] = 0;
-        m.vein[best] = Vein.Crystal;
-      }
-    }
-    if (core >= 0) {
-      const take = Math.min(m.spice[core], ECONOMY.drillCoreRate * power2 * dt);
-      m.spice[core] -= take;
-      wallet.cores += take;
-    }
-  }
-  function grow(g, b, dt) {
-    b.cooldown -= dt * (powerInfo(g, b.owner).low ? 0.5 : 1);
-    if (b.cooldown > 0) return;
-    b.cooldown += ECONOMY.spireInterval;
-    const m = g.map;
-    const cx = b.tx + b.w / 2;
-    const cy = b.ty + b.h / 2;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const a = g.crystalRng() * Math.PI * 2;
-      const d = 1.2 + Math.sqrt(g.crystalRng()) * (ECONOMY.spireRadius - 1.2);
-      const x = Math.floor(cx + Math.cos(a) * d);
-      const y = Math.floor(cy + Math.sin(a) * d);
-      if (!inBounds(m, x, y)) continue;
-      const i = idx(m, x, y);
-      if (m.terrain[i] === Terrain.Cliff || m.blocked[i] !== 0 || m.vein[i] === Vein.Core) continue;
-      if (m.spice[i] <= 0) m.vein[i] = Vein.Crystal;
-      m.spice[i] = Math.min(VEINS.max[m.vein[i]], m.spice[i] + ECONOMY.spireGrow);
-      return;
-    }
-  }
-  function nearestSalvage(g, from, r, except) {
-    let best = null;
-    let bestD = r;
-    for (const p of g.salvage) {
-      const d = Math.hypot(p.x - from.x, p.y - from.y);
-      if (d >= bestD) continue;
-      if (g.units.some((u) => u.id !== except && u.salvageId === p.id)) continue;
-      best = p;
-      bestD = d;
-    }
-    return best;
-  }
-
   // src/events.ts
   var MAX_EVENTS = 96;
   function emit(g, e) {
@@ -1663,6 +1506,53 @@
     if (g.time - last < gap) return;
     g.announced[line] = g.time;
     emit(g, { kind: "announce", line });
+  }
+
+  // src/veterancy.ts
+  var RANK_NAMES = ["", "Veteran", "Elite", "Heroic"];
+  var MAX_RANK = 3;
+  var VETERANCY = {
+    /** Damage needed per rank, as a multiple of the unit's cost. */
+    xpPerCost: 1.5,
+    /** Healing counts this many times over (healers don't fight). */
+    healXp: 2,
+    armor: 0.85,
+    cooldown: 0.9,
+    damage: 1.2,
+    sight: 1,
+    /** Heroic units regain this share of max health per second... */
+    regen: 0.015,
+    /** ...once this many seconds have passed since they were last hit. */
+    regenDelay: 4
+  };
+  function xpPerRank(u) {
+    return Math.max(100, UNIT_STATS[u.kind].cost) * VETERANCY.xpPerCost;
+  }
+  var rankArmor = (u) => u.rank >= 1 ? VETERANCY.armor : 1;
+  var rankCooldown = (u) => u.rank >= 1 ? VETERANCY.cooldown : 1;
+  var rankDamage = (u) => u.rank >= 2 ? VETERANCY.damage : 1;
+  var rankSight = (u) => u.rank >= 2 ? VETERANCY.sight : 0;
+  function gainXp(g, u, amount) {
+    if (u.rank >= MAX_RANK || amount <= 0) return;
+    u.xp += amount;
+    const per = xpPerRank(u);
+    while (u.rank < MAX_RANK && u.xp >= per) {
+      u.xp -= per;
+      u.rank++;
+      if (u.owner === g.local) {
+        notify(g, `${UNIT_STATS[u.kind].label} promoted: ${RANK_NAMES[u.rank]}`);
+        emit(g, { kind: "promote", x: u.x, y: u.y });
+        announce(g, "unit_promoted", 3);
+      }
+    }
+    if (u.rank >= MAX_RANK) u.xp = 0;
+  }
+  function updateVeterancy(g, dt) {
+    for (const u of g.units) {
+      if (u.rank < 3 || g.time - u.hitAt < VETERANCY.regenDelay) continue;
+      const max = UNIT_STATS[u.kind].maxHp;
+      u.hp = Math.min(max, u.hp + max * VETERANCY.regen * dt);
+    }
   }
 
   // src/weather.ts
@@ -2743,7 +2633,11 @@
     const ai = aiOf(g, me);
     const power2 = powerInfo(g, me);
     const headroom = power2.produced - power2.used;
+    const full = ai.credits > storageOf(g, me) * 0.75;
     const wants = [
+      // Small silos first; once it has a couple, a Holding Yard holds far more.
+      [full && count(g, "refinery", me) > 0 && count(g, "silo", me) >= 2, "holdingYard"],
+      [full && count(g, "refinery", me) > 0, "silo"],
       [headroom < 20, "power"],
       [count(g, "refinery", me) === 0, "refinery"],
       [!hasBuilding(g, "barracks", me), "barracks"],
@@ -3356,7 +3250,7 @@
   var clockText = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   var convoys = /* @__PURE__ */ new WeakMap();
   var relays = /* @__PURE__ */ new WeakMap();
-  var drill2 = /* @__PURE__ */ new WeakMap();
+  var drill = /* @__PURE__ */ new WeakMap();
   var combatUnits = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind !== "harvester");
   var TUTORIAL = {
     id: "training",
@@ -3380,7 +3274,7 @@
       const before = new Set(g.units.map((u) => u.id));
       spawnGroup(g, ENEMY, ["scrapper", "scrapper", "scrapper"], openSpot(g, near, 2));
       const scouts = g.units.filter((u) => !before.has(u.id)).map((u) => u.id);
-      drill2.set(g, { quadStarts, scouts });
+      drill.set(g, { quadStarts, scouts });
     },
     objectives: [
       {
@@ -3392,7 +3286,7 @@
         text: "Move them out",
         hint: "Right-click open ground to send them there. Move the view with WASD, the arrow keys, or by pushing the mouse against the screen edge.",
         done: (g) => {
-          const d = drill2.get(g);
+          const d = drill.get(g);
           return !!d && g.units.some((u) => {
             const s = d.quadStarts.get(u.id);
             return !!s && Math.hypot(u.x - s.x, u.y - s.y) > 4 * 32;
@@ -3428,7 +3322,7 @@
         text: "Destroy the Reclaimer scouts",
         hint: "They're dug in south-east of your base, out on the plain. Right-click an enemy to attack it, or Ctrl + right-click the ground to attack-move: your units fight whatever they meet on the way.",
         done: (g) => {
-          const d = drill2.get(g);
+          const d = drill.get(g);
           return !!d && d.scouts.every((id) => !g.units.some((u) => u.id === id));
         }
       }
@@ -4523,7 +4417,12 @@
           sendToRefinery(g, u);
           return;
         }
-        const amount = Math.min((u.cargoKind === "cores" ? CORES.unloadRate : HARVESTER.unloadRate) * dt, u.cargo);
+        const room = u.cargoKind === "cores" ? 1 : intake(g, u.owner);
+        if (room === 0 && u.owner === g.local && g.time - (g.announced.silos_needed ?? -Infinity) >= 20) {
+          notify(g, "Silos needed: storage is full. Spend credits or build Silos.");
+          announce(g, "silos_needed", 20);
+        }
+        const amount = Math.min((u.cargoKind === "cores" ? CORES.unloadRate : HARVESTER.unloadRate) * room * dt, u.cargo);
         u.cargo -= amount;
         if (u.cargoKind === "cores") walletOf(g, u.owner).cores += amount;
         else {
@@ -4887,51 +4786,180 @@
     if (movers.length > 0) commandMove(g, movers, { x: tx, y: ty });
   }
 
-  // src/veterancy.ts
-  var RANK_NAMES = ["", "Veteran", "Elite", "Heroic"];
-  var MAX_RANK = 3;
-  var VETERANCY = {
-    /** Damage needed per rank, as a multiple of the unit's cost. */
-    xpPerCost: 1.5,
-    /** Healing counts this many times over (healers don't fight). */
-    healXp: 2,
-    armor: 0.85,
-    cooldown: 0.9,
-    damage: 1.2,
-    sight: 1,
-    /** Heroic units regain this share of max health per second... */
-    regen: 0.015,
-    /** ...once this many seconds have passed since they were last hit. */
-    regenDelay: 4
+  // src/economy.ts
+  var ECONOMY = {
+    /** Outposts and drills: crystal (or core) tiles needed this close (tiles) to the spot. */
+    outpostReach: 6,
+    outpostMinTiles: 6,
+    drillReach: 3,
+    drillMinTiles: 5,
+    /** No remote building this close (tiles) to an enemy building. */
+    enemyClearance: 9,
+    /** A drill takes this much crystal a second (worth more from storm glass), and cores this fast. */
+    drillRate: 7,
+    drillCoreRate: 0.08,
+    /** A spire grows crystal this often (s), this far out (tiles), this much at a time. */
+    spireInterval: 1.5,
+    spireRadius: 5,
+    spireGrow: 45,
+    /** Salvage: share of a wreck's cost left in the pile, how long piles last (s), pick-up rate. */
+    salvageShare: 0.3,
+    salvageLife: 240,
+    salvageRate: 90
   };
-  function xpPerRank(u) {
-    return Math.max(100, UNIT_STATS[u.kind].cost) * VETERANCY.xpPerCost;
+  var REMOTE = ["outpost", "deepDrill"];
+  var isRemote = (kind) => REMOTE.includes(kind);
+  var isDock = (kind) => kind === "refinery" || kind === "outpost";
+  function storageOf(g, owner) {
+    let n = 0;
+    for (const b of g.buildings) if (b.owner === owner) n += STORAGE.holds[b.kind] ?? 0;
+    return n;
   }
-  var rankArmor = (u) => u.rank >= 1 ? VETERANCY.armor : 1;
-  var rankCooldown = (u) => u.rank >= 1 ? VETERANCY.cooldown : 1;
-  var rankDamage = (u) => u.rank >= 2 ? VETERANCY.damage : 1;
-  var rankSight = (u) => u.rank >= 2 ? VETERANCY.sight : 0;
-  function gainXp(g, u, amount) {
-    if (u.rank >= MAX_RANK || amount <= 0) return;
-    u.xp += amount;
-    const per = xpPerRank(u);
-    while (u.rank < MAX_RANK && u.xp >= per) {
-      u.xp -= per;
-      u.rank++;
-      if (u.owner === g.local) {
-        notify(g, `${UNIT_STATS[u.kind].label} promoted: ${RANK_NAMES[u.rank]}`);
-        emit(g, { kind: "promote", x: u.x, y: u.y });
-        announce(g, "unit_promoted", 3);
+  function intake(g, owner) {
+    const cap = storageOf(g, owner);
+    if (cap <= 0) return 0;
+    const credits = walletOf(g, owner).credits;
+    const from = cap * STORAGE.slowFrom;
+    if (credits <= from) return 1;
+    return Math.max(0, (cap - credits) / (cap - from));
+  }
+  function resourceNear(g, cx, cy, r) {
+    let n = 0;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(g.map, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
+        if (g.map.spice[idx(g.map, x, y)] > 0) n++;
       }
     }
-    if (u.rank >= MAX_RANK) u.xp = 0;
+    return n;
   }
-  function updateVeterancy(g, dt) {
-    for (const u of g.units) {
-      if (u.rank < 3 || g.time - u.hitAt < VETERANCY.regenDelay) continue;
-      const max = UNIT_STATS[u.kind].maxHp;
-      u.hp = Math.min(max, u.hp + max * VETERANCY.regen * dt);
+  function remoteTiles(g, kind, tx, ty, owner, occupied) {
+    const { w, h } = BUILDING_STATS[kind];
+    const m = g.map;
+    const cx = tx + w / 2;
+    const cy = ty + h / 2;
+    const drill3 = kind === "deepDrill";
+    const fog = g.humans.includes(owner) && g.fogs[owner].enabled ? g.fogs[owner] : null;
+    const enough = resourceNear(g, cx, cy, drill3 ? ECONOMY.drillReach : ECONOMY.outpostReach) >= (drill3 ? ECONOMY.drillMinTiles : ECONOMY.outpostMinTiles);
+    const clear = !g.buildings.some((b) => hostile(g, b.owner, owner) && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) < ECONOMY.enemyClearance);
+    const out = [];
+    for (let y = ty; y < ty + h; y++) {
+      for (let x = tx; x < tx + w; x++) {
+        let ok = enough && clear && inBounds(m, x, y);
+        if (ok) {
+          const i = idx(m, x, y);
+          ok = m.terrain[i] !== Terrain.Cliff && m.blocked[i] === 0 && !occupied.has(`${x},${y}`) && (!fog || fog.explored[i] === 1);
+          if (ok && !drill3) ok = m.spice[i] <= 0;
+          if (ok && m.vein[i] === Vein.Core && m.spice[i] > 0 && !drill3) ok = false;
+        }
+        out.push({ x, y, ok });
+      }
     }
+    return out;
+  }
+  function clearUnder(g, b) {
+    for (let y = b.ty; y < b.ty + b.h; y++) {
+      for (let x = b.tx; x < b.tx + b.w; x++) {
+        if (!inBounds(g.map, x, y)) continue;
+        const i = idx(g.map, x, y);
+        if (g.map.vein[i] === Vein.Core) continue;
+        g.map.spice[i] = 0;
+        g.map.vein[i] = Vein.Crystal;
+      }
+    }
+  }
+  function anyFaction(g, faction) {
+    return g.sides.some((s) => g.factions[s] === faction);
+  }
+  function leaveSalvage(g, x, y, worth) {
+    if (worth <= 0 || !anyFaction(g, "reclaimers")) return;
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    const here = g.salvage.find((p) => p.x === tx && p.y === ty);
+    if (here) {
+      here.amount += worth * ECONOMY.salvageShare;
+      here.age = 0;
+      return;
+    }
+    g.salvage.push({ id: g.nextId++, x: tx, y: ty, amount: worth * ECONOMY.salvageShare, age: 0 });
+  }
+  function updateEconomy(g, dt) {
+    for (const b of g.buildings) {
+      if (b.kind === "deepDrill") drill2(g, b, dt);
+      else if (b.kind === "seedSpire") grow(g, b, dt);
+    }
+    if (g.salvage.length) {
+      for (const p of g.salvage) p.age += dt;
+      g.salvage = g.salvage.filter((p) => p.age < ECONOMY.salvageLife && p.amount > 0.5);
+    }
+  }
+  function drill2(g, b, dt) {
+    const m = g.map;
+    const cx = b.tx + b.w / 2;
+    const cy = b.ty + b.h / 2;
+    const r = ECONOMY.drillReach;
+    const power2 = powerInfo(g, b.owner).low ? 0.5 : 1;
+    let best = -1;
+    let core = -1;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(m, x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > r) continue;
+        const i = idx(m, x, y);
+        if (m.spice[i] <= 0) continue;
+        if (m.vein[i] === Vein.Core) {
+          if (core < 0 || m.spice[i] > m.spice[core]) core = i;
+        } else if (best < 0 || m.spice[i] > m.spice[best]) best = i;
+      }
+    }
+    const wallet = walletOf(g, b.owner);
+    if (best >= 0) {
+      const take = Math.min(m.spice[best], ECONOMY.drillRate * power2 * intake(g, b.owner) * dt);
+      m.spice[best] -= take;
+      const credits = take * VEINS.value[m.vein[best]];
+      wallet.credits += credits;
+      if (b.owner === PLAYER) g.stats.creditsHarvested += credits;
+      if (m.spice[best] < 0.01) {
+        m.spice[best] = 0;
+        m.vein[best] = Vein.Crystal;
+      }
+    }
+    if (core >= 0) {
+      const take = Math.min(m.spice[core], ECONOMY.drillCoreRate * power2 * dt);
+      m.spice[core] -= take;
+      wallet.cores += take;
+    }
+  }
+  function grow(g, b, dt) {
+    b.cooldown -= dt * (powerInfo(g, b.owner).low ? 0.5 : 1);
+    if (b.cooldown > 0) return;
+    b.cooldown += ECONOMY.spireInterval;
+    const m = g.map;
+    const cx = b.tx + b.w / 2;
+    const cy = b.ty + b.h / 2;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const a = g.crystalRng() * Math.PI * 2;
+      const d = 1.2 + Math.sqrt(g.crystalRng()) * (ECONOMY.spireRadius - 1.2);
+      const x = Math.floor(cx + Math.cos(a) * d);
+      const y = Math.floor(cy + Math.sin(a) * d);
+      if (!inBounds(m, x, y)) continue;
+      const i = idx(m, x, y);
+      if (m.terrain[i] === Terrain.Cliff || m.blocked[i] !== 0 || m.vein[i] === Vein.Core) continue;
+      if (m.spice[i] <= 0) m.vein[i] = Vein.Crystal;
+      m.spice[i] = Math.min(VEINS.max[m.vein[i]], m.spice[i] + ECONOMY.spireGrow);
+      return;
+    }
+  }
+  function nearestSalvage(g, from, r, except) {
+    let best = null;
+    let bestD = r;
+    for (const p of g.salvage) {
+      const d = Math.hypot(p.x - from.x, p.y - from.y);
+      if (d >= bestD) continue;
+      if (g.units.some((u) => u.id !== except && u.salvageId === p.id)) continue;
+      best = p;
+      bestD = d;
+    }
+    return best;
   }
 
   // src/idcard.ts
@@ -4976,6 +5004,8 @@
     repairPad: "Park damaged vehicles on it to patch them up, for a price.",
     rocketTurret: "Long-range rocket battery. Outranges most attackers.",
     techCenter: "Research upgrades; unlocks heroes and super-heavies.",
+    holdingYard: "Stores 6,000 credits: three silos' worth in one compound. Room to bank a big harvest.",
+    silo: "Stores 2,000 credits. When storage fills up, harvesters slow down and then wait.",
     outpost: "A forward refinery for a distant field. Comes with a harvester, and you can build around it.",
     deepDrill: "Concord only. Mines the field it stands on, straight into the account, with no harvester.",
     seedSpire: "Shardbound only. Grows new crystal on the open ground around it."
@@ -8513,6 +8543,8 @@
     wrecker: "#8a7058",
     mortarCrawler: "#a07848",
     outpost: "#c08a4a",
+    silo: "#b8b0a0",
+    holdingYard: "#9a8f78",
     deepDrill: "#8a8f9a",
     seedSpire: "#5fd8f0",
     techCenter: "#9a8ac0",
@@ -9532,6 +9564,7 @@
       ["announcer_cancelled", "Cancelled."],
       ["announcer_insufficient_funds", "Insufficient funds."],
       ["announcer_low_power", "Low power."],
+      ["announcer_silos_needed", "Silos needed."],
       ["announcer_cannot_deploy", "Cannot deploy here."],
       ["announcer_base_under_attack", "Our base is under attack."],
       ["announcer_units_under_attack", "Our units are under attack."],
@@ -15231,6 +15264,9 @@
     const minimap = el("minimap");
     const credits = el("credits");
     const coresEl = el("cores");
+    const storageBox = document.querySelector(".storage");
+    const storageBar = el("storage-bar");
+    const storageText = el("storage-text");
     const power2 = el("power");
     const infoCard = new InfoCard(el("info"));
     const notices = el("notices");
@@ -15546,12 +15582,12 @@
             pauseOverlay.hidden = !paused;
           }
         } else {
-          const cap = 12 * Math.max(1, replaySpeed);
-          for (let steps = 0; acc >= STEP3 && steps < cap; steps++) {
+          const cap2 = 12 * Math.max(1, replaySpeed);
+          for (let steps = 0; acc >= STEP3 && steps < cap2; steps++) {
             playback.advance(1);
             acc -= STEP3;
           }
-          if (acc > STEP3 * cap) acc = 0;
+          if (acc > STEP3 * cap2) acc = 0;
         }
         if (!seeking) {
           rpSeek.value = String(game.tick);
@@ -15593,6 +15629,14 @@
       sound.updateWind(game, cam);
       sound.updateEngines(game, cam);
       credits.textContent = Math.floor(walletOf(game, game.local).credits).toLocaleString();
+      const cap = storageOf(game, game.local);
+      const have = walletOf(game, game.local).credits;
+      const fill = cap > 0 ? Math.min(1, have / cap) : 1;
+      storageBar.style.width = `${Math.round(fill * 100)}%`;
+      const storeText = `${Math.floor(have).toLocaleString()} / ${cap.toLocaleString()}`;
+      if (storageText.textContent !== storeText) storageText.textContent = storeText;
+      storageBox.classList.toggle("slow", fill > STORAGE.slowFrom && fill < 1);
+      storageBox.classList.toggle("full", fill >= 1);
       const coreText = String(Math.floor(walletOf(game, game.local).cores));
       if (coresEl.textContent !== coreText) coresEl.textContent = coreText;
       const p = powerInfo(game, game.local);

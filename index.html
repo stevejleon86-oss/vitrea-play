@@ -105,6 +105,11 @@
     .build .name { font-family: var(--cond); font-size: 12.5px; font-weight: 700; line-height: 1.1; letter-spacing: 0.02em; text-transform: uppercase; position: relative; }
     .build .cost { font-family: var(--cond); font-size: 12px; font-weight: 600; color: var(--amber); position: relative; }
     .build .cores { position: absolute; right: 4px; top: 16px; z-index: 2; font-family: var(--cond); font-size: 11px; font-weight: 700; color: #ffd36a; text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+    .storage { position: relative; height: 14px; margin: -4px 0 8px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge); }
+    #storage-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(242, 179, 61, 0.45); }
+    .storage.slow #storage-bar { background: rgba(230, 140, 50, 0.7); }
+    .storage.full #storage-bar { background: rgba(220, 70, 50, 0.8); }
+    #storage-text { position: relative; display: block; text-align: right; padding-right: 4px; font-family: var(--cond); font-size: 11px; line-height: 12px; color: #cfc5b3; font-variant-numeric: tabular-nums; }
     .cores-count { font-family: var(--cond); font-size: 17px; font-weight: 700; color: #ffd36a; font-variant-numeric: tabular-nums; }
     .cores-count::before { content: "\25C6 "; font-size: 12px; }
     .build .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(242, 179, 61, 0.24); }
@@ -547,6 +552,7 @@
   <div id="vignette" aria-hidden="true"></div>
   <div id="panel">
     <div class="row"><span class="label">Credits</span><span id="credits">0</span></div>
+    <div class="storage" title="Credit storage: harvesting slows past 80% and stops when full. Build Silos for more room."><span id="storage-bar"></span><span id="storage-text">0 / 0</span></div>
     <div class="row"><span class="label" title="Glass cores: mined from the amber deposits. Heroes, Tech Center heavies and research need them.">Cores</span><span id="cores" class="cores-count">0</span></div>
     <div class="row"><span class="label">Power</span><span id="power" title="Produced / used. Production slows to half speed when used exceeds produced.">0 / 0</span></div>
     <div class="row"><span class="label">Enemy</span><span id="difficulty">Normal</span></div>
@@ -698,6 +704,7 @@
             <li>Your harvester gathers crystal automatically; the refinery turns it into credits.</li>
             <li>Deep blue fields are dense veins: far more crystal, slow to regrow. Red storm glass (left where storms pass) is worth double.</li>
             <li>Amber deposits are glass cores: right-click one with a harvester to mine it. Heroes, Tech Center heavies and research cost cores.</li>
+            <li>Credits need storage: the yard, refineries, outposts, Silos and Holding Yards. Past 80% full harvesting slows, and it stops when full.</li>
             <li>Forward Outposts expand you to a distant field you've explored. Concord can build Deep Drills on fields; Shardbound Seed Spires grow crystal; Reclaimer harvesters collect scrap from wrecks (right-click a pile).</li>
             <li>Build from the sidebar: power first, then factories. Place buildings on rock near your base.</li>
             <li>Click a factory (or use the tabs above the build list) to see the units it makes.</li>
