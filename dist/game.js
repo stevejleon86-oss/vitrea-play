@@ -1081,6 +1081,18 @@
     return Math.max(MIN_BUILD_TIME, cost / BUILD_RATE);
   }
 
+  // src/events.ts
+  var MAX_EVENTS = 96;
+  function emit(g, e) {
+    if (g.events.length < MAX_EVENTS) g.events.push(e);
+  }
+  function announce(g, line, gap = 0) {
+    const last = g.announced[line] ?? -Infinity;
+    if (g.time - last < gap) return;
+    g.announced[line] = g.time;
+    emit(g, { kind: "announce", line });
+  }
+
   // src/rng.ts
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -1575,18 +1587,6 @@
       path.push({ x, y: (i - x) / m.w });
     }
     return path.reverse();
-  }
-
-  // src/events.ts
-  var MAX_EVENTS = 96;
-  function emit(g, e) {
-    if (g.events.length < MAX_EVENTS) g.events.push(e);
-  }
-  function announce(g, line, gap = 0) {
-    const last = g.announced[line] ?? -Infinity;
-    if (g.time - last < gap) return;
-    g.announced[line] = g.time;
-    emit(g, { kind: "announce", line });
   }
 
   // src/veterancy.ts
@@ -2181,6 +2181,7 @@
       u.ammo = ammo.shots;
       u.rearming = false;
       u.order = "idle";
+      emit(g, { kind: "ammo", empty: false, x: u.x, y: u.y });
       if (u.owner === g.local) notify(g, `${UNIT_STATS[u.kind].label} rearmed.`);
     }
   }
@@ -2192,6 +2193,7 @@
     if (AMMO[u.kind]) {
       if (!u.rearming && (u.ammo ?? 0) < 1) {
         u.rearming = true;
+        emit(g, { kind: "ammo", empty: true, x: u.x, y: u.y });
         if (u.owner === g.local) notify(g, `${UNIT_STATS[u.kind].label} out of ammunition: returning to rearm.`);
       }
       if (u.rearming) return rearm(g, u, dt);
@@ -2911,6 +2913,7 @@
     b.targetId = null;
     const x = (tx + 0.5) * TILE;
     const y = (ty + 0.5) * TILE;
+    emit(g, { kind: "superweapon", weapon: sw.kind, phase: "launch", x, y });
     if (sw.kind === "storm") {
       const s = spawnStorm(g, { x: tx, y: ty });
       s.age = STORMS.buildUp;
@@ -2942,11 +2945,13 @@
       s.age += dt;
       if (s.kind === "orbital" && s.tick === 0 && s.age >= SUPER.orbitalDelay) {
         s.tick = 1;
+        emit(g, { kind: "superweapon", weapon: "orbital", phase: "hit", x: s.x, y: s.y });
         orbitalImpact(g, s);
       } else if (s.kind === "swarm") {
         s.tick -= dt;
         if (s.tick <= 0) {
           s.tick += 0.5;
+          emit(g, { kind: "superweapon", weapon: "swarm", phase: "bite", x: s.x, y: s.y });
           swarmBite(g, s);
         }
       }
@@ -3128,6 +3133,11 @@
     }
     return null;
   }
+  function harvestersWanted(g, me) {
+    const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
+    const docks = count(g, "refinery", me) + count(g, "outpost", me);
+    return Math.min(MAX_HARVESTERS + count(g, "outpost", me), docks * HARVESTERS_PER_DOCK + coreMiner);
+  }
   function resourceRoom(g, x, y) {
     let n = 0;
     for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) if (inBounds(g.map, x + dx, y + dy) && g.map.terrain[idx(g.map, x + dx, y + dy)] === 0) n++;
@@ -3228,9 +3238,7 @@
       if (facing === "infantry") return mine("raider") < mine("quad") ? "raider" : "quad";
       return mix && mine("raider") * 2 < mine("quad") ? "raider" : "quad";
     }
-    const coreMiner = hasBuilding(g, "techCenter", me) || g.time > 420 ? 1 : 0;
-    const docks = count(g, "refinery", me) + count(g, "outpost", me);
-    if (mine("harvester") < Math.min(MAX_HARVESTERS + count(g, "outpost", me), docks * HARVESTERS_PER_DOCK + coreMiner)) return "harvester";
+    if (mine("harvester") < harvestersWanted(g, me)) return "harvester";
     const placed = (b) => count(g, b, me);
     if (canTrain(g.factions[me], "drillRig") && placed("deepDrill") + mine("drillRig") < 1 && g.time > 360) return "drillRig";
     if (placed("outpost") + mine("outpostTruck") < 1 && g.time > 360 && ai.credits > 2200) return "outpostTruck";
@@ -3294,7 +3302,10 @@
     }
     ai.army = alive(g, ai.army).map((u) => u.id);
     ai.raiders = alive(g, ai.raiders).map((u) => u.id);
-    const reserve = ai.structure ? Math.min(600, BUILDING_STATS[ai.structure.kind].cost - ai.structure.spent) : 0;
+    const building = ai.structure ? Math.min(600, BUILDING_STATS[ai.structure.kind].cost - ai.structure.spent) : 0;
+    const harvesters = g.units.filter((u) => u.owner === me && u.kind === "harvester").length + (ai.lines.heavyFactory.current?.kind === "harvester" ? 1 : 0);
+    const rebuild = harvesters < harvestersWanted(g, me) && hasBuilding(g, "heavyFactory", me) ? UNIT_STATS.harvester.cost : 0;
+    const reserve = building;
     const lines2 = Object.values(ai.lines);
     const inProduction = lines2.filter((l) => l.current && l.current.kind !== "harvester" && !DEPLOYS[l.current.kind]).length;
     let wanted = ai.waveSize - ai.army.length - inProduction;
@@ -3311,7 +3322,7 @@
         const footShare = kind === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
         if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
       }
-      if (ai.credits < reserve + unitCost(g.factions[me], kind) * 0.25) continue;
+      if (ai.credits < reserve + (fighter || flyer ? rebuild : 0) + unitCost(g.factions[me], kind) * 0.25) continue;
       if (ai.cores < coreCost(kind)) continue;
       ai.cores -= coreCost(kind);
       line.current = { kind, spent: 0 };
@@ -5322,6 +5333,7 @@
     const b = placeBuilding(g, kind, spot.x, spot.y, u.owner);
     b.hp = BUILDING_STATS[kind].maxHp * (u.hp / UNIT_STATS_HP(u.kind));
     clearUnder(g, b);
+    emit(g, { kind: "deploy", pack: false, x: (b.tx + b.w / 2) * TILE, y: (b.ty + b.h / 2) * TILE });
     if (kind === "outpost" && !u.giftUsed) spawnFreeHarvester(g, b);
     b.giftUsed = true;
     if (u.owner === g.local) g.selectedBuilding = b.id;
@@ -5337,6 +5349,7 @@
     const u = spawnUnit(g, kind, t.x, t.y, b.owner);
     u.hp = UNIT_STATS_HP(kind) * (b.hp / BUILDING_STATS[b.kind].maxHp);
     u.giftUsed = true;
+    emit(g, { kind: "deploy", pack: true, x: u.x, y: u.y });
     if (b.owner === g.local) g.selection = /* @__PURE__ */ new Set([u.id]);
     return null;
   }
@@ -9881,6 +9894,9 @@
     impact: 0.06,
     explodeSmall: 0.06,
     explodeBig: 0.1,
+    swarm: 0.2,
+    deploy: 0.3,
+    ammo: 0.3,
     unload: 0.4,
     select: 0.05,
     command: 0.08
@@ -9897,6 +9913,9 @@
     muted = false;
     last = /* @__PURE__ */ new Map();
     wind = null;
+    /** When the next thunderclap may sound, while a raging storm is near. */
+    nextThunder = 0;
+    aircraft = null;
     engines = null;
     samples = new SampleBank();
     /** One line at a time per channel: unit replies and the announcer don't talk over themselves. */
@@ -10175,6 +10194,48 @@
       this.tone({ freq: big ? 70 : 110, freqEnd: 28, type: "sine", dur: dur * 0.8, vol: (big ? 0.7 : 0.35) * vol, pan });
       if (big) this.burst({ dur: 0.9, type: "bandpass", freq: 300, q: 0.6, vol: 0.3 * vol, pan, delay: 0.08 });
     }
+    /** A superweapon firing: heard across the map, louder near the camera. */
+    superLaunch(weapon2, vol, pan) {
+      if (weapon2 === "orbital") {
+        this.tone({ freq: 220, freqEnd: 1760, type: "sawtooth", dur: 1.6, vol: 0.12 * vol, pan, attack: 0.6 });
+        this.tone({ freq: 440, freqEnd: 3520, type: "sine", dur: 1.6, vol: 0.08 * vol, pan, attack: 0.6 });
+        this.tone({ freq: 60, freqEnd: 30, type: "sine", dur: 0.8, vol: 0.5 * vol, pan, delay: 1.5 });
+      } else if (weapon2 === "storm") {
+        this.thunder(vol, pan);
+        this.burst({ dur: 3, type: "bandpass", freq: 250, freqEnd: 1100, q: 0.6, vol: 0.4 * vol, pan });
+      } else {
+        for (let k = 0; k < 4; k++) this.tone({ freq: 95 + k * 7, type: "sawtooth", dur: 1.8, vol: 0.06 * vol, pan, attack: 0.5 });
+        this.burst({ dur: 1.6, type: "bandpass", freq: 1800, q: 4, vol: 0.12 * vol, pan });
+      }
+    }
+    /** The orbital beam landing: a huge blast with a long low roll and crackle. */
+    orbitalHit(vol, pan) {
+      this.explosion(true, vol, pan);
+      this.tone({ freq: 45, freqEnd: 20, type: "sine", dur: 2.4, vol: 0.8 * vol, pan });
+      this.burst({ dur: 2.5, type: "lowpass", freq: 700, freqEnd: 80, vol: 0.6 * vol, pan, delay: 0.1 });
+      for (let k = 0; k < 6; k++) {
+        const p = Math.max(-1, Math.min(1, pan + (Math.random() - 0.5) * 0.4));
+        this.burst({ dur: 0.08, type: "highpass", freq: 2500, vol: 0.15 * vol, pan: p, delay: 0.3 + k * 0.18 + Math.random() * 0.1 });
+      }
+    }
+    /** Swarm drones stripping a vehicle: metal grinding and chittering. */
+    swarmBite(vol, pan) {
+      this.burst({ dur: 0.25, type: "bandpass", freq: 2400, freqEnd: 1200, q: 5, vol: 0.18 * vol, pan });
+      this.tone({ freq: 180, freqEnd: 120, type: "square", dur: 0.2, vol: 0.06 * vol, pan });
+    }
+    /** Hydraulics: a hiss and a heavy clunk as a vehicle unfolds (or the reverse as it packs up). */
+    hydraulics(pack, vol, pan) {
+      this.burst({ dur: 0.7, type: "highpass", freq: pack ? 2400 : 1200, freqEnd: pack ? 1200 : 2400, vol: 0.18 * vol, pan });
+      this.tone({ freq: pack ? 160 : 90, freqEnd: pack ? 90 : 160, type: "sawtooth", dur: 0.6, vol: 0.08 * vol, pan });
+      this.burst({ dur: 0.3, type: "lowpass", freq: 500, freqEnd: 90, vol: 0.5 * vol, pan, delay: 0.65 });
+      this.tone({ freq: 110, freqEnd: 50, type: "sine", dur: 0.25, vol: 0.4 * vol, pan, delay: 0.65 });
+    }
+    /** A crack of thunder and its long rumble. */
+    thunder(vol, pan) {
+      this.burst({ dur: 0.25, type: "highpass", freq: 1500, vol: 0.4 * vol, pan });
+      this.burst({ dur: 2.8, type: "lowpass", freq: 400, freqEnd: 60, vol: 0.6 * vol, pan, delay: 0.1 });
+      this.tone({ freq: 50, freqEnd: 28, type: "sine", dur: 2.2, vol: 0.35 * vol, pan, delay: 0.15 });
+    }
     /** A short rising arpeggio, used for "ready" chimes and jingles. */
     arpeggio(notes, type, step, vol, dur = 0.35) {
       notes.forEach((f, i) => this.tone({ freq: f, type, dur, vol, delay: i * step }));
@@ -10299,6 +10360,32 @@
             }
             break;
           }
+          case "superweapon": {
+            const { vol, pan } = place(e.x, e.y);
+            if (e.phase === "launch") this.superLaunch(e.weapon, Math.max(0.5, vol), pan);
+            else if (e.phase === "hit") this.orbitalHit(Math.max(0.6, vol), pan);
+            else if (vol > 0.02 && visibleAt(g, e.x, e.y) && !this.throttled("swarm")) this.swarmBite(vol, pan);
+            break;
+          }
+          case "deploy": {
+            if (!visibleAt(g, e.x, e.y)) break;
+            const { vol, pan } = place(e.x, e.y);
+            if (vol > 0.02 && !this.throttled("deploy")) this.hydraulics(e.pack, vol, pan);
+            break;
+          }
+          case "ammo": {
+            if (!visibleAt(g, e.x, e.y)) break;
+            const { vol, pan } = place(e.x, e.y);
+            if (vol < 0.02 || this.throttled("ammo")) break;
+            if (e.empty) {
+              this.burst({ dur: 0.03, type: "highpass", freq: 3e3, vol: 0.25 * vol, pan });
+              this.burst({ dur: 0.03, type: "highpass", freq: 3200, vol: 0.2 * vol, pan, delay: 0.14 });
+            } else {
+              for (let k = 0; k < 4; k++) this.burst({ dur: 0.04, type: "bandpass", freq: 1500 + k * 200, q: 3, vol: 0.18 * vol, pan, delay: k * 0.07 });
+              this.burst({ dur: 0.12, type: "lowpass", freq: 900, freqEnd: 200, vol: 0.3 * vol, pan, delay: 0.32 });
+            }
+            break;
+          }
           case "stormWarning":
             this.voice("announcer", ["announcer_storm_warning"]);
             this.burst({ dur: 2.2, type: "bandpass", freq: 300, freqEnd: 900, q: 0.7, vol: 0.35, pan: 0 });
@@ -10384,6 +10471,47 @@
       this.engines.gain.gain.setTargetAtTime(level * 0.22, t, 0.25);
       this.engines.filter.frequency.setTargetAtTime(120 + 90 * level, t, 0.3);
     }
+    /**
+     * Aircraft overhead: a rotor thump that grows with the number flying on
+     * screen (yours or visible enemies).
+     */
+    updateAircraft(g, cam) {
+      if (!this.ctx || !this.master || this.ctx.state !== "running") return;
+      if (!this.aircraft) {
+        const ctx = this.ctx;
+        const src = ctx.createBufferSource();
+        src.buffer = this.noise;
+        src.loop = true;
+        src.playbackRate.value = 0.6;
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 260;
+        const beat = ctx.createGain();
+        beat.gain.value = 0.5;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 11;
+        const depth = ctx.createGain();
+        depth.gain.value = 0.5;
+        lfo.connect(depth).connect(beat.gain);
+        lfo.start();
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        src.connect(filter).connect(beat).connect(gain).connect(this.sfx);
+        src.start();
+        this.aircraft = { gain, filter };
+      }
+      let flying = 0;
+      for (const u of g.units) {
+        if (!isAir(u.kind)) continue;
+        if (u.x < cam.x || u.x > cam.x + cam.w || u.y < cam.y || u.y > cam.y + cam.h) continue;
+        if (u.owner !== g.local && !visibleAt(g, u.x, u.y)) continue;
+        flying++;
+      }
+      const level = Math.min(1, flying / 4);
+      const t = this.ctx.currentTime;
+      this.aircraft.gain.gain.setTargetAtTime(level * 0.3, t, 0.3);
+      this.aircraft.filter.frequency.setTargetAtTime(200 + 160 * level, t, 0.3);
+    }
     /** Storm wind that rises and falls with how close the nearest storm is to the camera. */
     updateWind(g, cam) {
       if (!this.ctx || !this.master || this.ctx.state !== "running") return;
@@ -10403,9 +10531,16 @@
       const cx = cam.x + cam.w / 2;
       const cy = cam.y + cam.h / 2;
       let level = 0;
+      let thunder = 0;
       for (const s of g.storms) {
         const d = Math.hypot(s.x - cx, s.y - cy) / TILE;
         level = Math.max(level, Math.max(0, 1 - d / 28));
+        if (raging(s)) thunder = Math.max(thunder, Math.max(0, 1 - d / 40));
+      }
+      const now = this.ctx.currentTime;
+      if (thunder > 0.05 && now >= this.nextThunder && this.ready()) {
+        this.thunder(thunder * 0.8, 0);
+        this.nextThunder = now + 5 + Math.random() * 9;
       }
       level = Math.max(level, g.weather.dust * 0.75);
       const t = this.ctx.currentTime;
@@ -16493,6 +16628,7 @@
       sound.playEvents(game, cam);
       sound.updateWind(game, cam);
       sound.updateEngines(game, cam);
+      sound.updateAircraft(game, cam);
       credits.textContent = Math.floor(walletOf(game, game.local).credits).toLocaleString();
       const cap = storageOf(game, game.local);
       const have = walletOf(game, game.local).credits;
