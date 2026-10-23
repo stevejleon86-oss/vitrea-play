@@ -390,9 +390,9 @@
         });
         return description;
       };
-      SDPUtils2.writeRtpDescription = function(kind, caps) {
+      SDPUtils2.writeRtpDescription = function(kind2, caps) {
         let sdp2 = "";
-        sdp2 += "m=" + kind + " ";
+        sdp2 += "m=" + kind2 + " ";
         sdp2 += caps.codecs.length > 0 ? "9" : "0";
         sdp2 += " " + (caps.profile || "UDP/TLS/RTP/SAVPF") + " ";
         sdp2 += caps.codecs.map((codec) => {
@@ -694,8 +694,8 @@
     rookCannon: { range: 3.5, damage: 40, cooldown: 0.8, speed: 0, style: "tracer", vs: { infantry: 1.3, light: 1.1, heavy: 0.6, building: 0.6 } },
     scrapCannon: { range: 4.5, damage: 50, cooldown: 1, speed: 10, style: "shell", splash: 0.9, vs: { infantry: 0.8, light: 1, heavy: 0.9, building: 0.8 } }
   };
-  function weapon(kind) {
-    return WEAPONS[kind];
+  function weapon(kind2) {
+    return WEAPONS[kind2];
   }
   var ALERT_MARGIN = 1.5;
   var GUARD_RADIUS = 7;
@@ -878,14 +878,14 @@
     shardbound: { infantry: "glasswalker", quad: "skimmer", tank: "prismTank", artillery: "resonator", medic: "mender", marksman: "lancer", bastion: "monolith", vance: "seer" },
     reclaimers: { infantry: "scrapper", quad: "junker", tank: "wrecker", artillery: "mortarCrawler", medic: "mechanic", marksman: "deadeye", bastion: "titan", vance: "rook" }
   };
-  function unitCost(faction, kind) {
-    return Math.round(UNIT_STATS[kind].cost * FACTIONS[faction].costFactor);
+  function unitCost(faction, kind2) {
+    return Math.round(UNIT_STATS[kind2].cost * FACTIONS[faction].costFactor);
   }
   function factionUnit(faction, role) {
     return EQUIVALENT[faction][role] ?? role;
   }
-  function canTrain(faction, kind) {
-    const f = UNIT_STATS[kind].faction;
+  function canTrain(faction, kind2) {
+    const f = UNIT_STATS[kind2].faction;
     return f === "any" || f === faction;
   }
   var VEINS = {
@@ -930,7 +930,7 @@
     overclocked: 10,
     hardKnocks: 15
   };
-  var coreCost = (kind) => CORE_COST[kind] ?? 0;
+  var coreCost = (kind2) => CORE_COST[kind2] ?? 0;
   var HARVESTER = {
     /** Resource units a full harvester carries. 1 unit = 1 credit. */
     capacity: 700,
@@ -971,7 +971,7 @@
     gate: { label: "Gate", w: 1, h: 1, maxHp: 700, cost: 150, power: 0, requires: "barracks", weapon: null }
   };
   var BARRIERS = ["wall", "gate"];
-  var isBarrier = (kind) => BARRIERS.includes(kind);
+  var isBarrier = (kind2) => BARRIERS.includes(kind2);
   var WALL_RUN = 24;
   var DRIVABLE_BUILDINGS = ["repairPad"];
   var REPAIR = { rate: 30, costPerHp: 0.5 };
@@ -980,8 +980,8 @@
     holds: { yard: 1500, refinery: 2e3, outpost: 1e3, silo: 2e3 },
     slowFrom: 0.8
   };
-  function canBuild(faction, kind) {
-    const only = BUILDING_STATS[kind].faction;
+  function canBuild(faction, kind2) {
+    const only = BUILDING_STATS[kind2].faction;
     return !only || only === faction;
   }
   var TRAINABLE = [
@@ -1019,7 +1019,7 @@
     "bomber"
   ];
   var AIR = ["gunship", "dropship", "bomber"];
-  var isAir = (kind) => AIR.includes(kind);
+  var isAir = (kind2) => AIR.includes(kind2);
   var AIR_LIFT = 30;
   var AMMO = {
     gunship: { shots: 8, reload: 1.5 },
@@ -1091,6 +1091,68 @@
     if (g.time - last < gap) return;
     g.announced[line] = g.time;
     emit(g, { kind: "announce", line });
+  }
+
+  // src/stats.ts
+  var SAMPLE_EVERY = 15;
+  var side = () => ({ built: 0, lost: 0, kills: 0, buildingsLost: 0, buildingsRazed: 0, harvested: 0, damage: 0 });
+  function createLedger() {
+    return { sides: [side(), side(), side(), side()], kinds: [{}, {}, {}, {}], samples: [], nextSample: 0 };
+  }
+  function kind(g, owner, k) {
+    return g.ledger.kinds[owner][k] ??= { built: 0, lost: 0, kills: 0, damage: 0 };
+  }
+  function recordBuilt(g, u) {
+    g.ledger.sides[u.owner].built++;
+    kind(g, u.owner, u.kind).built++;
+  }
+  function recordHarvest(g, owner, credits) {
+    g.ledger.sides[owner].harvested += credits;
+  }
+  function recordDamage(g, source, attacker, dealt) {
+    if (attacker === void 0) return;
+    g.ledger.sides[attacker].damage += dealt;
+    if (source) kind(g, source.owner, source.kind).damage += dealt;
+  }
+  function recordUnitLoss(g, u, by, killer) {
+    g.ledger.sides[u.owner].lost++;
+    kind(g, u.owner, u.kind).lost++;
+    if (by === void 0 || g.teams[by] === g.teams[u.owner]) return;
+    g.ledger.sides[by].kills++;
+    if (killer) kind(g, killer.owner, killer.kind).kills++;
+  }
+  function recordBuildingLoss(g, b, by) {
+    g.ledger.sides[b.owner].buildingsLost++;
+    if (by !== void 0 && g.teams[by] !== g.teams[b.owner]) g.ledger.sides[by].buildingsRazed++;
+  }
+  function armyValue(g, owner) {
+    let v = 0;
+    for (const u of g.units) if (u.owner === owner && u.kind !== "harvester") v += unitCost(g.factions[owner], u.kind);
+    return v;
+  }
+  function sampleLedger(g) {
+    const l = g.ledger;
+    if (g.time < l.nextSample && !g.result) return;
+    if (g.result && l.samples.at(-1)?.t === g.time) return;
+    l.nextSample = g.time + SAMPLE_EVERY;
+    l.samples.push({ t: g.time, army: [0, 1, 2, 3].map((s) => armyValue(g, s)), harvested: l.sides.map((s) => s.harvested) });
+  }
+  function medals(g, me) {
+    const l = g.ledger;
+    const mine = l.sides[me];
+    const rivals = g.sides.filter((s) => g.teams[s] !== g.teams[me]);
+    const best = (f) => rivals.every((s) => f(mine) > f(l.sides[s]));
+    const won = g.result !== null && g.result === "victory" === (g.teams[me] === g.teams[0]);
+    const out = [];
+    if (won && g.time < 12 * 60) out.push({ name: "Blitz", why: "Won in under 12 minutes" });
+    if (won && mine.buildingsLost === 0) out.push({ name: "Fortress", why: "Won without losing a building" });
+    if (mine.kills >= 10 && mine.kills >= mine.lost * 3) out.push({ name: "Sharpshooter", why: "Three kills for every unit lost" });
+    const developed = g.time >= 5 * 60;
+    if (developed && mine.harvested > 0 && best((s) => s.harvested)) out.push({ name: "Tycoon", why: "Harvested more than any rival" });
+    if (developed && mine.kills > 0 && best((s) => s.kills)) out.push({ name: "Warlord", why: "More kills than any rival" });
+    if (mine.buildingsRazed >= 15) out.push({ name: "Wrecking Crew", why: "Destroyed 15 or more buildings" });
+    if (mine.built >= 60) out.push({ name: "Industrialist", why: "Trained 60 or more units" });
+    return out;
   }
 
   // src/rng.ts
@@ -1790,11 +1852,11 @@
     g.effects.push({ x2: e.x, y2: e.y, age: 0, size: 1, ...e });
   }
   var rand = (a, b) => a + Math.random() * (b - a);
-  function burst(g, kind, x, y, count2, speed, life, size, color) {
+  function burst(g, kind2, x, y, count2, speed, life, size, color) {
     for (let i = 0; i < count2; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = speed * rand(0.4, 1);
-      add(g, { kind, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.75, spin: rand(-12, 12), life: life * rand(0.7, 1.15), size: size * rand(0.6, 1.3), color });
+      add(g, { kind: kind2, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.75, spin: rand(-12, 12), life: life * rand(0.7, 1.15), size: size * rand(0.6, 1.3), color });
     }
   }
   function trim(g) {
@@ -1911,11 +1973,11 @@
   }
   function updateResearch(g, dt) {
     if (g.result) return;
-    for (const side of g.sides) {
-      const brain = g.ais[side];
-      if (!brain || g.humans.includes(side) || g.research[side].current || !brain.builds || brain.credits <= AI_RESERVE) continue;
-      const next = researchFor(g.factions[side]).find((id) => !researchBlocked(g, side, id));
-      if (next) startResearch(g, side, next);
+    for (const side2 of g.sides) {
+      const brain = g.ais[side2];
+      if (!brain || g.humans.includes(side2) || g.research[side2].current || !brain.builds || brain.credits <= AI_RESERVE) continue;
+      const next = researchFor(g.factions[side2]).find((id) => !researchBlocked(g, side2, id));
+      if (next) startResearch(g, side2, next);
     }
     for (const owner of g.sides) {
       const r = g.research[owner];
@@ -1957,10 +2019,10 @@
   function edgeDist(x, y, t) {
     return Math.max(0, Math.hypot(t.x - x, t.y - y) - t.r);
   }
-  function canHit(weapon2, kind) {
+  function canHit(weapon2, kind2) {
     if (!weapon2) return false;
     const hits = weapon(weapon2).hits ?? "ground";
-    return isAir(kind) ? hits !== "ground" : hits !== "air";
+    return isAir(kind2) ? hits !== "ground" : hits !== "air";
   }
   function nearestHostile(g, owner, x, y, maxDist, minDist = 0, weapon2) {
     const air = weapon2 ? weapon(weapon2).hits ?? "ground" : "both";
@@ -2014,7 +2076,8 @@
       u.hp -= dealt;
       u.hitAt = g.time;
       if (source && hostile(g, source.owner, u.owner)) gainXp(g, source, dealt);
-      if (u.hp <= 0) destroyUnit(g, u, by);
+      if (by !== void 0 && hostile(g, by, u.owner)) recordDamage(g, source, by, dealt);
+      if (u.hp <= 0) destroyUnit(g, u, by, source);
       return;
     }
     const b = g.buildings.find((x) => x.id === id);
@@ -2026,12 +2089,14 @@
       const dealt = Math.min(b.hp, amount);
       b.hp -= dealt;
       if (source && hostile(g, source.owner, b.owner)) gainXp(g, source, dealt);
-      if (b.hp <= 0) destroyBuilding(g, b);
+      if (by !== void 0 && hostile(g, by, b.owner)) recordDamage(g, source, by, dealt);
+      if (b.hp <= 0) destroyBuilding(g, b, by);
     }
   }
   var whose = (g, owner) => hostile(g, owner, g.local) ? "Enemy" : "Allied";
-  function destroyUnit(g, u, by) {
+  function destroyUnit(g, u, by, killer) {
     g.units = g.units.filter((x) => x !== u);
+    recordUnitLoss(g, u, by, killer);
     if (UNIT_STATS[u.kind].armor !== "infantry") leaveSalvage(g, u.x / TILE, u.y / TILE, unitCost(g.factions[u.owner], u.kind));
     g.selection.delete(u.id);
     const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
@@ -2055,8 +2120,9 @@
       walletOf(g, rival).credits += payout;
     }
   }
-  function destroyBuilding(g, b) {
+  function destroyBuilding(g, b, by) {
     g.buildings = g.buildings.filter((x) => x !== b);
+    recordBuildingLoss(g, b, by);
     leaveSalvage(g, b.tx + b.w / 2, b.ty + b.h, BUILDING_STATS[b.kind].cost);
     for (let y = b.ty; y < b.ty + b.h; y++) {
       for (let x = b.tx; x < b.tx + b.w; x++) {
@@ -2363,8 +2429,8 @@
   var CHARGE = { delay: 3, damage: 1600, reach: 1.5 };
   var WARD = { radius: 4, duration: 8, factor: 0.4 };
   var CREW = { count: 3 };
-  function isHero(kind) {
-    return kind in HEROES;
+  function isHero(kind2) {
+    return kind2 in HEROES;
   }
   function heroCount(g, owner) {
     const lines2 = linesOf(g, owner);
@@ -2405,8 +2471,8 @@
         if (o.owner === u.owner && Math.hypot(o.x - u.x, o.y - u.y) <= WARD.radius * TILE) o.shieldUntil = g.time + WARD.duration;
       }
     } else {
-      const kind = factionUnit(g.factions[u.owner], "infantry");
-      const crew = formationTiles(g.map, unitTile(u), CREW.count + 1).filter((t) => !(t.x === unitTile(u).x && t.y === unitTile(u).y)).slice(0, CREW.count).map((t) => spawnUnit(g, kind, t.x, t.y, u.owner));
+      const kind2 = factionUnit(g.factions[u.owner], "infantry");
+      const crew = formationTiles(g.map, unitTile(u), CREW.count + 1).filter((t) => !(t.x === unitTile(u).x && t.y === unitTile(u).y)).slice(0, CREW.count).map((t) => spawnUnit(g, kind2, t.x, t.y, u.owner));
       if (!g.humans.includes(u.owner)) g.ais[u.owner]?.raiders.push(...crew.map((c) => c.id));
     }
     u.abilityCd = hero.cooldown;
@@ -2459,11 +2525,11 @@
     }
     return { produced, used, low: used > produced };
   }
-  function hasBuilding(g, kind, owner = PLAYER) {
-    return g.buildings.some((b) => b.kind === kind && b.owner === owner);
+  function hasBuilding(g, kind2, owner = PLAYER) {
+    return g.buildings.some((b) => b.kind === kind2 && b.owner === owner);
   }
-  function missingFor(g, kind, owner = PLAYER) {
-    const needs = kind in UNIT_STATS ? [UNIT_STATS[kind].producer, UNIT_STATS[kind].needs] : [BUILDING_STATS[kind].requires];
+  function missingFor(g, kind2, owner = PLAYER) {
+    const needs = kind2 in UNIT_STATS ? [UNIT_STATS[kind2].producer, UNIT_STATS[kind2].needs] : [BUILDING_STATS[kind2].requires];
     return needs.find((n) => !!n && !hasBuilding(g, n, owner)) ?? null;
   }
   function hasRadar(g, owner = PLAYER) {
@@ -2545,6 +2611,7 @@
       if (advance(wallet, cur, unitCost(g.factions[owner], cur.kind), dt, factor)) {
         const t = exitTile(g, factory);
         const u = spawnUnit(g, cur.kind, t.x, t.y, owner);
+        recordBuilt(g, u);
         if (u.kind === "harvester") autoHarvest(g, u, t);
         else if (factory.rally) commandMove(g, [u], factory.rally);
         if (line.repeat === cur.kind && line.queue.length === 0 && !missingFor(g, cur.kind, owner)) line.queue.push(cur.kind);
@@ -2558,10 +2625,10 @@
       }
     }
   }
-  function startStructure(g, kind, owner = PLAYER) {
-    if (structureOf(g, owner) || missingFor(g, kind, owner) || BUILDING_STATS[kind].cost <= 0) return false;
-    if (!canBuild(g.factions[owner], kind)) return false;
-    setStructureOf(g, owner, { kind, spent: 0, done: false });
+  function startStructure(g, kind2, owner = PLAYER) {
+    if (structureOf(g, owner) || missingFor(g, kind2, owner) || BUILDING_STATS[kind2].cost <= 0) return false;
+    if (!canBuild(g.factions[owner], kind2)) return false;
+    setStructureOf(g, owner, { kind: kind2, spent: 0, done: false });
     if (owner === g.local) {
       emit(g, { kind: "buildStart" });
       announce(g, "building");
@@ -2578,19 +2645,19 @@
       announce(g, "cancelled");
     }
   }
-  function placementTiles(g, kind, tx, ty, owner = PLAYER) {
-    const { w, h } = BUILDING_STATS[kind];
+  function placementTiles(g, kind2, tx, ty, owner = PLAYER) {
+    const { w, h } = BUILDING_STATS[kind2];
     const occupied = new Set(g.units.map((u) => {
       const t = unitTile(u);
       return `${t.x},${t.y}`;
     }));
-    if (isRemote(kind)) return remoteTiles(g, kind, tx, ty, owner, occupied);
-    if (kind === "seedSpire") {
+    if (isRemote(kind2)) return remoteTiles(g, kind2, tx, ty, owner, occupied);
+    if (kind2 === "seedSpire") {
       const m = g.map;
       const ok = inBounds(m, tx, ty) && nearBase(g, tx, ty, 1, 1, owner) && m.terrain[idx(m, tx, ty)] === Terrain.Sand && m.blocked[idx(m, tx, ty)] === 0 && m.spice[idx(m, tx, ty)] <= 0 && !occupied.has(`${tx},${ty}`);
       return [{ x: tx, y: ty, ok }];
     }
-    if (isBarrier(kind)) {
+    if (isBarrier(kind2)) {
       const m = g.map;
       const ok = inBounds(m, tx, ty) && nearBase(g, tx, ty, 1, 1, owner) && m.terrain[idx(m, tx, ty)] !== Terrain.Cliff && m.blocked[idx(m, tx, ty)] === 0 && m.spice[idx(m, tx, ty)] <= 0 && !occupied.has(`${tx},${ty}`);
       return [{ x: tx, y: ty, ok }];
@@ -2611,8 +2678,8 @@
       (b) => b.owner === owner && !isBarrier(b.kind) && ((b.kind === "yard" || b.kind === "outpost") && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) <= BUILD_RADIUS || tx < b.tx + b.w + PLACE_GAP && tx + w > b.tx - PLACE_GAP && ty < b.ty + b.h + PLACE_GAP && ty + h > b.ty - PLACE_GAP)
     );
   }
-  function canPlace(g, kind, tx, ty, owner = PLAYER) {
-    return placementTiles(g, kind, tx, ty, owner).every((t) => t.ok);
+  function canPlace(g, kind2, tx, ty, owner = PLAYER) {
+    return placementTiles(g, kind2, tx, ty, owner).every((t) => t.ok);
   }
   function placeStructure(g, tx, ty, owner = PLAYER) {
     const job = structureOf(g, owner);
@@ -2627,31 +2694,31 @@
     }
     return true;
   }
-  function queuedCount(g, kind, owner = PLAYER) {
-    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
-    return line.queue.filter((k) => k === kind).length + (line.current?.kind === kind ? 1 : 0);
+  function queuedCount(g, kind2, owner = PLAYER) {
+    const line = linesOf(g, owner)[UNIT_STATS[kind2].producer];
+    return line.queue.filter((k) => k === kind2).length + (line.current?.kind === kind2 ? 1 : 0);
   }
-  function queueUnits(g, kind, n, owner = PLAYER) {
+  function queueUnits(g, kind2, n, owner = PLAYER) {
     let added = 0;
-    while (added < n && queueUnit(g, kind, added > 0, owner)) added++;
+    while (added < n && queueUnit(g, kind2, added > 0, owner)) added++;
     return added;
   }
-  function toggleRepeat(g, kind, owner = PLAYER) {
-    if (!canTrain(g.factions[owner], kind) || missingFor(g, kind, owner) || isHero(kind)) return false;
-    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
-    line.repeat = line.repeat === kind ? null : kind;
-    if (line.repeat && !line.current && line.queue.length === 0) queueUnit(g, kind, false, owner);
+  function toggleRepeat(g, kind2, owner = PLAYER) {
+    if (!canTrain(g.factions[owner], kind2) || missingFor(g, kind2, owner) || isHero(kind2)) return false;
+    const line = linesOf(g, owner)[UNIT_STATS[kind2].producer];
+    line.repeat = line.repeat === kind2 ? null : kind2;
+    if (line.repeat && !line.current && line.queue.length === 0) queueUnit(g, kind2, false, owner);
     return true;
   }
-  function queueUnit(g, kind, quiet = false, owner = PLAYER) {
-    if (!canTrain(g.factions[owner], kind) || missingFor(g, kind, owner)) return false;
-    if (isHero(kind) && heroCount(g, owner) > 0) return false;
-    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
+  function queueUnit(g, kind2, quiet = false, owner = PLAYER) {
+    if (!canTrain(g.factions[owner], kind2) || missingFor(g, kind2, owner)) return false;
+    if (isHero(kind2) && heroCount(g, owner) > 0) return false;
+    const line = linesOf(g, owner)[UNIT_STATS[kind2].producer];
     if (line.queue.length + (line.current ? 1 : 0) >= MAX_QUEUE) return false;
     const wallet = walletOf(g, owner);
-    if (wallet.cores < coreCost(kind)) return false;
-    wallet.cores -= coreCost(kind);
-    line.queue.push(kind);
+    if (wallet.cores < coreCost(kind2)) return false;
+    wallet.cores -= coreCost(kind2);
+    line.queue.push(kind2);
     if (!quiet && owner === g.local) {
       emit(g, { kind: "buildStart" });
       announce(g, "training", 1);
@@ -2720,17 +2787,17 @@
       if (b.hp >= max - 1e-6 || perHp > 0 && wallet.credits < perHp) b.repairing = false;
     }
   }
-  function dequeueUnit(g, kind, owner = PLAYER) {
-    const line = linesOf(g, owner)[UNIT_STATS[kind].producer];
-    const i = line.queue.lastIndexOf(kind);
+  function dequeueUnit(g, kind2, owner = PLAYER) {
+    const line = linesOf(g, owner)[UNIT_STATS[kind2].producer];
+    const i = line.queue.lastIndexOf(kind2);
     if (i !== -1) {
       line.queue.splice(i, 1);
-      walletOf(g, owner).cores += coreCost(kind);
+      walletOf(g, owner).cores += coreCost(kind2);
       return true;
     }
-    if (line.current?.kind === kind) {
+    if (line.current?.kind === kind2) {
       walletOf(g, owner).credits += line.current.spent;
-      walletOf(g, owner).cores += coreCost(kind);
+      walletOf(g, owner).cores += coreCost(kind2);
       line.current = null;
       return true;
     }
@@ -2896,7 +2963,7 @@
     stormHeart: { kind: "storm", name: "Called Storm" },
     scrapHive: { kind: "swarm", name: "Salvage Swarm" }
   };
-  var isSuper = (kind) => !!SUPERWEAPONS[kind];
+  var isSuper = (kind2) => !!SUPERWEAPONS[kind2];
   function superweaponBuilt(g, b) {
     b.cooldown = SUPER.charge;
     if (hostile(g, b.owner, g.local)) {
@@ -3066,7 +3133,7 @@
     };
   }
   var aiOf = (g, me) => g.ais[me];
-  var count = (g, kind, me) => g.buildings.filter((b) => b.owner === me && b.kind === kind).length;
+  var count = (g, kind2, me) => g.buildings.filter((b) => b.owner === me && b.kind === kind2).length;
   var alive = (g, ids) => ids.map((id) => g.units.find((u) => u.id === id)).filter((u) => !!u);
   function myYard(g, me) {
     return g.buildings.find((b) => b.owner === me && b.kind === "yard");
@@ -3127,9 +3194,9 @@
       [AI_LEVELS[ai.difficulty].retreat > 0 && !hasBuilding(g, "repairPad", me) && g.time > 400, "repairPad"],
       [headroom < 50, "power"]
     ];
-    for (const [want, kind] of wants) {
-      const skipped = (ai.skipUntil[kind] ?? 0) > g.time;
-      if (want && !skipped && !missingFor(g, kind, me)) return kind;
+    for (const [want, kind2] of wants) {
+      const skipped = (ai.skipUntil[kind2] ?? 0) > g.time;
+      if (want && !skipped && !missingFor(g, kind2, me)) return kind2;
     }
     return null;
   }
@@ -3143,10 +3210,10 @@
     for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) if (inBounds(g.map, x + dx, y + dy) && g.map.terrain[idx(g.map, x + dx, y + dy)] === 0) n++;
     return n;
   }
-  function findFieldSpot(g, kind, me) {
+  function findFieldSpot(g, kind2, me) {
     const docks = g.buildings.filter((b) => b.owner === me && isDock(b.kind));
     const home = g.startOf[me];
-    const outpost = kind === "outpost";
+    const outpost = kind2 === "outpost";
     const fields = g.map.fields.filter((f) => {
       const nearDock = docks.some((d) => Math.hypot(d.tx - f.x, d.ty - f.y) < (outpost ? 16 : 13));
       return outpost ? !nearDock : nearDock;
@@ -3155,7 +3222,7 @@
       let best = null;
       for (let y = f.y - 7; y <= f.y + 7; y++) {
         for (let x = f.x - 7; x <= f.x + 7; x++) {
-          if (!canPlace(g, kind, x, y, me)) continue;
+          if (!canPlace(g, kind2, x, y, me)) continue;
           const score = outpost ? Math.hypot(x - f.x, y - f.y) : -resourceNear(g, x + 1, y + 1, 3);
           if (!best || score < best.score) best = { x, y, score };
         }
@@ -3175,24 +3242,24 @@
     }
     return true;
   }
-  function findSpot(g, kind, me = ENEMY) {
-    if (isRemote(kind)) return findFieldSpot(g, kind, me);
+  function findSpot(g, kind2, me = ENEMY) {
+    if (isRemote(kind2)) return findFieldSpot(g, kind2, me);
     const yard = myYard(g, me) ?? g.buildings.find((b) => b.owner === me);
     if (!yard) return null;
-    const { w, h } = BUILDING_STATS[kind];
+    const { w, h } = BUILDING_STATS[kind2];
     const cx = yard.tx + 1;
     const cy = yard.ty + 1;
     const foe = enemyHome(g, me);
     const candidates = [];
     for (let y = cy - 14; y <= cy + 14; y++) {
       for (let x = cx - 14; x <= cx + 14; x++) {
-        if (!canPlace(g, kind, x, y, me)) continue;
-        if (kind === "refinery" && !isPassable(g.map, x + 1, y + h)) continue;
+        if (!canPlace(g, kind2, x, y, me)) continue;
+        if (kind2 === "refinery" && !isPassable(g.map, x + 1, y + h)) continue;
         const fromYard = Math.hypot(x - cx, y - cy);
         const toEnemy = Math.hypot(x - foe.x, y - foe.y);
         const cramped = hasClearance(g, x, y, w, h) ? 0 : 100;
-        const room = kind === "seedSpire" ? -resourceRoom(g, x, y) * 0.4 : 0;
-        candidates.push({ x, y, score: cramped + room + (kind === "turret" ? toEnemy + fromYard * 0.5 : fromYard) });
+        const room = kind2 === "seedSpire" ? -resourceRoom(g, x, y) * 0.4 : 0;
+        candidates.push({ x, y, score: cramped + room + (kind2 === "turret" ? toEnemy + fromYard * 0.5 : fromYard) });
       }
     }
     candidates.sort((a, b) => a.score - b.score);
@@ -3279,6 +3346,7 @@
       if (advance(ai, line.current, unitCost(g.factions[me], line.current.kind), dt, factor)) {
         const t = exitTile(g, factory);
         const u = spawnUnit(g, line.current.kind, t.x, t.y, me);
+        recordBuilt(g, u);
         if (u.kind === "harvester") autoHarvest(g, u, t);
         else if (DEPLOYS[u.kind]) ai.deployers.push({ id: u.id, spot: null });
         else {
@@ -3297,8 +3365,8 @@
     const ai = aiOf(g, me);
     const level = AI_LEVELS[ai.difficulty];
     if (ai.builds && !ai.structure && myYard(g, me)) {
-      const kind = chooseStructure(g, me);
-      if (kind) ai.structure = { kind, spent: 0, done: false };
+      const kind2 = chooseStructure(g, me);
+      if (kind2) ai.structure = { kind: kind2, spent: 0, done: false };
     }
     ai.army = alive(g, ai.army).map((u) => u.id);
     ai.raiders = alive(g, ai.raiders).map((u) => u.id);
@@ -3313,19 +3381,19 @@
     for (const producer of ["airfield", "heavyFactory", "lightFactory", "barracks"]) {
       const line = ai.lines[producer];
       if (line.current || !hasBuilding(g, producer, me)) continue;
-      const kind = chooseUnit(g, producer, me);
-      const flyer = isAir(kind);
+      const kind2 = chooseUnit(g, producer, me);
+      const flyer = isAir(kind2);
       if (flyer && g.units.filter((u) => u.owner === me && isAir(u.kind)).length >= AIR_WING) continue;
-      const fighter = kind !== "harvester" && !DEPLOYS[kind] && !flyer;
+      const fighter = kind2 !== "harvester" && !DEPLOYS[kind2] && !flyer;
       if (fighter) {
         if (wanted <= 0 || ai.army.length + ai.raiders.length >= MAX_ARMY) continue;
-        const footShare = kind === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
-        if (UNIT_STATS[kind].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
+        const footShare = kind2 === factionUnit(g.factions[me], "rocketInfantry") && level.counter && enemyMix(g, me) === "vehicles" ? 0.7 : 0.5;
+        if (UNIT_STATS[kind2].armor === "infantry" && infantry() >= Math.ceil(ai.waveSize * footShare)) continue;
       }
-      if (ai.credits < reserve + (fighter || flyer ? rebuild : 0) + unitCost(g.factions[me], kind) * 0.25) continue;
-      if (ai.cores < coreCost(kind)) continue;
-      ai.cores -= coreCost(kind);
-      line.current = { kind, spent: 0 };
+      if (ai.credits < reserve + (fighter || flyer ? rebuild : 0) + unitCost(g.factions[me], kind2) * 0.25) continue;
+      if (ai.cores < coreCost(kind2)) continue;
+      ai.cores -= coreCost(kind2);
+      line.current = { kind: kind2, spent: 0 };
       if (fighter) wanted--;
     }
     const army = alive(g, ai.army);
@@ -3377,8 +3445,8 @@
     ai.deployers = ai.deployers.filter((d) => g.units.some((u) => u.id === d.id));
     for (const d of ai.deployers) {
       const u = g.units.find((x) => x.id === d.id);
-      const kind = DEPLOYS[u.kind];
-      d.spot ??= findFieldSpot(g, kind, me);
+      const kind2 = DEPLOYS[u.kind];
+      d.spot ??= findFieldSpot(g, kind2, me);
       if (!d.spot) continue;
       const here = { x: Math.floor(u.x / TILE), y: Math.floor(u.y / TILE) };
       if (Math.hypot(here.x - d.spot.x, here.y - d.spot.y) <= 1.5 && u.path.length === 0) {
@@ -3416,10 +3484,10 @@
     const dx = target.x - home.x;
     const dy = target.y - home.y;
     const d = Math.hypot(dx, dy) || 1;
-    const side = wave % 2 === 0 ? 1 : -1;
+    const side2 = wave % 2 === 0 ? 1 : -1;
     const p = {
-      x: Math.round(home.x + dx * 0.66 + -dy / d * FLANK_SWING * side),
-      y: Math.round(home.y + dy * 0.66 + dx / d * FLANK_SWING * side)
+      x: Math.round(home.x + dx * 0.66 + -dy / d * FLANK_SWING * side2),
+      y: Math.round(home.y + dy * 0.66 + dx / d * FLANK_SWING * side2)
     };
     const clamped = { x: Math.max(2, Math.min(g.map.w - 3, p.x)), y: Math.max(2, Math.min(g.map.h - 3, p.y)) };
     return nearestPassable(g.map, clamped) ?? target;
@@ -3562,7 +3630,7 @@
 
   // src/missions.ts
   var CAPTURE_TIME = 8;
-  var has = (g, owner, kind) => g.buildings.some((b) => b.owner === owner && b.kind === kind);
+  var has = (g, owner, kind2) => g.buildings.some((b) => b.owner === owner && b.kind === kind2);
   var playerHarvesters = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind === "harvester").length;
   var mins = (n) => n * 60;
   function stripPlayerBase(g) {
@@ -3609,29 +3677,32 @@
       const here = sidesIn(g, z);
       const teams = new Set(here.map((s) => g.teams[s]));
       if (teams.size !== 1) continue;
-      const side = here.includes(PLAYER) ? PLAYER : here[0];
-      if (z.owner !== null && g.teams[z.owner] === g.teams[side]) {
+      const side2 = here.includes(PLAYER) ? PLAYER : here[0];
+      if (z.owner !== null && g.teams[z.owner] === g.teams[side2]) {
         z.claimant = null;
         z.hold = 0;
         continue;
       }
-      if (z.claimant === null || g.teams[z.claimant] !== g.teams[side]) {
-        z.claimant = side;
+      if (z.claimant === null || g.teams[z.claimant] !== g.teams[side2]) {
+        z.claimant = side2;
         z.hold = 0;
       }
       z.hold += dt;
       if (z.hold >= CAPTURE_TIME) {
-        z.owner = side;
+        z.owner = side2;
         z.claimant = null;
         z.hold = 0;
-        if (side === g.local) notify(g, `${z.label} captured!`);
-        else if (z.owner !== null && hostile(g, side, g.local)) notify(g, `The enemy has taken ${z.label}!`);
+        if (side2 === g.local) notify(g, `${z.label} captured!`);
+        else if (z.owner !== null && hostile(g, side2, g.local)) notify(g, `The enemy has taken ${z.label}!`);
       }
     }
   }
   var clockText = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   var convoys = /* @__PURE__ */ new WeakMap();
   var relays = /* @__PURE__ */ new WeakMap();
+  var escorts = /* @__PURE__ */ new WeakMap();
+  var gambits = /* @__PURE__ */ new WeakMap();
+  var SUPER_RECHARGED = 60;
   var drill = /* @__PURE__ */ new WeakMap();
   var combatUnits = (g) => g.units.filter((u) => u.owner === PLAYER && u.kind !== "harvester");
   var TUTORIAL = {
@@ -4168,6 +4239,196 @@
         { text: "Destroy every Shardbound building", done: (g) => !g.buildings.some((b) => b.owner === ENEMY) },
         { text: "Bonus: win within 20 minutes", bonus: true, done: (g) => !g.buildings.some((b) => b.owner === ENEMY) && g.time <= mins(20) }
       ]
+    },
+    // ------------------------------------------------------------ part two: the Seer's return
+    {
+      id: "splinters",
+      title: "11. Splinters",
+      briefing: [
+        "The Glass Crown has fallen, and the Seer has not. She has gathered what is left of the Shardbound: a handful of Prism Tanks, a few Glasswalkers and one Outpost Truck.",
+        "Take the Seer north to the Shard Wells, where the crystal runs deep enough to start again, and deploy the Outpost Truck there. Concord patrols the plain and will send hunting parties after you. If the Seer falls, the Shardbound fall with her."
+      ],
+      scene: [
+        { who: "seer", side: 0, name: "The Seer", text: "They think the crown was the heart of us. It was only the loudest part." },
+        { who: "lancer", side: 0, name: "Lancer Oru", text: "Concord riders on every ridge. We will not get far in a straight line." },
+        { who: "vance", side: 1, name: "Captain Vance", text: "She's out there somewhere. Find her before she finds new glass." }
+      ],
+      seed: 142,
+      faction: "shardbound",
+      enemyFaction: "concord",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      enemyBuilds: false,
+      enemyAttacks: false,
+      setup(g) {
+        stripPlayerBase(g);
+        const s = g.map.start;
+        spawnGroup(g, PLAYER, ["seer", "prismTank", "prismTank", "skimmer", "skimmer", "glasswalker", "glasswalker", "glasswalker", "glasswalker", "mender", "mender"], { x: s.x + 5, y: s.y + 5 });
+        const truck = formationTiles(g.map, { x: s.x + 2, y: s.y + 3 }, 1).map((t) => spawnUnit(g, "outpostTruck", t.x, t.y, PLAYER))[0];
+        const seer = g.units.find((u) => u.owner === PLAYER && u.kind === "seer");
+        const spot = openSpot(g, { x: Math.round(g.map.w * 0.8), y: Math.round(g.map.h * 0.18) }, 4);
+        const wells = addZone(g, spot.x + 2, spot.y + 2, 4, "The Shard Wells", false);
+        for (let y = wells.y - 7; y <= wells.y + 7; y++) {
+          for (let x = wells.x - 7; x <= wells.x + 7; x++) {
+            const d = Math.hypot(x - wells.x, y - wells.y);
+            if (d < 4.5 || d > 7 || !isPassable(g.map, x, y)) continue;
+            const i = idx(g.map, x, y);
+            if (g.map.blocked[i] || g.map.terrain[i] !== Terrain.Sand) continue;
+            g.map.vein[i] = Vein.Dense;
+            g.map.spice[i] = Math.max(g.map.spice[i], 600);
+          }
+        }
+        escorts.set(g, { seer: seer.id, truck: truck.id, parties: 0 });
+        const posts = [
+          [{ x: Math.round(g.map.w * 0.4), y: Math.round(g.map.h * 0.3) }, ["quad", "quad", "infantry", "infantry"]],
+          [{ x: Math.round(g.map.w * 0.6), y: Math.round(g.map.h * 0.45) }, ["tank", "infantry", "infantry", "rocketInfantry"]],
+          [{ x: wells.x - 2, y: wells.y + 3 }, ["tank", "quad", "infantry", "infantry", "rocketInfantry", "medic"]]
+        ];
+        for (const [near, kinds] of posts) {
+          formationTiles(g.map, near, kinds.length).forEach((t, i) => {
+            const u = spawnUnit(g, kinds[i], t.x, t.y, ENEMY);
+            u.post = t;
+          });
+        }
+      },
+      tick(g) {
+        const e = escorts.get(g);
+        if (!e || g.time < 90 || g.tick % 4500 !== 0 || e.parties >= 6) return;
+        const seer = g.units.find((u) => u.id === e.seer);
+        if (!seer || !g.buildings.some((b) => b.owner === ENEMY && b.kind === "yard")) return;
+        const kinds = e.parties < 3 ? ["quad", "quad", "infantry"] : ["tank", "quad", "rocketInfantry", "infantry"];
+        const party = formationTiles(g.map, { x: g.map.enemyStart.x - 2, y: g.map.enemyStart.y - 2 }, kinds.length).map((t, i) => spawnUnit(g, kinds[i], t.x, t.y, ENEMY));
+        commandAttackMove(g, party, { x: Math.floor(seer.x / TILE), y: Math.floor(seer.y / TILE) });
+        g.ai.raiders.push(...party.map((u) => u.id));
+        e.parties++;
+        notify(g, "A Concord hunting party is riding out!");
+      },
+      objectives: [
+        {
+          text: "Bring the Seer to the Shard Wells",
+          done: (g) => {
+            const seer = g.units.find((u) => u.id === escorts.get(g)?.seer);
+            const z = g.mission?.zones[0];
+            return !!seer && !!z && Math.hypot(seer.x / TILE - (z.x + 0.5), seer.y / TILE - (z.y + 0.5)) <= z.r;
+          }
+        },
+        {
+          text: "Deploy the Outpost Truck at the Wells",
+          done: (g) => {
+            const z = g.mission?.zones[0];
+            return !!z && g.buildings.some((b) => b.owner === PLAYER && b.kind === "outpost" && Math.hypot(b.tx + b.w / 2 - (z.x + 0.5), b.ty + b.h / 2 - (z.y + 0.5)) <= z.r + 2);
+          }
+        },
+        { text: "Bonus: arrive within 10 minutes", bonus: true, done: (g) => g.time <= mins(10) && !!g.mission?.done[0] && !!g.mission?.done[1] }
+      ],
+      fail: (g) => {
+        const e = escorts.get(g);
+        if (!e || g.time <= 1) return null;
+        if (!g.units.some((u) => u.id === e.seer)) return "The Seer has fallen.";
+        if (!g.units.some((u) => u.id === e.truck) && !g.buildings.some((b) => b.owner === PLAYER && b.kind === "outpost")) return "The Outpost Truck was destroyed.";
+        return null;
+      }
+    },
+    {
+      id: "rooks-gambit",
+      title: "12. Rook's Gambit",
+      briefing: [
+        "Boss Rook again. Concord has put up an Orbital Uplink, a gun in the sky that can burn any base on the plain, and Captain Vance has made it very clear whose base comes first.",
+        "Destroy the Uplink. It's deep in the Concord base and it is already charging: break through before it fires, or rebuild fast when it does. Rook is with you in person. Don't lose the Construction Yard."
+      ],
+      scene: [
+        { who: "rook", side: 0, name: "Boss Rook", text: "A gun in the sky. Pointed at my yard. After everything we did for him." },
+        { who: "mechanic", side: 0, name: "Dee", text: "It takes eight minutes to charge, Boss. Give or take." },
+        { who: "vance", side: 1, name: "Captain Vance", text: "Peace through superior firepower, Rook. Stay in your scrapyard and nobody gets hurt." }
+      ],
+      seed: 219,
+      faction: "reclaimers",
+      enemyFaction: "concord",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      enemyBuilds: true,
+      enemyAttacks: true,
+      setup(g) {
+        g.credits = 3e3;
+        const s = g.startOf[PLAYER];
+        spawnGroup(g, PLAYER, ["rook", "wrecker", "wrecker", "junker", "junker"], { x: s.x + 6, y: s.y + 6 });
+        const e = g.map.enemyStart;
+        const at = openSpot(g, { x: e.x + 2, y: e.y + 6 }, 3);
+        const uplink = placeBuilding(g, "uplink", at.x, at.y, ENEMY);
+        uplink.cooldown = mins(8);
+        for (const near of [{ x: e.x - 2, y: e.y + 2 }, { x: at.x - 2, y: at.y }, { x: at.x + 4, y: at.y }]) {
+          const p = openSpot(g, near, near.x === e.x - 2 ? 2 : 1);
+          placeBuilding(g, near.x === e.x - 2 ? "power" : "turret", p.x, p.y, ENEMY);
+        }
+        gambits.set(g, { uplink: uplink.id, fired: 0, lastCooldown: uplink.cooldown });
+      },
+      tick(g) {
+        const m = gambits.get(g);
+        const b = m ? g.buildings.find((x) => x.id === m.uplink) : void 0;
+        if (!m || !b) return;
+        if (b.cooldown > SUPER_RECHARGED && (m.lastCooldown ?? 0) < 1) m.fired++;
+        m.lastCooldown = b.cooldown;
+      },
+      objectives: [
+        {
+          text: "Destroy the Orbital Uplink",
+          progress: (g) => {
+            const m = gambits.get(g);
+            const b = m && g.buildings.find((x) => x.id === m.uplink);
+            return b ? b.cooldown > 0 ? `charged in ${clockText(b.cooldown)}` : "charged!" : "";
+          },
+          done: (g) => g.time > 1 && !g.buildings.some((b) => b.id === gambits.get(g)?.uplink)
+        },
+        { text: "Bonus: destroy it before it ever fires", bonus: true, done: (g) => g.time > 1 && !g.buildings.some((b) => b.id === gambits.get(g)?.uplink) && gambits.get(g)?.fired === 0 }
+      ],
+      fail: (g) => g.time > 1 && !has(g, PLAYER, "yard") ? "The Construction Yard has fallen." : null
+    },
+    {
+      id: "three-crowns",
+      title: "13. Three Crowns",
+      briefing: [
+        "The Seer, one last time. With the Uplink gone, the crystal fields at the heart of the plain have grown back, and everyone wants them: Concord from the south-east, Rook's Reclaimers from the north-east.",
+        "There will be no deals tonight. Destroy every Concord and Reclaimer building. They will fight each other as hard as they fight you; let them. Keep the Seer alive if you can, and hold the Crown at the centre when it ends."
+      ],
+      scene: [
+        { who: "seer", side: 0, name: "The Seer", text: "Three of us, one field. The glass will choose." },
+        { who: "rook", side: 2, name: "Boss Rook", text: "No more deals, witch. Whoever's standing at the end gets the lot." },
+        { who: "vance", side: 1, name: "Captain Vance", text: "All units, every direction. This is the last fight for Vitrea." }
+      ],
+      seed: 303,
+      faction: "shardbound",
+      enemyFaction: "concord",
+      factions: ["shardbound", "concord", "reclaimers"],
+      mode: "ffa3",
+      difficulty: "normal",
+      hazards: true,
+      fog: true,
+      time: "dusk",
+      enemyBuilds: true,
+      enemyAttacks: true,
+      setup(g) {
+        const s = g.startOf[PLAYER];
+        const flipX = s.x > g.map.w / 2 ? -1 : 1;
+        const flipY = s.y > g.map.h / 2 ? -1 : 1;
+        spawnGroup(g, PLAYER, ["seer"], { x: s.x + 3 * flipX, y: s.y + 6 * flipY });
+        for (const [side2, hero] of [[1, "vance"], [2, "rook"]]) {
+          const a = g.startOf[side2];
+          spawnGroup(g, side2, [hero], { x: a.x + 3 * (a.x > g.map.w / 2 ? -1 : 1), y: a.y + 6 * (a.y > g.map.h / 2 ? -1 : 1) });
+        }
+        const c = openSpot(g, { x: Math.round(g.map.w / 2) - 2, y: Math.round(g.map.h / 2) - 2 }, 4);
+        addZone(g, c.x + 2, c.y + 2, 4, "The Crown");
+      },
+      objectives: [
+        {
+          text: "Destroy every Concord and Reclaimer building",
+          progress: (g) => `${[1, 2].filter((s) => g.buildings.some((b) => b.owner === s)).length} left`,
+          done: (g) => g.time > 1 && !g.buildings.some((b) => hostile(g, b.owner, PLAYER))
+        },
+        { text: "Bonus: the Seer lives to see it", bonus: true, done: (g) => g.time > 1 && !g.buildings.some((b) => hostile(g, b.owner, PLAYER)) && g.units.some((u) => u.owner === PLAYER && u.kind === "seer") },
+        { text: "Bonus: hold the Crown at the end", bonus: true, done: (g) => g.time > 1 && !g.buildings.some((b) => hostile(g, b.owner, PLAYER)) && g.mission?.zones[0]?.owner === PLAYER }
+      ]
     }
   ];
   function missionById(id) {
@@ -4184,10 +4445,10 @@
       weather: def.weather,
       time: def.time
     });
-    if (def.teams) def.teams.forEach((t, side) => g.teams[side] = t);
-    for (const side of g.sides) {
-      const ai = g.ais[side];
-      if (!ai || !hostile(g, side, PLAYER)) continue;
+    if (def.teams) def.teams.forEach((t, side2) => g.teams[side2] = t);
+    for (const side2 of g.sides) {
+      const ai = g.ais[side2];
+      if (!ai || !hostile(g, side2, PLAYER)) continue;
       ai.builds = def.enemyBuilds;
       if (!def.enemyAttacks) ai.nextWave = Infinity;
     }
@@ -4266,6 +4527,9 @@
     "1v1": { label: "1 vs 1", sides: [0, 1], teams: [0, 1, 2, 3], corners: [] },
     // Teammates share the west / east halves. Corners run clockwise from top-left.
     "2v2": { label: "2 vs 2", sides: [0, 1, 2, 3], teams: [0, 1, 0, 1], corners: [0, 1, 3, 2] },
+    // Outnumbered: two enemies hold the east corners. Or you and an ally against one.
+    "1v2": { label: "1 vs 2", sides: [0, 1, 2], teams: [0, 1, 1, 3], corners: [0, 1, 2] },
+    "2v1": { label: "2 vs 1", sides: [0, 1, 2], teams: [0, 1, 0, 3], corners: [0, 2, 3] },
     ffa3: { label: "Free-for-all (3)", sides: [0, 1, 2], teams: [0, 1, 2, 3], corners: [0, 2, 1] },
     ffa4: { label: "Free-for-all (4)", sides: [0, 1, 2, 3], teams: [0, 1, 2, 3], corners: [0, 2, 1, 3] }
   };
@@ -4290,9 +4554,10 @@
     const map = mode === "1v1" ? generateMap(seed) : generateMap(seed, MAP4, MAP4, 4);
     const fog = () => createFog(map.w, map.h, options.fog !== false);
     const fogs = { 0: fog(), 1: fog(), 2: fog(), 3: fog() };
-    const ai = createAiState(difficulty);
+    const levelOf = (side2) => options.levels?.[side2] ?? difficulty;
+    const ai = createAiState(levelOf(ENEMY));
     const factions = { 0: options.playerFaction ?? "concord", 1: options.enemyFaction ?? "shardbound", 2: "concord", 3: "concord" };
-    options.factions?.forEach((f, side) => factions[side] = f);
+    options.factions?.forEach((f, side2) => factions[side2] = f);
     const starts = map.starts ?? [map.start, map.enemyStart];
     const startOf = mode === "1v1" ? [map.start, map.enemyStart, map.start, map.enemyStart] : ALL_SIDES.map((s) => starts[layout.corners[s] ?? 0]);
     const g = {
@@ -4347,6 +4612,7 @@
       events: [],
       factions,
       stats: { creditsHarvested: 0, harvestersLost: 0, enemyUnitsDestroyed: 0 },
+      ledger: createLedger(),
       mission: null,
       resultReason: "",
       stormGap: null,
@@ -4355,9 +4621,9 @@
       tick: 0
     };
     if (mode !== "1v1") {
-      for (const side of g.sides) {
-        if (side !== PLAYER && !g.ais[side]) g.ais[side] = createAiState(difficulty);
-        spawnCornerBase(g, side);
+      for (const side2 of g.sides) {
+        if (side2 !== PLAYER && !g.ais[side2]) g.ais[side2] = createAiState(levelOf(side2));
+        spawnCornerBase(g, side2);
       }
       refreshFog(g);
       return g;
@@ -4374,9 +4640,9 @@
   }
   function spawnStartingBase(g, owner) {
     const s = g.map.start;
-    const at = (kind, x, y) => {
-      const { w, h } = BUILDING_STATS[kind];
-      return owner === PLAYER ? placeBuilding(g, kind, x, y, owner) : placeBuilding(g, kind, g.map.w - x - w, g.map.h - y - h, owner);
+    const at = (kind2, x, y) => {
+      const { w, h } = BUILDING_STATS[kind2];
+      return owner === PLAYER ? placeBuilding(g, kind2, x, y, owner) : placeBuilding(g, kind2, g.map.w - x - w, g.map.h - y - h, owner);
     };
     at("yard", s.x, s.y);
     at("power", s.x, s.y + 4);
@@ -4391,9 +4657,9 @@
     const flipY = s.y > g.map.h / 2;
     const fx = (x, w) => flipX ? g.map.w - x - w : x;
     const fy = (y, h) => flipY ? g.map.h - y - h : y;
-    const at = (kind, x, y) => {
-      const { w, h } = BUILDING_STATS[kind];
-      return placeBuilding(g, kind, fx(x, w), fy(y, h), owner);
+    const at = (kind2, x, y) => {
+      const { w, h } = BUILDING_STATS[kind2];
+      return placeBuilding(g, kind2, fx(x, w), fy(y, h), owner);
     };
     at("yard", s0.x, s0.y);
     at("power", s0.x, s0.y + 4);
@@ -4426,15 +4692,15 @@
   ];
   function spawnEnemyOutpost(g) {
     const e = g.map.enemyStart;
-    for (const { kind, dx, dy } of ENEMY_LAYOUT) placeBuilding(g, kind, e.x + dx, e.y + dy, ENEMY);
+    for (const { kind: kind2, dx, dy } of ENEMY_LAYOUT) placeBuilding(g, kind2, e.x + dx, e.y + dy, ENEMY);
     const garrison = ["tank", "tank", "quad", "quad", "infantry", "infantry", "infantry", "infantry"].map(
       (k) => factionUnit(g.factions[ENEMY], k)
     );
     const tiles = formationTiles(g.map, { x: e.x + 2, y: e.y + 7 }, garrison.length);
-    garrison.forEach((kind, i) => {
+    garrison.forEach((kind2, i) => {
       const t = tiles[i];
       if (!t) return;
-      const u = spawnUnit(g, kind, t.x, t.y, ENEMY);
+      const u = spawnUnit(g, kind2, t.x, t.y, ENEMY);
       u.post = t;
       u.angle = -Math.PI * 0.75;
     });
@@ -4453,28 +4719,28 @@
     g.notices.push({ text, age: 0 });
     if (g.notices.length > 3) g.notices.shift();
   }
-  function placeBuilding(g, kind, tx, ty, owner = PLAYER) {
-    const { w, h, maxHp } = BUILDING_STATS[kind];
-    const b = { id: g.nextId++, kind, owner, tx, ty, w, h, hp: maxHp, rally: null, repairing: false, angle: Math.PI / 2, cooldown: 0, targetId: null };
-    const mark = kind === "gate" ? 3 : DRIVABLE_BUILDINGS.includes(kind) ? 2 : 1;
+  function placeBuilding(g, kind2, tx, ty, owner = PLAYER) {
+    const { w, h, maxHp } = BUILDING_STATS[kind2];
+    const b = { id: g.nextId++, kind: kind2, owner, tx, ty, w, h, hp: maxHp, rally: null, repairing: false, angle: Math.PI / 2, cooldown: 0, targetId: null };
+    const mark = kind2 === "gate" ? 3 : DRIVABLE_BUILDINGS.includes(kind2) ? 2 : 1;
     for (let y = ty; y < ty + h; y++) {
       for (let x = tx; x < tx + w; x++) {
         if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = mark;
       }
     }
     g.buildings.push(b);
-    if (isSuper(kind)) superweaponBuilt(g, b);
+    if (isSuper(kind2)) superweaponBuilt(g, b);
     return b;
   }
-  function spawnUnit(g, kind, tx, ty, owner = PLAYER) {
+  function spawnUnit(g, kind2, tx, ty, owner = PLAYER) {
     const u = {
       id: g.nextId++,
-      kind,
+      kind: kind2,
       owner,
       x: (tx + 0.5) * TILE,
       y: (ty + 0.5) * TILE,
       angle: Math.PI / 2,
-      hp: UNIT_STATS[kind].maxHp,
+      hp: UNIT_STATS[kind2].maxHp,
       path: [],
       goal: null,
       order: "idle",
@@ -4502,7 +4768,7 @@
       refineryId: null,
       retries: 0
     };
-    const ammo = AMMO[kind];
+    const ammo = AMMO[kind2];
     if (ammo) u.ammo = ammo.shots;
     g.units.push(u);
     return u;
@@ -4531,12 +4797,12 @@
     }
     return best;
   }
-  function selectKindInRect(g, kind, x0, y0, x1, y1, additive) {
+  function selectKindInRect(g, kind2, x0, y0, x1, y1, additive) {
     if (!additive) g.selection.clear();
     g.selectedBuilding = null;
     let n = 0;
     for (const u of g.units) {
-      if (u.owner === g.local && u.kind === kind && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) {
+      if (u.owner === g.local && u.kind === kind2 && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1) {
         g.selection.add(u.id);
         n++;
       }
@@ -4757,12 +5023,12 @@
         }
         const i = idx(m, t.x, t.y);
         const cores = isCoreTile(m, i);
-        const kind = cores ? "cores" : "crystal";
-        if (u.cargo > 0 && u.cargoKind !== kind) {
+        const kind2 = cores ? "cores" : "crystal";
+        if (u.cargo > 0 && u.cargoKind !== kind2) {
           sendToRefinery(g, u);
           return;
         }
-        u.cargoKind = kind;
+        u.cargoKind = kind2;
         const capacity = cores ? CORES.capacity : HARVESTER.capacity;
         const value = VEINS.value[m.vein[i]];
         const amount = Math.min((cores ? CORES.harvestRate : HARVESTER.harvestRate) * dt, m.spice[i], (capacity - u.cargo) / value);
@@ -4828,6 +5094,7 @@
         else {
           walletOf(g, u.owner).credits += amount;
           if (u.owner === PLAYER) g.stats.creditsHarvested += amount;
+          recordHarvest(g, u.owner, amount);
         }
         if (u.cargo < 0.01) {
           u.cargo = 0;
@@ -5017,6 +5284,7 @@
     updateEconomy(g, dt);
     updateSuperweapons(g, dt);
     updateMission(g);
+    sampleLedger(g);
     for (const p of g.pings) p.age += dt;
     g.pings = g.pings.filter((p) => p.age < PING_LIFE);
     for (const mk of g.markers) mk.age += dt;
@@ -5279,7 +5547,7 @@
   }
 
   // src/economy.ts
-  var UNIT_STATS_HP = (kind) => UNIT_STATS[kind].maxHp;
+  var UNIT_STATS_HP = (kind2) => UNIT_STATS[kind2].maxHp;
   var ECONOMY = {
     /** Outposts and drills: crystal (or core) tiles needed this close (tiles) to the spot. */
     outpostReach: 6,
@@ -5303,9 +5571,9 @@
   var DEPLOYS = { outpostTruck: "outpost", drillRig: "deepDrill" };
   var PACKS = { outpost: "outpostTruck", deepDrill: "drillRig" };
   function deploySpot(g, u) {
-    const kind = DEPLOYS[u.kind];
-    if (!kind) return null;
-    const { w, h } = BUILDING_STATS[kind];
+    const kind2 = DEPLOYS[u.kind];
+    if (!kind2) return null;
+    const { w, h } = BUILDING_STATS[kind2];
     const t = unitTile(u);
     const occupied = new Set(g.units.filter((o) => o !== u).map((o) => `${Math.floor(o.x / 32)},${Math.floor(o.y / 32)}`));
     let first = null;
@@ -5313,7 +5581,7 @@
       for (let dx = 0; dx < w; dx++) {
         const x = t.x - dx;
         const y = t.y - dy;
-        const tiles = remoteTiles(g, kind, x, y, u.owner, occupied);
+        const tiles = remoteTiles(g, kind2, x, y, u.owner, occupied);
         const spot = { x, y, tiles, ok: tiles.every((k) => k.ok) };
         if (spot.ok) return spot;
         first ??= spot;
@@ -5322,40 +5590,40 @@
     return first;
   }
   function deployUnit(g, u) {
-    const kind = DEPLOYS[u.kind];
-    if (!kind) return null;
+    const kind2 = DEPLOYS[u.kind];
+    if (!kind2) return null;
     const spot = deploySpot(g, u);
     if (!spot?.ok) {
-      return kind === "outpost" ? "Can't deploy here: an outpost needs clear ground beside crystal you've explored, away from enemy bases." : "Can't deploy here: a drill needs to stand on a crystal field you've explored, away from enemy bases.";
+      return kind2 === "outpost" ? "Can't deploy here: an outpost needs clear ground beside crystal you've explored, away from enemy bases." : "Can't deploy here: a drill needs to stand on a crystal field you've explored, away from enemy bases.";
     }
     g.units = g.units.filter((o) => o !== u);
     g.selection.delete(u.id);
-    const b = placeBuilding(g, kind, spot.x, spot.y, u.owner);
-    b.hp = BUILDING_STATS[kind].maxHp * (u.hp / UNIT_STATS_HP(u.kind));
+    const b = placeBuilding(g, kind2, spot.x, spot.y, u.owner);
+    b.hp = BUILDING_STATS[kind2].maxHp * (u.hp / UNIT_STATS_HP(u.kind));
     clearUnder(g, b);
     emit(g, { kind: "deploy", pack: false, x: (b.tx + b.w / 2) * TILE, y: (b.ty + b.h / 2) * TILE });
-    if (kind === "outpost" && !u.giftUsed) spawnFreeHarvester(g, b);
+    if (kind2 === "outpost" && !u.giftUsed) spawnFreeHarvester(g, b);
     b.giftUsed = true;
     if (u.owner === g.local) g.selectedBuilding = b.id;
     return null;
   }
   function packUp(g, b) {
-    const kind = PACKS[b.kind];
-    if (!kind) return "That can't be packed up.";
+    const kind2 = PACKS[b.kind];
+    if (!kind2) return "That can't be packed up.";
     for (let y = b.ty; y < b.ty + b.h; y++) for (let x = b.tx; x < b.tx + b.w; x++) if (inBounds(g.map, x, y)) g.map.blocked[idx(g.map, x, y)] = 0;
     g.buildings = g.buildings.filter((o) => o !== b);
     if (g.selectedBuilding === b.id) g.selectedBuilding = null;
     const t = nearestPassable(g.map, { x: b.tx + Math.floor(b.w / 2), y: b.ty + Math.floor(b.h / 2) }) ?? { x: b.tx, y: b.ty };
-    const u = spawnUnit(g, kind, t.x, t.y, b.owner);
-    u.hp = UNIT_STATS_HP(kind) * (b.hp / BUILDING_STATS[b.kind].maxHp);
+    const u = spawnUnit(g, kind2, t.x, t.y, b.owner);
+    u.hp = UNIT_STATS_HP(kind2) * (b.hp / BUILDING_STATS[b.kind].maxHp);
     u.giftUsed = true;
     emit(g, { kind: "deploy", pack: true, x: u.x, y: u.y });
     if (b.owner === g.local) g.selection = /* @__PURE__ */ new Set([u.id]);
     return null;
   }
   var REMOTE = ["outpost", "deepDrill"];
-  var isRemote = (kind) => REMOTE.includes(kind);
-  var isDock = (kind) => kind === "refinery" || kind === "outpost";
+  var isRemote = (kind2) => REMOTE.includes(kind2);
+  var isDock = (kind2) => kind2 === "refinery" || kind2 === "outpost";
   function storageOf(g, owner) {
     let n = 0;
     for (const b of g.buildings) if (b.owner === owner) n += STORAGE.holds[b.kind] ?? 0;
@@ -5379,12 +5647,12 @@
     }
     return n;
   }
-  function remoteTiles(g, kind, tx, ty, owner, occupied) {
-    const { w, h } = BUILDING_STATS[kind];
+  function remoteTiles(g, kind2, tx, ty, owner, occupied) {
+    const { w, h } = BUILDING_STATS[kind2];
     const m = g.map;
     const cx = tx + w / 2;
     const cy = ty + h / 2;
-    const drill3 = kind === "deepDrill";
+    const drill3 = kind2 === "deepDrill";
     const fog = g.humans.includes(owner) && g.fogs[owner].enabled ? g.fogs[owner] : null;
     const enough = resourceNear(g, cx, cy, drill3 ? ECONOMY.drillReach : ECONOMY.outpostReach) >= (drill3 ? ECONOMY.drillMinTiles : ECONOMY.outpostMinTiles);
     const clear = !g.buildings.some((b) => hostile(g, b.owner, owner) && Math.hypot(b.tx + b.w / 2 - cx, b.ty + b.h / 2 - cy) < ECONOMY.enemyClearance);
@@ -5464,6 +5732,7 @@
       const credits = take * VEINS.value[m.vein[best]];
       wallet.credits += credits;
       if (b.owner === PLAYER) g.stats.creditsHarvested += credits;
+      recordHarvest(g, b.owner, credits);
       if (m.spice[best] < 0.01) {
         m.spice[best] = 0;
         m.vein[best] = Vein.Crystal;
@@ -5608,7 +5877,7 @@
     unloading: "Unloading"
   };
   var serialOf = (faction, id) => `${SERIAL_PREFIX[faction]}-${String(id).padStart(4, "0")}`;
-  var portraitOf = (kind, team) => `assets/portraits/${kind}_${team}.png`;
+  var portraitOf = (kind2, team) => `assets/portraits/${kind2}_${team}.png`;
   var logoOf = (faction) => `assets/logos/${faction}.svg`;
   var fmt = (n) => (Math.round(n * 10) / 10).toString();
   function unitStatus(g, u) {
@@ -5697,7 +5966,7 @@
       e.health += u.hp / UNIT_STATS[u.kind].maxHp;
       groups.set(u.kind, e);
     }
-    return [...groups].map(([kind, e]) => ({ kind, name: UNIT_STATS[kind].label, count: e.count, health: e.health / e.count, portrait: portraitOf(kind, e.team), team: e.team })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    return [...groups].map(([kind2, e]) => ({ kind: kind2, name: UNIT_STATS[kind2].label, count: e.count, health: e.health / e.count, portrait: portraitOf(kind2, e.team), team: e.team })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
 
   // src/infocard.ts
@@ -5859,8 +6128,8 @@
   function setText(el2, text) {
     if (el2.textContent !== text) el2.textContent = text;
   }
-  function bar(kind) {
-    const el2 = div(`card-bar ${kind}`);
+  function bar(kind2) {
+    const el2 = div(`card-bar ${kind2}`);
     const fill = document.createElement("i");
     const label = span("card-bar-label", "");
     el2.append(fill, label);
@@ -5871,7 +6140,7 @@
       if (key === last) return;
       last = key;
       fill.style.width = `${f * 100}%`;
-      if (kind === "hp") el2.dataset.level = f > 0.5 ? "ok" : f > 0.25 ? "warn" : "bad";
+      if (kind2 === "hp") el2.dataset.level = f > 0.5 ? "ok" : f > 0.25 ? "warn" : "bad";
       label.textContent = text;
     };
     return { el: el2, set };
@@ -6620,10 +6889,10 @@
         cancelStructure(g, owner);
         return null;
       case "place": {
-        const kind = structureOf(g, owner)?.kind;
+        const kind2 = structureOf(g, owner)?.kind;
         if (placeStructure(g, c.x, c.y, owner)) return null;
-        if (kind === "outpost") return "Can't build there: outposts go on clear ground beside crystal you've explored, away from enemy bases";
-        if (kind === "deepDrill") return "Can't build there: drills go on a crystal field you've explored, away from enemy bases";
+        if (kind2 === "outpost") return "Can't build there: outposts go on clear ground beside crystal you've explored, away from enemy bases";
+        if (kind2 === "deepDrill") return "Can't build there: drills go on a crystal field you've explored, away from enemy bases";
         return "Can't build there: needs clear rock near your base";
       }
       case "train":
@@ -6739,17 +7008,130 @@
     }
     sendWave(g, n) {
       for (const owner of [PLAYER, ENEMY]) {
-        const side = owner === PLAYER ? -1 : 1;
+        const side2 = owner === PLAYER ? -1 : 1;
         const ids = [];
-        ARMIES[owner].forEach((kind, i) => {
-          const want = { x: this.centre.x + side * (10 + i % 3), y: this.centre.y - 5 + Math.floor(i / 3) * 3 + n % 2 };
+        ARMIES[owner].forEach((kind2, i) => {
+          const want = { x: this.centre.x + side2 * (10 + i % 3), y: this.centre.y - 5 + Math.floor(i / 3) * 3 + n % 2 };
           const at = nearestPassable(g.map, want);
-          if (at) ids.push(spawnUnit(g, kind, at.x, at.y, owner).id);
+          if (at) ids.push(spawnUnit(g, kind2, at.x, at.y, owner).id);
         });
-        applyCommand(g, owner, { t: "order", units: ids, x: this.centre.x - side * 10, y: this.centre.y, attackMove: true });
+        applyCommand(g, owner, { t: "order", units: ids, x: this.centre.x - side2 * 10, y: this.centre.y, attackMove: true });
       }
     }
   };
+
+  // src/statsui.ts
+  var COLUMNS = [
+    ["Trained", (g, s) => g.ledger.sides[s].built],
+    ["Lost", (g, s) => g.ledger.sides[s].lost],
+    ["Kills", (g, s) => g.ledger.sides[s].kills],
+    ["Razed", (g, s) => g.ledger.sides[s].buildingsRazed],
+    ["Harvested", (g, s) => Math.round(g.ledger.sides[s].harvested)]
+  ];
+  var rgb = (s) => `rgb(${SIDE_COLOURS[s].join(",")})`;
+  function make(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== void 0) e.textContent = text;
+    return e;
+  }
+  function showMatchStats(box2, g, name) {
+    box2.replaceChildren();
+    if (g.mission) return;
+    const won = medals(g, g.local);
+    if (won.length) {
+      const row = make("div", "medals");
+      for (const m of won) {
+        const chip = make("span", "medal", m.name);
+        chip.title = m.why;
+        row.append(chip);
+      }
+      box2.append(row);
+    }
+    const table2 = make("table", "stats-table");
+    const head = make("tr");
+    head.append(make("th", void 0, "Side"));
+    for (const [label] of COLUMNS) head.append(make("th", void 0, label));
+    table2.append(head);
+    for (const s of g.sides) {
+      const tr = make("tr", s === g.local ? "me" : void 0);
+      const who = make("td", "who");
+      const swatch = make("i");
+      swatch.style.background = rgb(s);
+      who.append(swatch, `${name(s)} \xB7 ${FACTIONS[g.factions[s]].label}`);
+      tr.append(who);
+      for (const [, value] of COLUMNS) tr.append(make("td", void 0, value(g, s).toLocaleString("en-GB")));
+      table2.append(tr);
+    }
+    box2.append(table2);
+    const tabs = make("div", "stats-tabs");
+    const canvas = make("canvas", "stats-graph");
+    canvas.width = 520;
+    canvas.height = 160;
+    let series = "army";
+    const buttons = [
+      ["army", "Army worth"],
+      ["harvested", "Harvest"]
+    ];
+    for (const [key, label] of buttons) {
+      const b = make("button", key === series ? "on" : void 0, label);
+      b.type = "button";
+      b.addEventListener("click", () => {
+        series = key;
+        for (const o of tabs.children) o.classList.toggle("on", o === b);
+        drawGraph(canvas, g, series);
+      });
+      tabs.append(b);
+    }
+    box2.append(tabs, canvas);
+    drawGraph(canvas, g, series);
+  }
+  function drawGraph(canvas, g, series) {
+    const ratio = globalThis.devicePixelRatio || 1;
+    const cssW = canvas.width / (Number(canvas.dataset.ratio) || 1);
+    const cssH = canvas.height / (Number(canvas.dataset.ratio) || 1);
+    canvas.dataset.ratio = String(ratio);
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = "auto";
+    canvas.width = cssW * ratio;
+    canvas.height = cssH * ratio;
+    const c = canvas.getContext("2d");
+    if (!c) return;
+    c.setTransform(ratio, 0, 0, ratio, 0, 0);
+    c.clearRect(0, 0, cssW, cssH);
+    const samples = g.ledger.samples;
+    const pad = { l: 44, r: 8, t: 8, b: 20 };
+    const w = cssW - pad.l - pad.r;
+    const h = cssH - pad.t - pad.b;
+    const end = Math.max(60, samples.at(-1)?.t ?? 60);
+    const top = Math.max(1, ...samples.flatMap((p) => g.sides.map((s) => p[series][s])));
+    const x = (t) => pad.l + t / end * w;
+    const y = (v) => pad.t + h - v / top * h;
+    c.font = "11px 'Barlow Condensed', sans-serif";
+    c.fillStyle = "#7d7466";
+    c.strokeStyle = "rgba(163,154,138,0.18)";
+    c.lineWidth = 1;
+    for (let i = 0; i <= 3; i++) {
+      const v = top * i / 3;
+      c.beginPath();
+      c.moveTo(pad.l, y(v) + 0.5);
+      c.lineTo(pad.l + w, y(v) + 0.5);
+      c.stroke();
+      c.textAlign = "right";
+      c.fillText(v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : String(Math.round(v)), pad.l - 6, y(v) + 4);
+    }
+    const step = end > 1800 ? 600 : end > 600 ? 300 : 60;
+    c.textAlign = "center";
+    for (let t = 0; t <= end; t += step) c.fillText(`${t / 60}m`, x(t), cssH - 5);
+    c.lineWidth = 2;
+    c.lineJoin = "round";
+    for (const s of g.sides) {
+      c.strokeStyle = rgb(s);
+      c.beginPath();
+      samples.forEach((p, i) => i ? c.lineTo(x(p.t), y(p[series][s])) : c.moveTo(x(p.t), y(p[series][s])));
+      c.stroke();
+    }
+  }
 
   // src/net/chat.ts
   var CHAT_MAX = 200;
@@ -6858,8 +7240,8 @@
       return { x0: this.dragStart.x, y0: this.dragStart.y, x1: this.mouseX, y1: this.mouseY };
     }
     /** Top-left tile for the structure being placed, centred on the mouse. */
-    placementOrigin(kind) {
-      const { w, h } = BUILDING_STATS[kind];
+    placementOrigin(kind2) {
+      const { w, h } = BUILDING_STATS[kind2];
       return {
         tx: Math.floor((this.mouseX + this.cam.x) / TILE) - Math.floor((w - 1) / 2),
         ty: Math.floor((this.mouseY + this.cam.y) / TILE) - Math.floor((h - 1) / 2)
@@ -8344,8 +8726,8 @@
   }
   var TRACK_LIFE = 16;
   var MAX_TRACKS = 2400;
-  function leavesTracks(kind) {
-    return UNIT_STATS[kind].armor !== "infantry" && kind !== "skimmer" && kind !== "monolith" && !isAir(kind);
+  function leavesTracks(kind2) {
+    return UNIT_STATS[kind2].armor !== "infantry" && kind2 !== "skimmer" && kind2 !== "monolith" && !isAir(kind2);
   }
   function drawTracks(ctx, tracks, time, cam) {
     ctx.lineWidth = 2.2;
@@ -9106,9 +9488,9 @@
       const strips = [...Object.keys(UNIT_SPRITES), ...Object.keys(TURRET_SPRITES)];
       const buildings = Object.keys(BUILDING_STATS).filter((k) => !(k in TURRET_SPRITES));
       for (const owner of sides) {
-        for (const kind of strips) this.load(`${kind}_${owner}`, `assets/units/${kind}_${owner}.png`);
-        for (const kind of Object.keys(UNIT_TURRETS)) this.load(`${kind}_turret_${owner}`, `assets/units/${kind}_turret_${owner}.png`);
-        for (const kind of buildings) this.load(`${kind}_${owner}`, `assets/buildings/${factions[owner]}/${kind}_${owner}.png`);
+        for (const kind2 of strips) this.load(`${kind2}_${owner}`, `assets/units/${kind2}_${owner}.png`);
+        for (const kind2 of Object.keys(UNIT_TURRETS)) this.load(`${kind2}_turret_${owner}`, `assets/units/${kind2}_turret_${owner}.png`);
+        for (const kind2 of buildings) this.load(`${kind2}_${owner}`, `assets/buildings/${factions[owner]}/${kind2}_${owner}.png`);
       }
     }
     load(key, src) {
@@ -9116,12 +9498,12 @@
       img.src = src;
       this.images.set(key, img);
     }
-    get(kind, owner) {
-      const img = this.images.get(`${kind}_${owner}`);
+    get(kind2, owner) {
+      const img = this.images.get(`${kind2}_${owner}`);
       return img && img.complete && img.naturalWidth > 0 ? img : null;
     }
-    turret(kind, owner) {
-      const img = this.images.get(`${kind}_turret_${owner}`);
+    turret(kind2, owner) {
+      const img = this.images.get(`${kind2}_turret_${owner}`);
       return img && img.complete && img.naturalWidth > 0 ? img : null;
     }
   };
@@ -9135,9 +9517,9 @@
     ctx.imageSmoothingEnabled = false;
   }
   function recoil(u) {
-    const kind = UNIT_STATS[u.kind].weapon;
-    if (!kind || UNIT_STATS[u.kind].armor === "infantry") return 0;
-    const w = weapon(kind);
+    const kind2 = UNIT_STATS[u.kind].weapon;
+    if (!kind2 || UNIT_STATS[u.kind].armor === "infantry") return 0;
+    const w = weapon(kind2);
     const since = w.cooldown * rankCooldown(u) - u.cooldown;
     if (since < 0 || since > RECOIL_TIME) return 0;
     const heavy = w.style === "shell" || w.style === "arc" || w.style === "rocket";
@@ -9468,33 +9850,33 @@
         tabRow?.append(el2);
         this.tabButtons.set(t.id, { el: el2, dot });
       }
-      BUILDABLE.filter((k) => canBuild(game.factions[me], k)).forEach((kind, i) => {
-        const art = BUILDING_STATS[kind].weapon ? portraitOf(kind, me) : `assets/buildings/${game.factions[me]}/${kind}_${me}.png`;
-        const b = makeButton(BUILDING_STATS[kind].label, BUILDING_STATS[kind].cost, ICON[kind], HOTKEYS[i], art, BUILDING_STATS[kind].weapon ? "unit" : "building");
+      BUILDABLE.filter((k) => canBuild(game.factions[me], k)).forEach((kind2, i) => {
+        const art = BUILDING_STATS[kind2].weapon ? portraitOf(kind2, me) : `assets/buildings/${game.factions[me]}/${kind2}_${me}.png`;
+        const b = makeButton(BUILDING_STATS[kind2].label, BUILDING_STATS[kind2].cost, ICON[kind2], HOTKEYS[i], art, BUILDING_STATS[kind2].weapon ? "unit" : "building");
         b.press = () => {
-          if (kind === "wall") return hooks.layWalls?.();
+          if (kind2 === "wall") return hooks.layWalls?.();
           const job = structureOf(game, me);
-          if (job?.kind === kind && job.done) hooks.beginPlacing(kind);
-          else if (!job) issue({ t: "build", kind });
+          if (job?.kind === kind2 && job.done) hooks.beginPlacing(kind2);
+          else if (!job) issue({ t: "build", kind: kind2 });
         };
         if (HOTKEYS[i]) this.structureKeys.set(HOTKEYS[i], b);
         b.el.addEventListener("click", () => b.press());
         b.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          if (structureOf(game, me)?.kind === kind) {
+          if (structureOf(game, me)?.kind === kind2) {
             issue({ t: "cancelBuild" });
             hooks.cancelPlacing();
           }
         });
         b.update = () => {
           const job = structureOf(game, me);
-          const missing = missingFor(game, kind, me);
-          const mine = job?.kind === kind;
+          const missing = missingFor(game, kind2, me);
+          const mine = job?.kind === kind2;
           setState(b, {
             locked: !!missing,
             busy: !!job && !mine,
             title: missing ? `Requires ${BUILDING_STATS[missing].label}` : "Left-click to build, right-click to cancel",
-            progress: mine ? job.spent / BUILDING_STATS[kind].cost : 0,
+            progress: mine ? job.spent / BUILDING_STATS[kind2].cost : 0,
             badge: mine && job.done ? "READY" : "",
             ready: mine && job.done
           });
@@ -9503,40 +9885,40 @@
         this.buttons.push(b);
       });
       const faction = game.factions[me];
-      TRAINABLE.filter((k) => canTrain(faction, k)).forEach((kind, i) => {
-        const cost = unitCost(faction, kind);
+      TRAINABLE.filter((k) => canTrain(faction, k)).forEach((kind2, i) => {
+        const cost = unitCost(faction, kind2);
         const key = HOTKEYS[i];
-        const b = makeButton(UNIT_STATS[kind].label, cost, ICON[kind], key && `\u21E7${key}`, portraitOf(kind, me), "unit", coreCost(kind));
-        b.producer = UNIT_STATS[kind].producer;
-        b.press = () => issue({ t: "train", kind, n: 1 });
+        const b = makeButton(UNIT_STATS[kind2].label, cost, ICON[kind2], key && `\u21E7${key}`, portraitOf(kind2, me), "unit", coreCost(kind2));
+        b.producer = UNIT_STATS[kind2].producer;
+        b.press = () => issue({ t: "train", kind: kind2, n: 1 });
         if (key) this.unitKeys.set(key, b);
         b.el.addEventListener("click", (e) => {
-          if (e.ctrlKey) issue({ t: "repeat", kind });
-          else issue({ t: "train", kind, n: e.shiftKey ? 5 : 1 });
+          if (e.ctrlKey) issue({ t: "repeat", kind: kind2 });
+          else issue({ t: "train", kind: kind2, n: e.shiftKey ? 5 : 1 });
         });
         b.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          if (linesOf(game, me)[UNIT_STATS[kind].producer].repeat === kind) issue({ t: "repeat", kind });
-          issue({ t: "untrain", kind, n: e.shiftKey ? 5 : 1 });
+          if (linesOf(game, me)[UNIT_STATS[kind2].producer].repeat === kind2) issue({ t: "repeat", kind: kind2 });
+          issue({ t: "untrain", kind: kind2, n: e.shiftKey ? 5 : 1 });
         });
-        const hero = HEROES[kind];
+        const hero = HEROES[kind2];
         b.update = () => {
-          const missing = missingFor(game, kind, me);
-          const line = linesOf(game, me)[UNIT_STATS[kind].producer];
-          const n = queuedCount(game, kind, me);
-          const cur = line.current?.kind === kind ? line.current : null;
+          const missing = missingFor(game, kind2, me);
+          const line = linesOf(game, me)[UNIT_STATS[kind2].producer];
+          const n = queuedCount(game, kind2, me);
+          const cur = line.current?.kind === kind2 ? line.current : null;
           const heroTaken = !!hero && n === 0 && heroCount(game, me) > 0;
-          const repeating = line.repeat === kind;
+          const repeating = line.repeat === kind2;
           setState(b, {
             locked: !!missing,
             busy: heroTaken,
-            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : (coreCost(kind) ? `Also costs ${coreCost(kind)} glass cores (paid when queued). ` : "") + (hero ? `Hero \u2014 one at a time. ${hero.ability} (Q): ${hero.blurb}` : "Click: queue one \xB7 Shift-click: five \xB7 Ctrl-click: keep building \xB7 Right-click: remove"),
+            title: missing ? `Requires ${BUILDING_STATS[missing].label}` : (coreCost(kind2) ? `Also costs ${coreCost(kind2)} glass cores (paid when queued). ` : "") + (hero ? `Hero \u2014 one at a time. ${hero.ability} (Q): ${hero.blurb}` : "Click: queue one \xB7 Shift-click: five \xB7 Ctrl-click: keep building \xB7 Right-click: remove"),
             progress: cur ? cur.spent / cost : 0,
             badge: repeating ? `\u21BB${n > 1 ? n : ""}` : n > 0 ? String(n) : "",
             ready: false
           });
         };
-        this.panes.get(UNIT_STATS[kind].producer).append(b.el);
+        this.panes.get(UNIT_STATS[kind2].producer).append(b.el);
         this.buttons.push(b);
       });
       window.addEventListener("keydown", (e) => {
@@ -9657,7 +10039,7 @@
   }
 
   // src/settings.ts
-  var MODE_IDS = ["1v1", "2v2", "ffa3", "ffa4"];
+  var MODE_IDS = ["1v1", "2v2", "1v2", "2v1", "ffa3", "ffa4"];
   var SPEEDS = { slow: 0.6, normal: 1, fast: 1.5, fastest: 2.2 };
   var SPEED_ORDER = ["slow", "normal", "fast", "fastest"];
   var SPEED_LABELS = { slow: "Slow", normal: "Normal", fast: "Fast", fastest: "Fastest" };
@@ -9672,7 +10054,11 @@
     edgeScroll: true,
     mode: "1v1",
     weather: "clear",
-    time: "day"
+    time: "day",
+    seats: [
+      { faction: "random", level: "normal" },
+      { faction: "random", level: "normal" }
+    ]
   };
   var CHOICES = [...FACTION_IDS, "random"];
   var isChoice = (v) => CHOICES.includes(v);
@@ -9701,14 +10087,18 @@
       if (MODE_IDS.includes(saved.mode)) base.mode = saved.mode;
       if (WEATHER_MODES.includes(saved.weather)) base.weather = saved.weather;
       if (TIME_MODES.includes(saved.time)) base.time = saved.time;
+      if (Array.isArray(saved.seats)) base.seats = base.seats.map((d, i) => validSeat(saved.seats[i]) ?? d);
     }
     const link = query.get("play") === "1";
     const speed = query.get("speed");
     const faction = query.get("faction");
     const enemy = query.get("enemy");
+    const difficulty = LEVELS.find((l) => l === query.get("ai")) ?? base.difficulty;
+    const seatText = query.get("seats");
+    const seats = seatText !== null ? parseSeats(seatText, base.seats) : link ? base.seats.map(() => ({ faction: "random", level: difficulty })) : base.seats;
     return {
       seed: validSeed(query.get("seed")) ?? base.seed,
-      difficulty: LEVELS.find((l) => l === query.get("ai")) ?? base.difficulty,
+      difficulty,
       hazards: flag(query.get("storms")) ?? base.hazards,
       fog: flag(query.get("fog")) ?? base.fog,
       faction: isChoice(faction) ? faction : base.faction,
@@ -9719,8 +10109,24 @@
       // not whatever was last picked on the menu.
       mode: MODE_IDS.find((m) => m === query.get("mode")) ?? (link ? DEFAULT_SETTINGS.mode : base.mode),
       weather: WEATHER_MODES.find((m) => m === query.get("weather")) ?? (link ? DEFAULT_SETTINGS.weather : base.weather),
-      time: TIME_MODES.find((m) => m === query.get("time")) ?? (link ? DEFAULT_SETTINGS.time : base.time)
+      time: TIME_MODES.find((m) => m === query.get("time")) ?? (link ? DEFAULT_SETTINGS.time : base.time),
+      seats
     };
+  }
+  function validSeat(v) {
+    const s = v;
+    return s && isChoice(s.faction) && LEVELS.includes(s.level) ? { faction: s.faction, level: s.level } : null;
+  }
+  function parseSeats(text, fallback) {
+    const parts = text.split(",");
+    return fallback.map((d, i) => {
+      const [faction, level] = (parts[i] ?? "").split(".");
+      return validSeat({ faction, level }) ?? d;
+    });
+  }
+  function sideLevels(s, mode) {
+    const n = mode === "1v1" ? 2 : mode === "ffa3" || mode === "1v2" || mode === "2v1" ? 3 : 4;
+    return [null, s.difficulty, ...s.seats.map((x) => x.level)].slice(0, n);
   }
   function resolveFactions(s, rand3) {
     const player = s.faction === "random" ? FACTION_IDS[Math.floor(rand3() * FACTION_IDS.length)] : s.faction;
@@ -9728,13 +10134,14 @@
     const enemy = s.enemyFaction === "random" ? others[Math.floor(rand3() * others.length)] : s.enemyFaction;
     return { player, enemy };
   }
-  function sideFactions(mode, player, enemy, enemyChoice, rand3) {
+  function sideFactions(mode, player, enemy, seats, rand3) {
     const pick2 = () => FACTION_IDS[Math.floor(rand3() * FACTION_IDS.length)];
     if (mode === "1v1") return [player, enemy];
-    const extra = (enemySide) => enemySide && enemyChoice !== "random" ? enemyChoice : pick2();
-    if (mode === "2v2") return [player, enemy, extra(false), extra(true)];
-    if (mode === "ffa3") return [player, enemy, extra(true)];
-    return [player, enemy, extra(true), extra(true)];
+    const extra = seats.map((s) => {
+      const r = pick2();
+      return s.faction === "random" ? r : s.faction;
+    });
+    return [player, enemy, ...extra].slice(0, mode === "ffa3" || mode === "1v2" || mode === "2v1" ? 3 : 4);
   }
   function settingsToQuery(s, play) {
     const q = new URLSearchParams({
@@ -9750,6 +10157,7 @@
     if (s.mode !== "1v1") q.set("mode", s.mode);
     if (s.weather !== "clear") q.set("weather", s.weather);
     if (s.time !== "day") q.set("time", s.time);
+    if (s.mode !== "1v1") q.set("seats", s.seats.map((x) => `${x.faction}.${x.level}`).join(","));
     if (play) q.set("play", "1");
     return q;
   }
@@ -10659,7 +11067,10 @@
       ["briefing_relay_hill", "You're Boss Rook's again. The company left three relay towers on the plain, and whoever holds them hears every radio on Vitrea. The Shardbound hold all three, each with a turret and a squad. Take them, and hold all three at the same time for a full minute. Dust storms roll through: you'll hear the enemy before you see them."],
       ["briefing_long_night", "Back with Concord. The Seer and Boss Rook have made a deal, and tonight they come for us together, from two sides at once. There's no winning this in the dark. Hold the Construction Yard until dawn: ten minutes. Build defences, keep the harvest going, and don't let the yard fall."],
       ["briefing_unlikely_allies", "The Seer broke her deal with Rook the moment the night was over, and took his best fields. Rook has called us. On an open channel. Asking for help. Fight alongside the Reclaimers against both Shardbound bases. Destroy every Shardbound building. Rook's people will fight their own war; help them, and they'll help you."],
-      ["briefing_glass_crown", "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them. End this. Destroy their base before the crystal swallows the plain."]
+      ["briefing_glass_crown", "Back with Concord, for the last time. The Shardbound have made the biggest crystal fields on Vitrea their home, and the storms don't touch them. End this. Destroy their base before the crystal swallows the plain."],
+      ["briefing_splinters", "The Glass Crown has fallen, and the Seer has not. She has gathered what is left of the Shardbound: a handful of Prism Tanks, a few Glasswalkers and one Outpost Truck. Take the Seer north to the Shard Wells, where the crystal runs deep enough to start again, and deploy the Outpost Truck there. Concord patrols the plain and will send hunting parties after you. If the Seer falls, the Shardbound fall with her."],
+      ["briefing_rooks_gambit", "Boss Rook again. Concord has put up an Orbital Uplink, a gun in the sky that can burn any base on the plain, and Captain Vance has made it very clear whose base comes first. Destroy the Uplink. It's deep in the Concord base and it is already charging: break through before it fires, or rebuild fast when it does. Rook is with you in person. Don't lose the Construction Yard."],
+      ["briefing_three_crowns", "The Seer, one last time. With the Uplink gone, the crystal fields at the heart of the plain have grown back, and everyone wants them: Concord from the south-east, Rook's Reclaimers from the north-east. There will be no deals tonight. Destroy every Concord and Reclaimer building. They will fight each other as hard as they fight you; let them. Keep the Seer alive if you can, and hold the Crown at the centre when it ends."]
     ])
   ];
   function briefingKey(missionId) {
@@ -10761,8 +11172,8 @@
     }
     /** Snapshot for a rejoining player. Only valid at the start of a turn (`step === 0`). */
     catchUpData() {
-      const side = (o) => [...o === this.local ? this.mine : this.incoming].filter(([t]) => t >= this.turn);
-      return { turn: this.turn, history: this.history.slice(0, this.turn), future: { 0: side(0), 1: side(1) } };
+      const side2 = (o) => [...o === this.local ? this.mine : this.incoming].filter(([t]) => t >= this.turn);
+      return { turn: this.turn, history: this.history.slice(0, this.turn), future: { 0: side2(0), 1: side2(1) } };
     }
     /**
      * Rebuild from a catch-up: replay the history (a chunk per `advance` call),
@@ -14954,8 +15365,8 @@
   function cleanCode(text) {
     return text.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
   }
-  function stationId(code, side) {
-    return PREFIX + code + (side === 1 ? "-g" : "");
+  function stationId(code, side2) {
+    return PREFIX + code + (side2 === 1 ? "-g" : "");
   }
   function wrap(conn) {
     let closed = false;
@@ -15254,10 +15665,10 @@
         ctx.closePath();
         ctx.fill();
       }
-      const side = ctx.createLinearGradient(0, 0, w * 0.6, 0);
-      side.addColorStop(0, "rgba(12, 10, 8, 0.55)");
-      side.addColorStop(1, "rgba(12, 10, 8, 0)");
-      ctx.fillStyle = side;
+      const side2 = ctx.createLinearGradient(0, 0, w * 0.6, 0);
+      side2.addColorStop(0, "rgba(12, 10, 8, 0.55)");
+      side2.addColorStop(1, "rgba(12, 10, 8, 0)");
+      ctx.fillStyle = side2;
       ctx.fillRect(0, 0, w * 0.6, h);
       const vignette = ctx.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.35, w / 2, h * 0.45, Math.max(w, h) * 0.75);
       vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
@@ -15297,6 +15708,7 @@
       factions: setup.factions,
       pvp: setup.pvp,
       mode: setup.mode,
+      levels: setup.levels,
       weather: setup.weather,
       time: setup.time
     });
@@ -15457,6 +15869,48 @@
     }
     return new URLSearchParams();
   }
+  function buildSeats(initial) {
+    const box2 = el("menu-seats");
+    const option = (value, label) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      return o;
+    };
+    const rows = initial.map((seat, i) => {
+      const side2 = i + 2;
+      const row = document.createElement("div");
+      row.className = "seat";
+      const name = document.createElement("span");
+      name.className = "seat-name";
+      const faction = document.createElement("select");
+      faction.append(option("random", "Random"), ...FACTION_IDS.map((f) => option(f, FACTIONS[f].label)));
+      faction.value = seat.faction;
+      const level = document.createElement("select");
+      level.append(option("easy", "Easy"), option("normal", "Normal"), option("hard", "Hard"));
+      level.value = seat.level;
+      row.append(name, faction, level);
+      box2.append(row);
+      return { side: side2, row, name, faction, level };
+    });
+    return {
+      show(mode) {
+        const layout = MODES[mode];
+        let enemies = 1;
+        for (const r of rows) {
+          r.row.hidden = !layout.sides.includes(r.side);
+          const ally = layout.teams[r.side] === layout.teams[0];
+          if (!ally && !r.row.hidden) enemies++;
+          const swatch = document.createElement("i");
+          swatch.style.background = `rgb(${SIDE_COLOURS[r.side].join(",")})`;
+          r.name.replaceChildren(swatch, ally ? "Ally" : `Enemy ${enemies}`);
+          r.faction.setAttribute("aria-label", `${ally ? "Ally" : `Enemy ${enemies}`} faction`);
+          r.level.setAttribute("aria-label", `${ally ? "Ally" : `Enemy ${enemies}`} skill`);
+        }
+      },
+      read: () => rows.map((r) => ({ faction: r.faction.value, level: r.level.value }))
+    };
+  }
   function showMenu(settings) {
     const menu = el("menu");
     const seed = el("menu-seed");
@@ -15480,6 +15934,10 @@
     fog.checked = settings.fog;
     enemy.value = settings.enemyFaction;
     buildFactionCards(settings.faction);
+    const seats = buildSeats(settings.seats);
+    const showSeats = () => seats.show(modeSelect.value);
+    showSeats();
+    modeSelect.addEventListener("change", showSeats);
     buildCampaign(settings);
     buildReplays();
     buildOnline(() => {
@@ -15580,7 +16038,8 @@
             edgeScroll: edge.checked,
             mode: modeSelect.value,
             weather: weatherSelect.value,
-            time: timeSelect.value
+            time: timeSelect.value,
+            seats: seats.read()
           },
           false
         )
@@ -15986,22 +16445,27 @@
     });
   }
   function lineupNodes(g) {
-    const side = (s) => {
+    const side2 = (s) => {
       const span2 = document.createElement("span");
       span2.className = "side";
       span2.append(emblem(g.factions[s]), FACTIONS[g.factions[s]].label);
       return span2;
     };
     const word = (t) => document.createTextNode(` ${t} `);
-    if (g.mode === "1v1") return [side(0), word("vs"), side(1)];
-    if (g.mode === "2v2") return [side(0), word("+"), side(2), word("vs"), side(1), word("+"), side(3)];
-    return g.sides.flatMap((s, i) => i ? [word("\xB7"), side(s)] : [side(s)]);
+    const teams = teamsOf(g);
+    if (teams.every((t) => t.length === 1) && teams.length > 2) return g.sides.flatMap((s, i) => i ? [word("\xB7"), side2(s)] : [side2(s)]);
+    return teams.flatMap((t, i) => [...i ? [word("vs")] : [], ...t.flatMap((s, j) => j ? [word("+"), side2(s)] : [side2(s)])]);
+  }
+  function teamsOf(g) {
+    const out = /* @__PURE__ */ new Map();
+    for (const s of g.sides) out.set(g.teams[s], [...out.get(g.teams[s]) ?? [], s]);
+    return [...out.values()];
   }
   function matchup(g) {
     const name = (s) => FACTIONS[g.factions[s]].label;
-    if (g.mode === "1v1") return `${name(0)} vs ${name(1)}`;
-    if (g.mode === "2v2") return `${name(0)} + ${name(2)} vs ${name(1)} + ${name(3)}`;
-    return `${g.sides.length}-way: ${g.sides.map(name).join(", ")}`;
+    const teams = teamsOf(g);
+    if (teams.every((t) => t.length === 1) && teams.length > 2) return `${g.sides.length}-way: ${g.sides.map(name).join(", ")}`;
+    return teams.map((t) => t.map(name).join(" + ")).join(" vs ");
   }
   function progressTag(text) {
     const s = document.createElement("span");
@@ -16074,7 +16538,8 @@
     const seed = watching?.setup.seed ?? mission?.seed ?? settings.seed;
     const difficulty = watching?.setup.difficulty ?? mission?.difficulty ?? settings.difficulty;
     const mode = watching ? watching.setup.mode ?? "1v1" : online || mission || bench ? "1v1" : settings.mode;
-    const lineup = watching ? watching.setup.factions : sideFactions(mode, sides.player, sides.enemy, settings.enemyFaction, mulberry32(seed * 131 + 9));
+    const lineup = watching ? watching.setup.factions : sideFactions(mode, sides.player, sides.enemy, settings.seats, mulberry32(seed * 131 + 9));
+    const levels = watching?.setup.levels ?? (mission || online ? void 0 : sideLevels(settings, mode));
     const game = playback ? playback.g : mission ? createMissionGame(mission) : createGame(seed, difficulty, {
       hazards: settings.hazards,
       fog: settings.fog,
@@ -16083,6 +16548,7 @@
       factions: lineup,
       pvp: !!online,
       mode,
+      levels,
       weather: watching?.setup.weather ?? (mission ? void 0 : settings.weather),
       time: watching?.setup.time ?? (mission ? void 0 : settings.time)
     });
@@ -16101,6 +16567,7 @@
         pvp: !!online,
         mission: mission?.id,
         mode,
+        levels,
         weather: settings.weather,
         time: settings.time
       },
@@ -16242,8 +16709,8 @@
       });
       const allVisible = createFog(game.map.w, game.map.h, false);
       rpView.append(new Option("Whole map", "all"));
-      for (const side of game.humans) {
-        rpView.append(new Option(`${FACTIONS[game.factions[side]].label}'s view${watching.setup.pvp && side === watching.local ? " (yours)" : ""}`, String(side)));
+      for (const side2 of game.humans) {
+        rpView.append(new Option(`${FACTIONS[game.factions[side2]].label}'s view${watching.setup.pvp && side2 === watching.local ? " (yours)" : ""}`, String(side2)));
       }
       const setView = (v) => {
         if (v === "all") game.fog = allVisible;
@@ -16423,8 +16890,8 @@
       ability.blur();
     });
     const sidebar = new Sidebar(el("structures"), el("units"), el("research"), game, {
-      beginPlacing: (kind) => {
-        input.placing = kind;
+      beginPlacing: (kind2) => {
+        input.placing = kind2;
         game.selection.clear();
         game.selectedBuilding = null;
       },
@@ -16449,10 +16916,10 @@
     const chatLog = el("chat-log");
     const chatInput = el("chat-input");
     const chatLimiter = new ChatLimiter();
-    const showChat = (who, text, side) => {
+    const showChat = (who, text, side2) => {
       const line = document.createElement("div");
-      line.className = `chat-line ${side}`;
-      if (side !== "system") {
+      line.className = `chat-line ${side2}`;
+      if (side2 !== "system") {
         const name = document.createElement("b");
         name.textContent = `${who}: `;
         line.append(name);
@@ -16461,7 +16928,7 @@
       chatLog.append(line);
       while (chatLog.children.length > 8) chatLog.firstElementChild?.remove();
       setTimeout(() => line.classList.add("old"), 15e3);
-      if (side === "theirs") emit(game, { kind: "chat" });
+      if (side2 === "theirs") emit(game, { kind: "chat" });
     };
     const closeChat = () => {
       chatInput.value = "";
@@ -16675,6 +17142,7 @@
         const time = `${Math.floor(game.time / 60)}m ${Math.floor(game.time % 60)}s`;
         const won = game.result === "victory" === (game.local === 0);
         el("result-title").textContent = won ? "Victory" : "Defeat";
+        showMatchStats(el("result-stats"), game, (s) => s === game.local && !watching ? "You" : game.humans.includes(s) ? "Player" : game.teams[s] === game.teams[game.local] ? "Ally" : "AI");
         const kept = keepReplay();
         el("watch-replay").hidden = !kept;
         el("save-replay").hidden = !kept && !watching;
@@ -16704,7 +17172,7 @@
           el("result-text").textContent = game.result === "victory" ? `${mission.title.replace(/^\d+\. /, "")} complete in ${time}.${bonusText}${next ? "" : " The campaign is won."}` : game.resultReason || "Mission failed.";
           again.textContent = game.result === "victory" ? next ? "Next mission" : "Play again" : "Retry mission";
         } else {
-          el("result-text").textContent = game.mode === "1v1" ? game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen." : game.result === "victory" ? `Every rival base is destroyed after ${time}.` : game.mode === "2v2" ? "Your team's bases have fallen." : `Your base has fallen after ${time}.`;
+          el("result-text").textContent = game.resultReason || (game.mode === "1v1" ? game.result === "victory" ? `The enemy outpost is destroyed after ${time}.` : "Your base has fallen." : game.result === "victory" ? `Every rival base is destroyed after ${time}.` : game.sides.some((s) => s !== game.local && game.teams[s] === game.teams[game.local]) ? "Your team's bases have fallen." : `Your base has fallen after ${time}.`);
         }
       }
       perf.mark();
