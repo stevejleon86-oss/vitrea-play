@@ -850,17 +850,20 @@
       /** Multiplier on unit prices. */
       costFactor: 1,
       /** Share of an enemy unit's cost paid out when it is destroyed. */
-      salvage: 0
+      salvage: 0,
+      /** How much of this side's wrecks' worth can be salvaged (scrap piles and payouts). */
+      wreckValue: 1
     },
     shardbound: {
       label: "Shardbound",
       blurb: "Settlers who stayed through the storms and learned to live with the crystal. Fast, strange, glass-powered.",
-      perks: ["Storm-hardened: 60% less storm damage", "Crystal-healing: units slowly repair on crystal"],
+      perks: ["Storm-hardened: 60% less storm damage", "Crystal-healing: units slowly repair on crystal", "Glass wrecks: their wrecks are worth half as much salvage"],
       vehicleArmor: 1,
       stormDamage: 0.4,
       crystalRegen: 4,
       costFactor: 1,
-      salvage: 0
+      salvage: 0,
+      wreckValue: 0.5
     },
     reclaimers: {
       label: "Reclaimers",
@@ -870,7 +873,8 @@
       stormDamage: 1,
       crystalRegen: 0,
       costFactor: 0.85,
-      salvage: 0.25
+      salvage: 0.25,
+      wreckValue: 1
     }
   };
   var EQUIVALENT = {
@@ -2097,7 +2101,8 @@
   function destroyUnit(g, u, by, killer) {
     g.units = g.units.filter((x) => x !== u);
     recordUnitLoss(g, u, by, killer);
-    if (UNIT_STATS[u.kind].armor !== "infantry") leaveSalvage(g, u.x / TILE, u.y / TILE, unitCost(g.factions[u.owner], u.kind));
+    const wreck = unitCost(g.factions[u.owner], u.kind) * FACTIONS[g.factions[u.owner]].wreckValue;
+    if (UNIT_STATS[u.kind].armor !== "infantry") leaveSalvage(g, u.x / TILE, u.y / TILE, wreck);
     g.selection.delete(u.id);
     const big = u.kind === "tank" || u.kind === "harvester" || u.kind === "artillery";
     emit(g, { kind: "explode", big, x: u.x, y: u.y });
@@ -2116,7 +2121,7 @@
     const rival = by !== void 0 && hostile(g, by, u.owner) ? by : g.sides.length === 2 ? u.owner === PLAYER ? ENEMY : PLAYER : void 0;
     const share = rival === void 0 ? 0 : FACTIONS[g.factions[rival]].salvage + bonus(g, rival, "salvage");
     if (rival !== void 0 && share > 0) {
-      const payout = unitCost(g.factions[u.owner], u.kind) * share;
+      const payout = wreck * share;
       walletOf(g, rival).credits += payout;
     }
   }
