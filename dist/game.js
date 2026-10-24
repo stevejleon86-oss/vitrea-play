@@ -6724,7 +6724,7 @@
     viewChoice.className = "settings-choice";
     for (const [mode, label, hint2] of [
       ["2d", "2D", "The classic top-down view"],
-      ["3d", "3D (early)", "Raised terrain and crystal fields in 3D; mouse wheel zooms, drag with the middle button to tilt"]
+      ["3d", "3D (early)", "3D terrain, units and buildings; mouse wheel zooms, drag with the middle button to tilt"]
     ]) {
       const b = document.createElement("button");
       b.type = "button";
@@ -6739,7 +6739,7 @@
     }
     const viewNote = document.createElement("p");
     viewNote.className = "settings-note";
-    viewNote.textContent = p.view === "3d" ? "3D: raised terrain and crystal fields. Units and buildings are still flat for now. Wheel zooms; middle-drag tilts." : "2D: the classic top-down view.";
+    viewNote.textContent = p.view === "3d" ? "3D: terrain, units and buildings in 3D; shots and explosions are still flat for now. Wheel zooms; middle-drag tilts." : "2D: the classic top-down view.";
     const viewSection = section("View");
     viewSection.append(viewChoice, viewNote);
     const keys = section("Keys");
@@ -7956,6 +7956,10 @@
     crystalLightAt = -Infinity;
     /** How each turreted vehicle is shown: hull along its travel, turret on its target. */
     poses = /* @__PURE__ */ new Map();
+    /** Which way a unit's hull and turret face as drawn (radians), for the 3D view's models. */
+    poseOf(id) {
+      return this.poses.get(id);
+    }
     /** Dust kicked up behind vehicles on the sand (purely visual). */
     dust = [];
     /** Tread marks left in the sand (purely visual, kept per screen). */
@@ -8303,8 +8307,11 @@
       for (const z of g.mission?.zones ?? []) drawZone(ctx, z, g.time);
       for (const p of g.salvage) if (onScreen((p.x + 0.5) * TILE, (p.y + 0.5) * TILE) && exploredRect(g, p.x, p.y, 1, 1)) drawSalvage(ctx, p);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
-      for (const b of shown) drawBuilding(ctx, b, this.sprites);
-      drawBarriers(ctx, g, shown);
+      if (this.drape) for (const b of shown) drawFootprint(ctx, b);
+      else {
+        for (const b of shown) drawBuilding(ctx, b, this.sprites);
+        drawBarriers(ctx, g, shown);
+      }
       const sel = g.buildings.find((b) => b.id === g.selectedBuilding);
       if (sel) drawBuildingSelection(ctx, sel);
       if (sel?.rally && sel.owner === g.local) drawRally(ctx, sel);
@@ -8312,17 +8319,23 @@
       this.updatePoses(g, dt);
       const units = g.units.filter((u) => onScreen(u.x, u.y) && seen(u));
       const aircraft = units.filter((u) => isAir(u.kind));
-      for (const u of units) if (!isAir(u.kind)) drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
+      for (const u of units) {
+        if (isAir(u.kind)) continue;
+        if (this.drape) drawGlow(ctx, shadowGlow(), u.x + 2, u.y + 2, UNIT_STATS[u.kind].radius * 1.15, UNIT_STATS[u.kind].radius * 0.95, 0.5);
+        else drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
+      }
+      ctx.globalAlpha = 1;
       for (const u of units) {
         if (isAir(u.kind)) continue;
         if (g.selection.has(u.id)) {
-          drawSelection(ctx, u);
+          drawSelection(ctx, u, !this.drape);
           if (u.owner === g.local && u.waypoints.length > 0) drawWaypoints(ctx, u);
+        } else if (this.drape) {
         } else if (u.hp < UNIT_STATS[u.kind].maxHp || this.showAllHealth) drawHpBar(ctx, u.x - UNIT_STATS[u.kind].radius, u.y - UNIT_STATS[u.kind].radius - 6, UNIT_STATS[u.kind].radius * 2, u.hp / UNIT_STATS[u.kind].maxHp);
         if (u.rank > 0) drawRank(ctx, u);
         if (g.time < u.shieldUntil) drawWard(ctx, u, g.time);
       }
-      for (const b of shown) {
+      for (const b of this.drape ? [] : shown) {
         if (b.id !== g.selectedBuilding && (b.hp < BUILDING_STATS[b.kind].maxHp || this.showAllHealth)) {
           drawHpBar(ctx, b.tx * TILE + 4, b.ty * TILE - 6, b.w * TILE - 8, b.hp / BUILDING_STATS[b.kind].maxHp);
         }
@@ -8340,6 +8353,11 @@
         const r = UNIT_STATS[u.kind].radius;
         const bob = Math.sin(g.time * 2.2 + u.id) * 2;
         drawGlow(ctx, shadowGlow(), u.x + 5, u.y + 4, r * 1.25, r * 0.7, 0.55);
+        ctx.globalAlpha = 1;
+        if (this.drape) {
+          if (g.selection.has(u.id)) drawSelection(ctx, u, false);
+          continue;
+        }
         ctx.save();
         ctx.translate(0, -AIR_LIFT - bob);
         drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
@@ -8374,8 +8392,8 @@
       for (const s of g.sides) lowPower[s] = powerInfo(g, s).low;
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      if (!LOW) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
-      for (const b of shown) {
+      if (!LOW && !this.drape) for (const b of shown) drawBeacons(ctx, b, g.time, BEACON_COLOR[this.factions[b.owner]], lowPower[b.owner]);
+      for (const b of this.drape ? [] : shown) {
         if (b.kind !== "seedSpire") continue;
         const pulse = 0.35 + 0.25 * Math.sin(g.time * 2 + b.id);
         drawGlow(ctx, shardGlow("rgba(140,240,255,0.9)"), (b.tx + 0.5) * TILE, (b.ty + 0.1) * TILE, 22, 30, pulse);
@@ -8622,6 +8640,22 @@
     [250, 100, 70],
     [255, 200, 90]
   ];
+  function drawFootprint(ctx, b) {
+    const x = b.tx * TILE;
+    const y = b.ty * TILE;
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(x + 5, y + 6, b.w * TILE - 4, b.h * TILE - 4);
+    if (b.kind === "refinery" || b.kind === "outpost") drawDockPad(ctx, b);
+  }
+  function drawDockPad(ctx, b) {
+    const d = dockTile(b);
+    ctx.fillStyle = "rgba(60,60,60,0.45)";
+    ctx.fillRect(d.x * TILE + 2, d.y * TILE, TILE - 4, TILE - 4);
+    ctx.strokeStyle = "rgba(255,210,80,0.7)";
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(d.x * TILE + 2.5, d.y * TILE + 0.5, TILE - 5, TILE - 5);
+    ctx.setLineDash([]);
+  }
   function drawBuilding(ctx, b, sprites) {
     if (b.kind === "wall" || b.kind === "gate") return;
     const team = TEAM[b.owner];
@@ -8629,15 +8663,7 @@
     const y = b.ty * TILE;
     const w = b.w * TILE;
     const h = b.h * TILE;
-    if (b.kind === "refinery" || b.kind === "outpost") {
-      const d = dockTile(b);
-      ctx.fillStyle = "rgba(60,60,60,0.45)";
-      ctx.fillRect(d.x * TILE + 2, d.y * TILE, TILE - 4, TILE - 4);
-      ctx.strokeStyle = "rgba(255,210,80,0.7)";
-      ctx.setLineDash([4, 3]);
-      ctx.strokeRect(d.x * TILE + 2.5, d.y * TILE + 0.5, TILE - 5, TILE - 5);
-      ctx.setLineDash([]);
-    }
+    if (b.kind === "refinery" || b.kind === "outpost") drawDockPad(ctx, b);
     const turretSheet = TURRET_SPRITES[b.kind];
     if (turretSheet) {
       const img = sprites.get(b.kind, b.owner);
@@ -9770,7 +9796,7 @@
     }
     ctx.lineJoin = "miter";
   }
-  function drawSelection(ctx, u) {
+  function drawSelection(ctx, u, bars = true) {
     const r = UNIT_STATS[u.kind].radius + 4;
     const l = 5;
     ctx.strokeStyle = COLORS.select;
@@ -9784,6 +9810,7 @@
       ctx.lineTo(cx - sx * l, cy);
     }
     ctx.stroke();
+    if (!bars) return;
     const w = r * 2;
     const hpFrac = u.hp / UNIT_STATS[u.kind].maxHp;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
