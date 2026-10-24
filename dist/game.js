@@ -1212,6 +1212,13 @@
     }
     return null;
   }
+  function crystalLook(m, i) {
+    const amount = m.spice[i];
+    const vein = m.vein[i];
+    if (amount <= 0) return 0;
+    const full = vein === Vein.Core ? 1 + Math.min(5, Math.floor(amount / 7)) : 1 + Math.min(5, Math.floor(amount / (vein === Vein.Dense ? 170 : 90)));
+    return full * 8 + vein;
+  }
   var isCoreTile = (m, i) => m.vein[i] === Vein.Core;
   function findNearestSpice(m, from, maxR, exclude = /* @__PURE__ */ new Set(), cores = false) {
     const startTile = nearestPassable(m, from);
@@ -6551,6 +6558,7 @@
     effects: 0.8,
     voices: 0.9,
     graphics: "high",
+    view: "2d",
     keys: Object.fromEntries(ACTION_IDS.map((a) => [a, ACTIONS[a].key]))
   };
   var STORE_KEY = "vitrea.prefs";
@@ -6574,6 +6582,7 @@
       effects: volume(p.effects, DEFAULT_PREFS.effects),
       voices: volume(p.voices, DEFAULT_PREFS.voices),
       graphics: p.graphics === "low" ? "low" : "high",
+      view: p.view === "3d" ? "3d" : "2d",
       keys
     };
   }
@@ -6711,6 +6720,28 @@
     note.className = "settings-note";
     note.textContent = p.graphics === "low" ? "Low: decorative effects are off." : "High: all effects on.";
     gfx.append(choice, note);
+    const viewChoice = document.createElement("div");
+    viewChoice.className = "settings-choice";
+    for (const [mode, label, hint2] of [
+      ["2d", "2D", "The classic top-down view"],
+      ["3d", "3D (early)", "Raised terrain and crystal fields in 3D; mouse wheel zooms, drag with the middle button to tilt"]
+    ]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `btn ${p.view === mode ? "" : "ghost"}`;
+      b.textContent = label;
+      b.title = hint2;
+      b.addEventListener("click", () => {
+        setPrefs({ ...prefs(), view: mode });
+        render();
+      });
+      viewChoice.append(b);
+    }
+    const viewNote = document.createElement("p");
+    viewNote.className = "settings-note";
+    viewNote.textContent = p.view === "3d" ? "3D: raised terrain and crystal fields. Units and buildings are still flat for now. Wheel zooms; middle-drag tilts." : "2D: the classic top-down view.";
+    const viewSection = section("View");
+    viewSection.append(viewChoice, viewNote);
     const keys = section("Keys");
     const grid = document.createElement("div");
     grid.className = "settings-keys";
@@ -6743,7 +6774,7 @@
     const foot = box.querySelector(".settings-foot");
     foot.querySelector(".settings-reset")?.replaceWith(reset);
     reset.classList.add("settings-reset");
-    body.append(audio, gfx, keys);
+    body.append(audio, gfx, viewSection, keys);
   }
   function section(title) {
     const s = document.createElement("section");
@@ -7177,6 +7208,9 @@
     inside = false;
     dragStart = null;
     dragging = false;
+    /** The mouse and the drag's start in plain screen pixels (the 3D view draws the selection box with these). */
+    screenMouse = { x: 0, y: 0 };
+    screenDragStart = { x: 0, y: 0 };
     keys = /* @__PURE__ */ new Set();
     /** Last single click on a unit, for double-click detection. */
     lastClick = { kind: null, time: 0 };
@@ -7244,6 +7278,11 @@
       if (!this.dragging || !this.dragStart) return null;
       return { x0: this.dragStart.x, y0: this.dragStart.y, x1: this.mouseX, y1: this.mouseY };
     }
+    /** The selection box in screen pixels. */
+    get screenDrag() {
+      if (!this.dragging || !this.dragStart) return null;
+      return { x0: this.screenDragStart.x, y0: this.screenDragStart.y, x1: this.screenMouse.x, y1: this.screenMouse.y };
+    }
     /** Top-left tile for the structure being placed, centred on the mouse. */
     placementOrigin(kind2) {
       const { w, h } = BUILDING_STATS[kind2];
@@ -7273,9 +7312,11 @@
       const { tx, ty } = this.placementOrigin(this.placing);
       return placementTiles(this.game, this.placing, tx, ty, this.game.local);
     }
+    /** The mouse in camera units: screen pixels in 2D, the ground under the mouse in 3D. */
     screenPos(e) {
       const r = this.view.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
+      this.screenMouse = { x: e.clientX - r.left, y: e.clientY - r.top };
+      return this.cam.toCam ? this.cam.toCam(this.screenMouse.x, this.screenMouse.y) : this.screenMouse;
     }
     minimapToWorld(e) {
       const r = this.minimap.getBoundingClientRect();
@@ -7344,6 +7385,7 @@
       }
       if (e.button === 0) {
         this.dragStart = p;
+        this.screenDragStart = this.screenMouse;
         this.dragging = false;
       } else if (e.button === 2) {
         const wx = p.x + this.cam.x;
@@ -7383,7 +7425,7 @@
       const p = this.screenPos(e);
       this.mouseX = p.x;
       this.mouseY = p.y;
-      if (this.dragStart && Math.hypot(p.x - this.dragStart.x, p.y - this.dragStart.y) > DRAG_THRESHOLD) {
+      if (this.dragStart && Math.hypot(this.screenMouse.x - this.screenDragStart.x, this.screenMouse.y - this.screenDragStart.y) > DRAG_THRESHOLD) {
         this.dragging = true;
       }
       this.updateCursor();
@@ -7614,10 +7656,11 @@
       if (k.has("arrowup") || k.has("w")) dy -= 1;
       if (k.has("arrowdown") || k.has("s")) dy += 1;
       if (this.edgeScroll && this.inside && !this.dragStart) {
-        if (this.mouseX < EDGE) dx -= 1;
-        if (this.mouseX > this.cam.w - EDGE) dx += 1;
-        if (this.mouseY < EDGE) dy -= 1;
-        if (this.mouseY > this.cam.h - EDGE) dy += 1;
+        const { x, y } = this.screenMouse;
+        if (x < EDGE) dx -= 1;
+        if (x > this.view.clientWidth - EDGE) dx += 1;
+        if (y < EDGE) dy -= 1;
+        if (y > this.view.clientHeight - EDGE) dy += 1;
       }
       if (dx || dy) {
         this.cam.x += Math.sign(dx) * SCROLL_SPEED * dt;
@@ -7932,6 +7975,19 @@
     /** One pixel per tile; drawn stretched with smoothing so the fog has soft edges. */
     fogPixels = null;
     /**
+     * Drawing for the 3D view, which lays this picture over its terrain: no
+     * screen shake (the 3D camera shakes instead), crystal shards left to the 3D
+     * view (only their glow stays on the ground), and the minimap left to the caller.
+     */
+    get drape() {
+      return this.spice.glowOnly;
+    }
+    set drape(on2) {
+      if (this.spice.glowOnly === on2) return;
+      this.spice.glowOnly = on2;
+      this.spice.ready = false;
+    }
+    /**
      * Fog of war: black where never explored, dimmed where explored but not
      * watched. Painted into a tiny one-pixel-per-tile image and scaled up with
      * smoothing, so edges fade over about a tile instead of stepping.
@@ -8206,7 +8262,7 @@
       ctx.imageSmoothingEnabled = false;
       let shakeX = 0;
       let shakeY = 0;
-      if (!REDUCED_MOTION && !LOW) {
+      if (!REDUCED_MOTION && !LOW && !this.drape) {
         for (const e of g.effects) {
           if (e.kind !== "shake" || e.x < cam.x || e.x > cam.x + cam.w || e.y < cam.y || e.y > cam.y + cam.h) continue;
           const amp = 5 * e.size * (1 - e.age / e.life);
@@ -8359,7 +8415,7 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, w, h);
       }
-      this.drawMinimap(g, cam, dt);
+      if (!this.drape) this.drawMinimap(g, cam, dt);
     }
     drawMinimap(g, cam, dt) {
       this.drawMinimapBody(g, cam, dt);
@@ -8458,6 +8514,8 @@
     ctx;
     levels;
     ready = false;
+    /** Just the glow in the ground, for the 3D view (which grows its own shards). */
+    glowOnly = false;
     constructor(m) {
       this.canvas = document.createElement("canvas");
       this.canvas.width = m.w * TILE;
@@ -8465,16 +8523,11 @@
       this.ctx = this.canvas.getContext("2d");
       this.levels = new Int8Array(m.w * m.h);
     }
-    /** How full a tile looks (0-6), times 8, plus its kind: a change of either redraws it. */
-    static level(m, i) {
-      const amount = m.spice[i];
-      const vein = m.vein[i];
-      if (amount <= 0) return 0;
-      const full = vein === Vein.Core ? 1 + Math.min(5, Math.floor(amount / 7)) : 1 + Math.min(5, Math.floor(amount / (vein === Vein.Dense ? 170 : 90)));
-      return full * 8 + vein;
-    }
+    /** How full a tile looks, and its kind: a change of either redraws it. */
+    static level = crystalLook;
     update(m) {
       if (!this.ready) {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         for (let i = 0; i < m.w * m.h; i++) this.levels[i] = _SpiceLayer.level(m, i);
         for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) this.drawTile(m, x, y);
         this.ready = true;
@@ -8520,7 +8573,7 @@
       grad.addColorStop(1, `rgba(${p.glow},0)`);
       ctx.fillStyle = grad;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      const shards = Math.round((1 + lvl) * p.count);
+      const shards = this.glowOnly ? 0 : Math.round((1 + lvl) * p.count);
       for (let k = 0; k < shards; k++) {
         const px = x * TILE + 4 + hash3(i, k + 5) * (TILE - 8);
         const py = y * TILE + 6 + hash3(i, k + 37) * (TILE - 10);
@@ -9743,6 +9796,35 @@
       ctx.fillStyle = COLORS.spice;
       ctx.fillRect(u.x - r, u.y + r + 3, w * u.cargo / HARVESTER.capacity, 4);
     }
+  }
+
+  // src/camera3d.ts
+  var ZOOM_MIN = 0.6;
+  var ZOOM_MAX = 2.2;
+  var PITCH_MIN = 45;
+  var PITCH_MAX = 90;
+  var DEFAULT_VIEW3D = { zoom: 1.15, pitch: 55 };
+  var ROCK_RISE = 22;
+  var CLIFF_RISE = 50;
+  function groundHeight(m, wx, wy) {
+    const h = Math.max(0, heightAt(m, Math.min(Math.max(wx, 0), m.w * TILE - 1), Math.min(Math.max(wy, 0), m.h * TILE - 1)));
+    return h <= 1 ? h * ROCK_RISE : ROCK_RISE + (h - 1) * CLIFF_RISE;
+  }
+  var MAX_RISE = ROCK_RISE + 1.4 * CLIFF_RISE;
+  var rad = (deg) => deg * Math.PI / 180;
+  function fitCamera(cam, w, h, v) {
+    cam.w = w / v.zoom;
+    cam.h = h / (v.zoom * Math.sin(rad(v.pitch)));
+  }
+  function screenToCam(m, camX, camY, v, sx, sy) {
+    const p = rad(v.pitch);
+    const s = Math.sin(p);
+    const c = Math.cos(p);
+    const x = sx / v.zoom;
+    const flat = sy / v.zoom / s;
+    let y = flat;
+    for (let k = 0; k < 8; k++) y = 0.5 * y + 0.5 * (flat + groundHeight(m, camX + x, camY + y) * c / s);
+    return { x, y };
   }
 
   // src/sidebar.ts
@@ -15845,6 +15927,24 @@
   }
 
   // src/main.ts
+  var view3dLib = null;
+  function load3d() {
+    view3dLib ??= new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "dist/view3d.js";
+      script.onload = () => {
+        const lib = window.Vitrea3D;
+        if (lib) resolve(lib);
+        else reject(new Error("dist/view3d.js loaded without Vitrea3D"));
+      };
+      script.onerror = () => reject(new Error("couldn't load dist/view3d.js"));
+      document.head.append(script);
+    }).catch((err) => {
+      view3dLib = null;
+      throw err;
+    });
+    return view3dLib;
+  }
   var stopTitle = null;
   var STEP3 = 1 / 60;
   function el(id) {
@@ -16904,13 +17004,70 @@
       layWalls: () => input.toggleMode("wall"),
       issue
     });
+    let view3d = null;
+    const view3dState = { ...DEFAULT_VIEW3D };
+    const want3d = () => (new URLSearchParams(location.search).get("view") ?? prefs().view) === "3d";
     const resize = () => {
       view.width = window.innerWidth;
       view.height = window.innerHeight;
-      cam.w = view.width;
-      cam.h = view.height;
+      const cx = cam.x + cam.w / 2;
+      const cy = cam.y + cam.h / 2;
+      if (view3d) {
+        view3d.resize(view.width, view.height);
+        fitCamera(cam, view.width, view.height, view3dState);
+        cam.toCam = (sx, sy) => screenToCam(game.map, cam.x, cam.y, view3dState, sx, sy);
+      } else {
+        cam.w = view.width;
+        cam.h = view.height;
+        delete cam.toCam;
+      }
+      if (cam.x || cam.y) input.centreOn(cx, cy);
       input.clampCamera();
     };
+    const sync3d = async () => {
+      if (want3d() && !view3d) {
+        try {
+          const lib = await load3d();
+          if (!want3d() || view3d) return;
+          view3d = lib.createView3D(view, game.map, renderer, view3dState);
+        } catch (err) {
+          console.error(err);
+          notify(game, "The 3D view couldn't start on this computer; staying in 2D.");
+          return;
+        }
+      } else if (!want3d() && view3d) {
+        view3d.dispose();
+        view3d = null;
+      } else return;
+      resize();
+    };
+    onPrefs(() => void sync3d());
+    void sync3d();
+    view.addEventListener(
+      "wheel",
+      (e) => {
+        if (!view3d) return;
+        e.preventDefault();
+        view3dState.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, view3dState.zoom * Math.exp(-e.deltaY * 15e-4)));
+        resize();
+      },
+      { passive: false }
+    );
+    let tilting = null;
+    view.addEventListener("mousedown", (e) => {
+      if (e.button !== 1 || !view3d) return;
+      e.preventDefault();
+      tilting = e.clientY;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (tilting === null) return;
+      view3dState.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, view3dState.pitch + (e.clientY - tilting) * 0.25));
+      tilting = e.clientY;
+      resize();
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 1) tilting = null;
+    });
     window.addEventListener("resize", resize);
     resize();
     input.goHome();
@@ -17083,7 +17240,8 @@
         modeLabel.hidden = !modeText;
       }
       perf.mark();
-      renderer.draw(game, cam, input.drag, input.ghost, dt);
+      if (view3d) view3d.draw(game, cam, input.ghost, dt, input.screenDrag);
+      else renderer.draw(game, cam, input.drag, input.ghost, dt);
       perf.mark();
       sidebar.update();
       if (!music && sound.ctx && sound.musicBus && sound.ctx.state === "running") music = new Player(sound.ctx, sound.musicBus);
