@@ -7983,6 +7983,8 @@
      * screen shake (the 3D camera shakes instead), crystal shards left to the 3D
      * view (only their glow stays on the ground), and the minimap left to the caller.
      */
+    /** Set by the 3D view while it casts real shadows: the drape then leaves out its painted ones. */
+    realShadows = false;
     get drape() {
       return this.spice.glowOnly;
     }
@@ -8310,7 +8312,7 @@
       for (const z of g.mission?.zones ?? []) drawZone(ctx, z, g.time);
       for (const p of g.salvage) if (onScreen((p.x + 0.5) * TILE, (p.y + 0.5) * TILE) && exploredRect(g, p.x, p.y, 1, 1)) drawSalvage(ctx, p);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
-      if (this.drape) for (const b of shown) drawFootprint(ctx, b);
+      if (this.drape) for (const b of shown) drawFootprint(ctx, b, !this.realShadows);
       else {
         for (const b of shown) drawBuilding(ctx, b, this.sprites);
         drawBarriers(ctx, g, shown);
@@ -8324,8 +8326,9 @@
       const aircraft = units.filter((u) => isAir(u.kind));
       for (const u of units) {
         if (isAir(u.kind)) continue;
-        if (this.drape) drawGlow(ctx, shadowGlow(), u.x + 2, u.y + 2, UNIT_STATS[u.kind].radius * 1.15, UNIT_STATS[u.kind].radius * 0.95, 0.5);
-        else drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
+        if (this.drape) {
+          if (!this.realShadows) drawGlow(ctx, shadowGlow(), u.x + 2, u.y + 2, UNIT_STATS[u.kind].radius * 1.15, UNIT_STATS[u.kind].radius * 0.95, 0.5);
+        } else drawUnit(ctx, u, g.time, this.sprites, this.poses.get(u.id));
       }
       ctx.globalAlpha = 1;
       for (const u of units) {
@@ -8356,7 +8359,7 @@
       for (const u of aircraft) {
         const r = UNIT_STATS[u.kind].radius;
         const bob = Math.sin(g.time * 2.2 + u.id) * 2;
-        drawGlow(ctx, shadowGlow(), u.x + 5, u.y + 4, r * 1.25, r * 0.7, 0.55);
+        if (!(this.drape && this.realShadows)) drawGlow(ctx, shadowGlow(), u.x + 5, u.y + 4, r * 1.25, r * 0.7, 0.55);
         ctx.globalAlpha = 1;
         if (this.drape) {
           if (g.selection.has(u.id)) drawSelection(ctx, u, false);
@@ -8645,11 +8648,13 @@
     [250, 100, 70],
     [255, 200, 90]
   ];
-  function drawFootprint(ctx, b) {
+  function drawFootprint(ctx, b, shadow) {
     const x = b.tx * TILE;
     const y = b.ty * TILE;
-    ctx.fillStyle = "rgba(0,0,0,0.28)";
-    ctx.fillRect(x + 5, y + 6, b.w * TILE - 4, b.h * TILE - 4);
+    if (shadow) {
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fillRect(x + 5, y + 6, b.w * TILE - 4, b.h * TILE - 4);
+    }
     if (b.kind === "refinery" || b.kind === "outpost") drawDockPad(ctx, b);
   }
   function drawDockPad(ctx, b) {
@@ -17061,6 +17066,7 @@
       input.clampCamera();
     };
     const sync3d = async () => {
+      view3dState.shadows = prefs().graphics !== "low";
       if (want3d() && !view3d) {
         try {
           const lib = await load3d();
