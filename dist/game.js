@@ -6724,7 +6724,7 @@
     viewChoice.className = "settings-choice";
     for (const [mode, label, hint2] of [
       ["2d", "2D", "The classic top-down view"],
-      ["3d", "3D (early)", "3D terrain, units and buildings; mouse wheel zooms, drag with the middle button to tilt"]
+      ["3d", "3D (early)", "Everything in 3D: terrain, units, buildings, effects and weather; mouse wheel zooms, drag with the middle button to tilt"]
     ]) {
       const b = document.createElement("button");
       b.type = "button";
@@ -6739,7 +6739,7 @@
     }
     const viewNote = document.createElement("p");
     viewNote.className = "settings-note";
-    viewNote.textContent = p.view === "3d" ? "3D: terrain, units and buildings in 3D; shots and explosions are still flat for now. Wheel zooms; middle-drag tilts." : "2D: the classic top-down view.";
+    viewNote.textContent = p.view === "3d" ? "3D: terrain, units, buildings, fire, smoke and storms in 3D. Wheel zooms; middle-drag tilts." : "2D: the classic top-down view.";
     const viewSection = section("View");
     viewSection.append(viewChoice, viewNote);
     const keys = section("Keys");
@@ -8303,7 +8303,10 @@
         ctx.drawImage(pair[p.flip ? 1 : 0], p.x - half, p.y - half, half * 2, half * 2);
       }
       ctx.imageSmoothingEnabled = false;
-      for (const e of g.effects) if ((e.kind === "scorch" || e.kind === "wreck") && onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
+      for (const e of g.effects) {
+        if (e.kind !== "scorch" && (e.kind !== "wreck" || this.drape)) continue;
+        if (onScreen(e.x, e.y) && exploredRect(g, Math.floor(e.x / TILE), Math.floor(e.y / TILE), 1, 1)) drawGroundEffect(ctx, e, this.sprites);
+      }
       for (const z of g.mission?.zones ?? []) drawZone(ctx, z, g.time);
       for (const p of g.salvage) if (onScreen((p.x + 0.5) * TILE, (p.y + 0.5) * TILE) && exploredRect(g, p.x, p.y, 1, 1)) drawSalvage(ctx, p);
       const shown = g.buildings.filter((b) => buildingOnScreen(b) && known(b)).sort((p, q) => p.ty + p.h - (q.ty + q.h));
@@ -8346,8 +8349,9 @@
         const r = (6 + a * 13) * d.s;
         drawGlow(ctx, dustGlow(), d.x, d.y - a * 5, r, r * 0.8, 0.6 * (1 - a));
       }
-      for (const b of shown) drawBurning(ctx, b, g.time);
-      if (!LOW) for (const u of units) drawDamageSmoke(ctx, u, g.time);
+      const flatFx = !this.drape;
+      if (flatFx) for (const b of shown) drawBurning(ctx, b, g.time);
+      if (!LOW && flatFx) for (const u of units) drawDamageSmoke(ctx, u, g.time);
       for (const c of g.charges) drawCharge(ctx, c, g.time);
       for (const u of aircraft) {
         const r = UNIT_STATS[u.kind].radius;
@@ -8368,11 +8372,12 @@
         } else if (u.hp < UNIT_STATS[u.kind].maxHp || this.showAllHealth) drawHpBar(ctx, u.x - r, u.y - r - 6, r * 2, u.hp / UNIT_STATS[u.kind].maxHp);
         ctx.restore();
       }
-      for (const s of g.strikes) drawStrike(ctx, s, g.time);
+      for (const s of g.strikes) drawStrike(ctx, s, g.time, flatFx);
       if (this.aimRing) drawAimRing(ctx, this.aimRing, g.time);
-      for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p);
+      for (const p of g.projectiles) if (onScreen(p.x, p.y)) drawProjectile(ctx, p, flatFx);
       for (const e of g.effects) {
         if (e.kind === "scorch" || e.kind === "wreck" || e.kind === "shake") continue;
+        if (!flatFx && e.kind !== "ring") continue;
         if (onScreen(e.x, e.y) || onScreen(e.x2, e.y2)) drawEffect(ctx, e);
       }
       if (!LOW) this.updateCrystalLight(g);
@@ -8403,7 +8408,7 @@
       if (g.weather.dust > 0) this.drawDust(ctx, g, cam);
       for (const st of g.storms) drawStormShadow(ctx, st);
       if (g.fog.enabled) this.drawShroud(ctx, g, cam);
-      for (const st of g.storms) drawStorm(ctx, st, g.time);
+      if (flatFx) for (const st of g.storms) drawStorm(ctx, st, g.time);
       for (const mk of g.markers) {
         const t = mk.age / 0.6;
         ctx.strokeStyle = mk.kind === "move" ? `rgba(242,179,61,${1 - t})` : mk.kind === "attack" ? `rgba(255,80,60,${1 - t})` : `rgba(111,227,240,${1 - t})`;
@@ -9037,7 +9042,7 @@
       }
     }
   }
-  function drawStrike(ctx, s, time) {
+  function drawStrike(ctx, s, time, air = true) {
     ctx.save();
     if (s.kind === "orbital") {
       const r = SUPER.orbitalRadius * TILE;
@@ -9053,9 +9058,11 @@
         ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = `rgba(255,120,90,${0.15 + 0.3 * k})`;
-        ctx.fillRect(s.x - 2, s.y - 600, 4, 600);
-      } else {
+        if (air) {
+          ctx.fillStyle = `rgba(255,120,90,${0.15 + 0.3 * k})`;
+          ctx.fillRect(s.x - 2, s.y - 600, 4, 600);
+        }
+      } else if (air) {
         const k = 1 - (s.age - SUPER.orbitalDelay);
         if (k > 0) {
           ctx.globalCompositeOperation = "lighter";
@@ -9072,7 +9079,7 @@
       ctx.beginPath();
       ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
       ctx.stroke();
-      for (let k = 0; k < 26; k++) {
+      for (let k = 0; k < (air ? 26 : 0); k++) {
         const a = time * (1.5 + k % 5 * 0.4) + k * 2.4;
         const d = r * (0.2 + k * 37 % 80 / 100);
         const x = s.x + Math.cos(a) * d;
@@ -9437,7 +9444,8 @@
       }
     }
   }
-  function drawProjectile(ctx, p) {
+  function drawProjectile(ctx, p, air = true) {
+    if (!air && p.style !== "arc") return;
     if (p.style === "arc") {
       const total = Math.hypot(p.tx - p.sx, p.ty - p.sy) || 1;
       const done = Math.min(1, Math.hypot(p.x - p.sx, p.y - p.sy) / total);
@@ -9446,6 +9454,7 @@
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, 3, 2, 0, 0, Math.PI * 2);
       ctx.fill();
+      if (!air) return;
       ctx.fillStyle = "#3a3128";
       ctx.beginPath();
       ctx.arc(p.x, p.y - lift2, 3.5, 0, Math.PI * 2);
