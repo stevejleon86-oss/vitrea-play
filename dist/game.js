@@ -7441,7 +7441,18 @@
       const additive = e.shiftKey;
       const wx = this.mouseX + this.cam.x;
       const wy = this.mouseY + this.cam.y;
-      if (this.dragging) {
+      if (this.dragging && this.cam.toScreen) {
+        const a = this.screenDragStart;
+        const b = this.screenMouse;
+        if (!additive) g.selection.clear();
+        for (const u of g.units) {
+          if (u.owner !== g.local) continue;
+          const p = this.cam.toScreen(u.x, u.y);
+          if (p.x >= Math.min(a.x, b.x) && p.x <= Math.max(a.x, b.x) && p.y >= Math.min(a.y, b.y) && p.y <= Math.max(a.y, b.y)) g.selection.add(u.id);
+        }
+        g.selectedBuilding = null;
+        if (g.selection.size > 0) emit(g, { kind: "select" });
+      } else if (this.dragging) {
         const s = this.dragStart;
         selectInRect(g, s.x + this.cam.x, s.y + this.cam.y, wx, wy, additive);
         g.selectedBuilding = null;
@@ -9842,9 +9853,10 @@
   // src/camera3d.ts
   var ZOOM_MIN = 0.6;
   var ZOOM_MAX = 2.2;
-  var PITCH_MIN = 45;
+  var PITCH_MIN = 34;
   var PITCH_MAX = 90;
-  var DEFAULT_VIEW3D = { zoom: 1.15, pitch: 55 };
+  var DEFAULT_VIEW3D = { zoom: 1.2, pitch: 44, perspective: true };
+  var FOV = 36;
   var ROCK_RISE = 22;
   var CLIFF_RISE = 50;
   function groundHeight(m, wx, wy) {
@@ -9866,6 +9878,41 @@
     let y = flat;
     for (let k = 0; k < 8; k++) y = 0.5 * y + 0.5 * (flat + groundHeight(m, camX + x, camY + y) * c / s);
     return { x, y };
+  }
+  function makeLens(cx, cy, v, width, height) {
+    const p = rad(v.pitch);
+    const focal = height / 2 / Math.tan(rad(FOV) / 2);
+    const distance = focal / v.zoom;
+    const s = Math.sin(p);
+    const c = Math.cos(p);
+    return { eye: [cx, distance * s, cy + distance * c], f: [0, -s, -c], r: [1, 0, 0], u: [0, c, -s], focal, width, height, distance };
+  }
+  function lensProject(l, wx, wy, ht) {
+    const dx = wx - l.eye[0];
+    const dy = ht - l.eye[1];
+    const dz = wy - l.eye[2];
+    const depth = dx * l.f[0] + dy * l.f[1] + dz * l.f[2];
+    const xc = dx * l.r[0] + dy * l.r[1] + dz * l.r[2];
+    const yc = dx * l.u[0] + dy * l.u[1] + dz * l.u[2];
+    const k = l.focal / Math.max(depth, 1e-3);
+    return { x: l.width / 2 + xc * k, y: l.height / 2 - yc * k, depth };
+  }
+  function lensPick(m, l, sx, sy) {
+    const a = (sx - l.width / 2) / l.focal;
+    const b = -(sy - l.height / 2) / l.focal;
+    const d = [l.f[0] + l.r[0] * a + l.u[0] * b, l.f[1] + l.r[1] * a + l.u[1] * b, l.f[2] + l.r[2] * a + l.u[2] * b];
+    const dy = Math.min(d[1], -0.05);
+    let t = -l.eye[1] / dy;
+    for (let k = 0; k < 10; k++) {
+      const x = l.eye[0] + d[0] * t;
+      const z = l.eye[2] + d[2] * t;
+      const want = (groundHeight(m, x, z) - l.eye[1]) / dy;
+      t = 0.5 * t + 0.5 * want;
+    }
+    return { x: l.eye[0] + d[0] * t, y: l.eye[2] + d[2] * t };
+  }
+  function lensFor(cam, v, width, height) {
+    return makeLens(cam.x + cam.w / 2, cam.y + cam.h / 2, v, width, height);
   }
 
   // src/sidebar.ts
@@ -17056,11 +17103,21 @@
       if (view3d) {
         view3d.resize(view.width, view.height);
         fitCamera(cam, view.width, view.height, view3dState);
-        cam.toCam = (sx, sy) => screenToCam(game.map, cam.x, cam.y, view3dState, sx, sy);
+        if (view3dState.perspective) {
+          cam.toCam = (sx, sy) => {
+            const p = lensPick(game.map, lensFor(cam, view3dState, view.width, view.height), sx, sy);
+            return { x: p.x - cam.x, y: p.y - cam.y };
+          };
+          cam.toScreen = (wx, wy) => lensProject(lensFor(cam, view3dState, view.width, view.height), wx, wy, groundHeight(game.map, wx, wy) + 4);
+        } else {
+          cam.toCam = (sx, sy) => screenToCam(game.map, cam.x, cam.y, view3dState, sx, sy);
+          delete cam.toScreen;
+        }
       } else {
         cam.w = view.width;
         cam.h = view.height;
         delete cam.toCam;
+        delete cam.toScreen;
       }
       if (cam.x || cam.y) input.centreOn(cx, cy);
       input.clampCamera();
